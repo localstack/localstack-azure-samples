@@ -8,13 +8,15 @@ This repository contains comprehensive sample projects demonstrating how to deve
 
 ## 🏗️ Sample Structure
 
-Each example is organized by Azure service and includes:
-- **Infrastructure templates** (Bicep/Terraform)
-- **Application code** with best practices
-- **Step-by-step deployment guides**
-- **Testing and validation scripts**
+Each sample project is organized by Azure service and includes:
+
+- Infrastructure templates** (Bicep/Terraform) and/or Bash installation scripts.
+- Application code with best practices
+- Step-by-step deployment guides and tutorials.
+- Optionalky, testing and validation scripts.
 
 Browse the service-specific directories:
+
 - `azure-functions/` - Serverless function examples
 - `azure-storage/` - Storage account and blob examples
 - `azure-app-service/` - Web application examples
