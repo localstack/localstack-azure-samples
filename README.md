@@ -104,6 +104,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **LocalStack Support**: [Support Portal](https://support.localstack.cloud/)
 - **Community**: [LocalStack Discuss](https://discuss.localstack.cloud/)
 
-## Notes
+## Show Your Support
 
 Please give a ⭐ to this repository, if you find these samples helpful for your Azure local development workflow!
