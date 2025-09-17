@@ -46,18 +46,18 @@ Browse the service-specific directories:
 ## Prerequisites
 
 ### Required Tools
-- **[Docker](https://docs.docker.com/get-docker/)** - Container runtime for LocalStack
-- **[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)** - Azure command-line interface
-- **[azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)** - LocalStack Azure CLI wrapper
-- **[jq](https://jqlang.org/)** - JSON processor for scripting
+- [Docker](https://docs.docker.com/get-docker/) - Container runtime for LocalStack
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) - Azure command-line interface
+- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/) - LocalStack Azure CLI wrapper
+- [jq](https://jqlang.org/)** - JSON processor for scripting
 
 ### Infrastructure as Code
-- **[Bicep](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install)** - Azure ARM template language
-- **[Terraform](https://developer.hashicorp.com/terraform/downloads)** - Multi-cloud infrastructure provisioning
+- [Bicep](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install) - Azure ARM template language
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) - Multi-cloud infrastructure provisioning
 
 ### Development Tools
-- **[Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer)** - GUI for Azure Storage
-- **[Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)** - Local function development
+- [Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer) - GUI for Azure Storage
+- [Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local) - Local function development
 
 ## Configuration
 
