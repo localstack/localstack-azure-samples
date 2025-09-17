@@ -6,7 +6,7 @@
 
 This repository contains comprehensive sample projects demonstrating how to develop and test Azure cloud applications locally using [LocalStack for Azure](https://localstack.cloud/). Each sample provides complete infrastructure-as-code templates, application code, and deployment instructions for seamless local development.
 
-## 🏗️ Sample Structure
+## Sample Structure
 
 Each sample project is organized by Azure service and includes:
 
@@ -23,7 +23,7 @@ Browse the service-specific directories:
 - `azure-cosmos-db/` - NoSQL database examples
 - *[Additional services to be added]*
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Clone the repository**
    ```bash
@@ -43,7 +43,7 @@ Browse the service-specific directories:
    # Follow the instructions in the sample's README.md
    ```
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### Required Tools
 - **[Docker](https://docs.docker.com/get-docker/)** - Container runtime for LocalStack
@@ -59,7 +59,7 @@ Browse the service-specific directories:
 - **[Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer)** - GUI for Azure Storage
 - **[Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)** - Local function development
 
-## ⚙️ Configuration
+## Configuration
 
 ### LocalStack Pro Setup
 
@@ -79,13 +79,13 @@ Most samples require LocalStack Pro features. Configure your authentication:
 
 For detailed authentication setup, see the [Auth Token documentation](https://docs.localstack.cloud/getting-started/auth-token/).
 
-## 📚 Documentation
+## Documentation
 
 - [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
 - [Azure CLI with LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/)
 - [Supported Azure Services](https://azure.localstack.cloud/references/coverage/)
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting pull requests.
 
@@ -94,16 +94,16 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 3. Add your sample with complete documentation
 4. Submit a pull request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## Support
 
-- **Issues**: [GitHub Issues](https://github.com/paolosalvatori/localstack-azure-samples/issues)
+- **Issues**: [GitHub Issues](https://github.com/localstack-samples/localstack-azure-samples/issues)
 - **LocalStack Support**: [Support Portal](https://support.localstack.cloud/)
 - **Community**: [LocalStack Discuss](https://discuss.localstack.cloud/)
 
----
+## Notes
 
-⭐ **Star this repository** if you find these samples helpful for your Azure local development workflow!
+Please give a ⭐ to this repository, if you find these samples helpful for your Azure local development workflow!
