@@ -109,9 +109,9 @@ public class GameSessionManager
             if (_configurationValid && _connectionString != null)
             {
                 // Initialize all infrastructure components
-                await InitializeQueuesStaticAsync(_connectionString, logger, new[] { _inputQueueName, _outputQueueName, _triggerQueueName }.Where(q => q != null).ToArray()!);
-                await InitializeContainersStaticAsync(_connectionString, logger, new[] { _inputContainerName, _outputContainerName }.Where(c => c != null).ToArray()!);
-                await InitializeTablesStaticAsync(_connectionString, logger, new[] { _inputTableName, _outputTableName }.Where(t => t != null).ToArray()!);
+                await InitializeQueuesAsync(_connectionString, logger, new[] { _inputQueueName, _outputQueueName, _triggerQueueName }.Where(q => q != null).ToArray()!);
+                await InitializeContainersAsync(_connectionString, logger, new[] { _inputContainerName, _outputContainerName }.Where(c => c != null).ToArray()!);
+                await InitializeTablesAsync(_connectionString, logger, new[] { _inputTableName, _outputTableName }.Where(t => t != null).ToArray()!);
 
                 logger.LogInformation("[InitializeInfrastructureOnceAsync] Infrastructure initialization completed successfully.");
             }
@@ -177,7 +177,7 @@ public class GameSessionManager
     /// <summary>
     /// Static version of queue initialization for one-time setup.
     /// </summary>
-    private static async Task InitializeQueuesStaticAsync(string connectionString, ILogger logger, string[] queues)
+    private static async Task InitializeQueuesAsync(string connectionString, ILogger logger, string[] queues)
     {
         try
         {
@@ -185,19 +185,19 @@ public class GameSessionManager
             {
                 var queueClient = new QueueClient(connectionString, queueName);
                 await queueClient.CreateIfNotExistsAsync();
-                logger.LogInformation("[InitializeQueuesStaticAsync] Initialized queue: {queueName}", queueName);
+                logger.LogInformation("[InitializeQueuesAsync] Initialized queue: {queueName}", queueName);
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[InitializeQueuesStaticAsync] Failed to initialize queues.");
+            logger.LogError(ex, "[InitializeQueuesAsync] Failed to initialize queues.");
         }
     }
 
     /// <summary>
     /// Static version of container initialization for one-time setup.
     /// </summary>
-    private static async Task InitializeContainersStaticAsync(string connectionString, ILogger logger, string[] containers)
+    private static async Task InitializeContainersAsync(string connectionString, ILogger logger, string[] containers)
     {
         try
         {
@@ -206,19 +206,19 @@ public class GameSessionManager
             {
                 var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
                 await containerClient.CreateIfNotExistsAsync();
-                logger.LogInformation("[InitializeContainersStaticAsync] Initialized container: {containerName}", containerName);
+                logger.LogInformation("[InitializeContainersAsync] Initialized container: {containerName}", containerName);
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[InitializeContainersStaticAsync] Failed to initialize containers.");
+            logger.LogError(ex, "[InitializeContainersAsync] Failed to initialize containers.");
         }
     }
 
     /// <summary>
     /// Static version of table initialization for one-time setup.
     /// </summary>
-    private static async Task InitializeTablesStaticAsync(string connectionString, ILogger logger, string[] tables)
+    private static async Task InitializeTablesAsync(string connectionString, ILogger logger, string[] tables)
     {
         try
         {
@@ -226,12 +226,12 @@ public class GameSessionManager
             {
                 var tableClient = new TableClient(connectionString, tableName);
                 await tableClient.CreateIfNotExistsAsync();
-                logger.LogInformation("[InitializeTablesStaticAsync] Initialized table: {tableName}", tableName);
+                logger.LogInformation("[InitializeTablesAsync] Initialized table: {tableName}", tableName);
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[InitializeTablesStaticAsync] Failed to initialize tables.");
+            logger.LogError(ex, "[InitializeTablesAsync] Failed to initialize tables.");
         }
     }
 
