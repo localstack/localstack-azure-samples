@@ -26,8 +26,8 @@ This repository contains comprehensive sample projects demonstrating how to deve
 
 | Sample Name                                                                     | Description                                                                                        |
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [Azure Functions and Azure Storage](./samples/function-app-storage-http/)       | Azure Functions App in C#/.NET that uses Blob Storage, Queue Storage, and Table Storage.           |
-
+| [Function App and Storage](./samples/function-app-storage-http/)                | Azure Functions App using Blob Storage, Queue Storage, and Table Storage.                          |
+ 
 ## Sample Structure
 
 Each sample project is organized by Azure service and includes:
