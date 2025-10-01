@@ -1,4 +1,4 @@
-# Azure Functions Terraform Deployment
+# Terraform Deployment
 
 This directory contains Terraform modules and `deploy.sh` deployment script for creating an Azure Functions application with supporting Azure services. The deployment creates a complete gaming scoreboard system using Azure Storage Account, App Service Plan, and Azure Functions. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 
