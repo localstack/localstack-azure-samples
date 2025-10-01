@@ -123,7 +123,7 @@ public class GameSessionManager
         catch (Exception ex)
         {
             // Log error but don't throw - let functions continue to work even if initialization fails
-            Console.WriteLine($"[InitializeInfrastructureOnceAsync] Failed to initialize infrastructure: {ex.Message}");
+            Console.WriteLine("[InitializeInfrastructureOnceAsync] Failed to initialize infrastructure: {0}", ex.Message);
             _configurationValid = false;
         }
     }
@@ -185,7 +185,7 @@ public class GameSessionManager
             {
                 var queueClient = new QueueClient(connectionString, queueName);
                 await queueClient.CreateIfNotExistsAsync();
-                logger.LogInformation($"[InitializeQueuesStaticAsync] Initialized queue: {queueName}");
+                logger.LogInformation("[InitializeQueuesStaticAsync] Initialized queue: {queueName}", queueName);
             }
         }
         catch (Exception ex)
@@ -206,7 +206,7 @@ public class GameSessionManager
             {
                 var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
                 await containerClient.CreateIfNotExistsAsync();
-                logger.LogInformation($"[InitializeContainersStaticAsync] Initialized container: {containerName}");
+                logger.LogInformation("[InitializeContainersStaticAsync] Initialized container: {containerName}", containerName);
             }
         }
         catch (Exception ex)
@@ -226,7 +226,7 @@ public class GameSessionManager
             {
                 var tableClient = new TableClient(connectionString, tableName);
                 await tableClient.CreateIfNotExistsAsync();
-                logger.LogInformation($"[InitializeTablesStaticAsync] Initialized table: {tableName}");
+                logger.LogInformation("[InitializeTablesStaticAsync] Initialized table: {tableName}", tableName);
             }
         }
         catch (Exception ex)
@@ -248,7 +248,7 @@ public class GameSessionManager
         HttpResponseData response;
 
         // Log the incoming request
-        _logger.LogInformation($"[GetPlayerScore] Received GET request with gameId = {gameId}, name = {name ?? "NULL"}.");
+        _logger.LogInformation("[GetPlayerScore] Received GET request with gameId = {gameId}, name = {name}.", gameId, name ?? "NULL");
 
         // Validate the name parameter
         if (name == null || string.IsNullOrWhiteSpace(name))
@@ -292,7 +292,7 @@ public class GameSessionManager
         await response.WriteStringAsync(outputMessage);
 
         // Log the successful processing
-        _logger.LogInformation($"[GetPlayerScore] Processed request successfully with gameId = {gameId}, name = {name}, score = {playerScore.Score}.");
+        _logger.LogInformation("[GetPlayerScore] Processed request successfully with gameId = {gameId}, name = {name}, score = {score}.", gameId, name, playerScore.Score);
 
         // Return the HTTP response
         return response;
@@ -356,7 +356,7 @@ public class GameSessionManager
 
         if (!gameFound || players == null)
         {
-            _logger.LogWarning($"[CreateGameStatus] Game {requestMessage.GameId} not found in internal data store.");
+            _logger.LogWarning("[CreateGameStatus] Game {gameId} not found in internal data store.", requestMessage.GameId);
             response = request.CreateResponse(HttpStatusCode.NotFound);
             await response.WriteStringAsync($"Game {requestMessage.GameId} not found.");
             return response;
@@ -364,7 +364,7 @@ public class GameSessionManager
 
         if (players.Count == 0)
         {
-            _logger.LogWarning($"[CreateGameStatus] Game {requestMessage.GameId} has no player data.");
+            _logger.LogWarning("[CreateGameStatus] Game {gameId} has no player data.", requestMessage.GameId);
             response = request.CreateResponse(HttpStatusCode.NotFound);
             await response.WriteStringAsync($"Game {requestMessage.GameId} has no player data.");
             return response;
@@ -390,7 +390,7 @@ public class GameSessionManager
         await response.WriteStringAsync(outputMessage);
 
         // Log the successful processing
-        _logger.LogInformation($"[CreateGameStatus] Processed request successfully with gameId = {requestMessage.GameId}, winner = {winner.Name}.");
+        _logger.LogInformation("[CreateGameStatus] Processed request successfully with gameId = {gameId}, winner = {winner}.", requestMessage.GameId, winner.Name);
 
         // Return the HTTP response
         return response;
@@ -413,7 +413,7 @@ public class GameSessionManager
         // Check that the blobBytes is not null or empty
         if (blobBytes == null || blobBytes.Length == 0)
         {
-            _logger.LogError($"[ProcessGameFile] Received [{name}] blob is empty or null.");
+            _logger.LogError("[ProcessGameFile] Received [{name}] blob is empty or null.", name);
             return null;
         }
 
@@ -423,7 +423,7 @@ public class GameSessionManager
         // Check that the JSON is not null or empty
         if (string.IsNullOrEmpty(json))
         {
-            _logger.LogError($"[ProcessGameFile] Received [{name}] blob is empty or invalid.");
+            _logger.LogError("[ProcessGameFile] Received [{name}] blob is empty or invalid.", name);
             return null;
         }
 
@@ -433,7 +433,7 @@ public class GameSessionManager
         // Check that the request message is not null
         if (gameStatusRequest == null)
         {
-            _logger.LogError($"[ProcessGameFile] Received [{name}] blob contains invalid GameStatusRequest.");
+            _logger.LogError("[ProcessGameFile] Received [{name}] blob contains invalid GameStatusRequest.", name);
             return null;
         }
 
@@ -443,14 +443,14 @@ public class GameSessionManager
         {
             if (!_gameData.TryGetValue(gameStatusRequest.GameId, out players))
             {
-                _logger.LogWarning($"[ProcessGameFile] Game {gameStatusRequest.GameId} not found in internal data store.");
+                _logger.LogWarning("[ProcessGameFile] Game {gameId} not found in internal data store.", gameStatusRequest.GameId);
                 return null;
             }
         }
 
         if (players == null || players.Count == 0)
         {
-            _logger.LogWarning($"[ProcessGameFile] Game {gameStatusRequest.GameId} has no player data.");
+            _logger.LogWarning("[ProcessGameFile] Game {gameId} has no player data.", gameStatusRequest.GameId);
             return null;
         }
 
@@ -468,7 +468,7 @@ public class GameSessionManager
         var outputMessage = JsonSerializer.Serialize(outputObj);
 
         // Log the successful processing of the blob
-        _logger.LogInformation($"[ProcessGameFile] Processed blob [{name}] successfully for game {gameStatusRequest.GameId}.");
+        _logger.LogInformation("[ProcessGameFile] Processed blob [{name}] successfully for game {gameId}.", name, gameStatusRequest.GameId);
 
         // Return the response message
         return outputMessage;
@@ -501,7 +501,7 @@ public class GameSessionManager
         // Check that the JSON is not null or empty
         if (string.IsNullOrEmpty(json))
         {
-            _logger.LogError($"[HandleGameEvent] Received [{message.MessageId}] queue message is empty or invalid.");
+            _logger.LogError("[HandleGameEvent] Received [{messageId}] queue message is empty or invalid.", message.MessageId);
             return null;
         }
 
@@ -511,7 +511,7 @@ public class GameSessionManager
         // Check that the request message is not null
         if (requestMessage == null)
         {
-            _logger.LogError($"[HandleGameEvent] Received [{message.MessageId}] queue message contains invalid GameStatusRequest.");
+            _logger.LogError("[HandleGameEvent] Received [{messageId}] queue message contains invalid GameStatusRequest.", message.MessageId);
             return null;
         }
 
@@ -521,7 +521,7 @@ public class GameSessionManager
         {
             if (!_gameData.TryGetValue(requestMessage.GameId, out players))
             {
-                _logger.LogWarning($"[HandleGameEvent] Game {requestMessage.GameId} not found in internal data store.");
+                _logger.LogWarning("[HandleGameEvent] Game {gameId} not found in internal data store.", requestMessage.GameId);
                 // Return null for now, but could create an error response if needed
                 return null;
             }
@@ -529,7 +529,7 @@ public class GameSessionManager
 
         if (players == null || players.Count == 0)
         {
-            _logger.LogWarning($"[HandleGameEvent] Game {requestMessage.GameId} has no player data.");
+            _logger.LogWarning("[HandleGameEvent] Game {gameId} has no player data.", requestMessage.GameId);
             return null;
         }
 
@@ -547,79 +547,12 @@ public class GameSessionManager
         var outputMessage = JsonSerializer.Serialize(outputObj);
 
         // Log the successful processing of the queue message
-        _logger.LogInformation($"[HandleGameEvent] Processed queue message [{message.MessageId}] successfully for game {requestMessage.GameId}.");
+        _logger.LogInformation("[HandleGameEvent] Processed queue message [{messageId}] successfully for game {gameId}.", message.MessageId, requestMessage.GameId);
 
         // Return the response message
         return outputMessage;
 
     }
-
-    /// <summary>
-    /// Processes a Service Bus message by reading, validating, and responding to the input message.
-    /// </summary>
-    /// <param name="message">The received Service Bus message containing the request payload as JSON.</param>
-    /// <param name="messageActions">Actions for managing the Service Bus message lifecycle (e.g., completion).</param>
-    /// <returns>
-    /// A JSON-formatted response message containing a greeting and the current date, or null if the input is invalid.
-    /// </returns>
-    /*
-    [Function("ServiceBusHello")]
-    [ServiceBusOutput("%OUTPUT_QUEUE_NAME%", Connection = "SERVICE_BUS_CONNECTION_STRING")]
-    public async Task<string?> ServiceBusHelloAsync(
-    [ServiceBusTrigger("%INPUT_QUEUE_NAME%", Connection = "SERVICE_BUS_CONNECTION_STRING", AutoCompleteMessages = false)] ServiceBusReceivedMessage message,
-    ServiceBusMessageActions messageActions)
-    {
-        // Log the incoming message details
-        _logger.LogInformation("Message ID: {id}", message.MessageId);
-        _logger.LogInformation("Message Body: {body}", message.Body);
-        _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
-
-        // Read the message body as a byte array
-        byte[] bodyBytes = message.Body.ToArray();
-
-        // Check that the bodyBytes is not null or empty
-        if (bodyBytes == null || bodyBytes.Length == 0)
-        {
-            _logger.LogError($"[ServiceBusHello] Received message [{message.MessageId}] body is empty or null.");
-            return null;
-        }
-        // Convert the byte array to a string
-        string json = System.Text.Encoding.UTF8.GetString(bodyBytes);
-
-        // Check that the JSON is not null or empty
-        if (string.IsNullOrEmpty(json))
-        {
-            _logger.LogError($"[ServiceBusHello] Received message [{message.MessageId}] body is empty or invalid.");
-            return null;
-        }
-
-        // Deserialize the JSON into a RequestMessage object
-        RequestMessage? requestMessage = JsonSerializer.Deserialize<RequestMessage>(json);
-
-        // Check that the request message is not null or empty
-        if (requestMessage == null || string.IsNullOrWhiteSpace(requestMessage?.Name))
-        {
-            _logger.LogError($"[ServiceBusHello] Received request message [{message.MessageId}] body is empty or invalid.");
-            return null;
-        }
-
-        // Create the response message
-        var outputObj = new ResponseMessage
-        {
-            Date = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-            Text = $"Hello {requestMessage.Name}, how are you?"
-        };
-        var outputMessage = JsonSerializer.Serialize(outputObj);
-
-        // Complete the message after processing
-        await messageActions.CompleteMessageAsync(message);
-
-        // Log the successful processing of the blob
-        _logger.LogInformation($"[ServiceBusHello] Processed message [{message.MessageId}] successfully.");
-
-        // Return the response message
-        return outputMessage;
-    }*/
 
     /// <summary>
     /// Processes game scoreboards to determine winners and manage game results.
@@ -637,7 +570,7 @@ public class GameSessionManager
     {
         // Find the entity with the highest score
         var winner = entities.OrderByDescending(e => e.Score).FirstOrDefault();
-        _logger.LogInformation($"[ProcessScoreboard] Processed game ID {gameId}. Winner: {winner?.PlayerName ?? "No winner"} with score {winner?.Score.ToString() ?? "N/A"}.");
+        _logger.LogInformation("[ProcessScoreboard] Processed game ID {gameId}. Winner: {winnerName} with score {score}.", gameId, winner?.PlayerName ?? "No winner", winner?.Score.ToString() ?? "N/A");
 
         if (winner != null)
         {
@@ -670,7 +603,7 @@ public class GameSessionManager
     [FixedDelayRetry(5, "00:00:10")]
     public async Task CreateGameAsync([TimerTrigger("0 */1 * * * *", RunOnStartup = true)] TimerInfo timerInfo)
     {
-        _logger.LogInformation($"[CreateGameAsync] Triggered execution.");
+        _logger.LogInformation("[CreateGameAsync] Triggered execution.");
 
         // Ensure infrastructure is initialized (runs only once per app lifetime)
         await EnsureInfrastructureInitializedAsync();
@@ -695,7 +628,7 @@ public class GameSessionManager
         var message = JsonSerializer.Serialize(gameStatusRequest);
 
         // Log the generated message and configuration values
-        _logger.LogInformation($"[CreateGameAsync] Generated message: {message}");
+        _logger.LogInformation("[CreateGameAsync] Generated message: {message}", message);
 
         // Create a unique blob name with the required format
         var now = DateTime.UtcNow;
@@ -717,7 +650,7 @@ public class GameSessionManager
         _gameId++;
 
         // Log the next scheduled timer occurrence
-        _logger.LogInformation($"[CreateGameAsync] Function Ran. Next timer schedule = {timerInfo.ScheduleStatus?.Next}");
+        _logger.LogInformation("[CreateGameAsync] Function Ran. Next timer schedule = {nextSchedule}", timerInfo.ScheduleStatus?.Next);
     }
 
     /// <summary>
@@ -743,11 +676,11 @@ public class GameSessionManager
             {
                 await blobClient.UploadAsync(stream, overwrite: true);
             }
-            _logger.LogInformation($"[UploadBlobAsync] Uploaded blob: {blobFileName} to container: {inputContainerName}");
+            _logger.LogInformation("[UploadBlobAsync] Uploaded blob: {blobFileName} to container: {containerName}", blobFileName, inputContainerName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"[UploadBlobAsync] Failed to upload blob: {blobFileName} to container: {inputContainerName}");
+            _logger.LogError(ex, "[UploadBlobAsync] Failed to upload blob: {blobFileName} to container: {containerName}", blobFileName, inputContainerName);
         }
     }
 
@@ -767,11 +700,11 @@ public class GameSessionManager
             await queueClient.CreateIfNotExistsAsync();
 
             await queueClient.SendMessageAsync(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(message)));
-            _logger.LogInformation($"[SendQueueMessageAsync] Sent message to queue: {queueName}");
+            _logger.LogInformation("[SendQueueMessageAsync] Sent message to queue: {queueName}", queueName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"[SendQueueMessageAsync] Failed to send message to queue: {queueName}");
+            _logger.LogError(ex, "[SendQueueMessageAsync] Failed to send message to queue: {queueName}", queueName);
         }
     }
 
@@ -823,7 +756,7 @@ public class GameSessionManager
 
                 await tableClient.AddEntityAsync(entity);
 
-                _logger.LogInformation($"[CreateScoreboardEntriesAsync] Added scoreboard entry for {name} with score {score} in game {_gameId}");
+                _logger.LogInformation("[CreateScoreboardEntriesAsync] Added scoreboard entry for {playerName} with score {score} in game {gameId}", name, score, _gameId);
             }
 
             // Store the game data in the internal dictionary (thread-safe)
@@ -832,14 +765,14 @@ public class GameSessionManager
                 _gameData[_gameId] = playerScores;
             }
 
-            _logger.LogInformation($"[CreateScoreboardEntriesAsync] Created {_playerNames.Length} scoreboard entries for game {_gameId}.");
+            _logger.LogInformation("[CreateScoreboardEntriesAsync] Created {playerCount} scoreboard entries for game {gameId}.", _playerNames.Length, _gameId);
 
             // Simulate async work to maintain the async signature
             await Task.CompletedTask;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"[CreateScoreboardEntriesAsync] Failed to create scoreboard entries for game {_gameId}");
+            _logger.LogError(ex, "[CreateScoreboardEntriesAsync] Failed to create scoreboard entries for game {gameId}", _gameId);
         }
     }
 }
