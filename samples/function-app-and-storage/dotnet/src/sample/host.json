@@ -1,0 +1,29 @@
+{
+  "version": "2.0",
+  "extensions": {
+    "queues": {
+      "maxDequeueCount": 8,
+      "visibilityTimeout": "00:00:30",
+      "batchSize": 16,
+      "newBatchThreshold": 8
+    },
+    "blobs": {
+      "maxDegreeOfParallelism": 4,
+      "poisonBlobThreshold": 1
+    }
+  },
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      },
+      "enableLiveMetricsFilters": true
+    },
+    "logLevel": {
+      "Host.Startup": "Debug",
+      "Host.Results": "Debug",
+      "Function": "Trace"
+    }
+  }
+}

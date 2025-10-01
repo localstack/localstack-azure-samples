@@ -1,0 +1,18 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "AzureFunctionsJobHost__fileWatchingEnabled": "false",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "STORAGE_ACCOUNT_CONNECTION_STRING": "UseDevelopmentStorage=true",
+    "INPUT_STORAGE_CONTAINER_NAME": "input",
+    "OUTPUT_STORAGE_CONTAINER_NAME": "output",
+    "INPUT_QUEUE_NAME": "input",
+    "OUTPUT_QUEUE_NAME": "output",
+    "TRIGGER_QUEUE_NAME": "trigger",
+    "INPUT_TABLE_NAME": "scoreboards",
+    "OUTPUT_TABLE_NAME": "winners",
+    "PLAYER_NAMES": "Alice,Anastasia,Paolo,Leo,Mia",
+    "TIMER_SCHEDULE": "0 */1 * * * *"
+  }
+}
