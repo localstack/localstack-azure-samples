@@ -1,4 +1,4 @@
-# Azure Functions CLI Deployment
+# Azure CLI Deployment
 
 This folder contains Bash scripts for deploying an Azure Functions application with supporting Azure services using the `azlocal` CLI. The deployment creates a complete gaming scoreboard system using Azure Functions and Azure Storage Account with direct Azure CLI commands through the LocalStack Azure emulator. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 

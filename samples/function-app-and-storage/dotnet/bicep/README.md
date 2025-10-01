@@ -1,4 +1,4 @@
-# Azure Functions Bicep Deployment
+# Bicep Deployment
 
 This directory contains the `main.bicep` Bicep module and `deploy.sh` deployment script for creating an Azure Functions application with supporting Azure services. The deployment creates a complete gaming scoreboard system using Azure Storage Account, App Service Plan, and Azure Functions with Infrastructure as Code (IaC) using Azure Bicep. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 
