@@ -6,43 +6,6 @@
 
 This repository contains comprehensive sample projects demonstrating how to develop and test Azure cloud applications locally using [LocalStack for Azure](https://localstack.cloud/). Each sample provides complete infrastructure-as-code templates, application code, and deployment instructions for seamless local development.
 
-## Sample Structure
-
-Each sample project is organized by Azure service and includes:
-
-- Infrastructure templates (Bicep/Terraform) and/or Bash installation scripts.
-- Application code with best practices
-- Step-by-step deployment guides and tutorials.
-- Optionally, testing and validation scripts.
-
-Browse the service-specific directories:
-
-- `azure-functions/`: Serverless function examples
-- `azure-storage/`: Storage account and blob examples
-- `azure-app-service/`: Web application examples
-- `azure-cosmos-db/`: NoSQL database examples
-- *[Additional services to be added]*
-
-## Quick Start
-
-1. Clone the repository
-   ```bash
-   git clone https://github.com/paolosalvatori/localstack-azure-samples.git
-   cd localstack-azure-samples
-   ```
-
-2. Set up LocalStack Pro
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN="your-auth-token-here"
-   docker-compose up -d
-   ```
-
-3. Choose a sample and follow its README
-   ```bash
-   cd azure-functions/basic-http-trigger
-   # Follow the instructions in the sample's README.md
-   ```
-
 ## Prerequisites
 
 ### Required Tools
@@ -59,25 +22,25 @@ Browse the service-specific directories:
 - [Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer): GUI for Azure Storage
 - [Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local): Local function development
 
+## Outline
+
+| Sample Name                                                                     | Description                                                                                        |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [Azure Functions and Azure Storage](./samples/function-app-storage-http/)       | Azure Functions App in C#/.NET that uses Blob Storage, Queue Storage, and Table Storage.           |
+
+## Sample Structure
+
+Each sample project is organized by Azure service and includes:
+
+- Infrastructure templates (Bicep/Terraform) and/or Bash installation scripts.
+- Application code with best practices
+- Step-by-step deployment guides and tutorials.
+- Optionally, testing and validation scripts.
+
 ## Configuration
 
 ### LocalStack Pro Setup
-
-Most samples require LocalStack Pro features. Configure your authentication:
-
-1. Get your Auth Token from the [LocalStack Web Application](https://app.localstack.cloud/workspace/auth-token)
-
-2. Set the environment variable:
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN="your-auth-token-here"
-   ```
-
-3. Verify configuration:
-   ```bash
-   curl -s http://localhost:4566/_localstack/health | jq
-   ```
-
-For detailed authentication setup, see the [Auth Token documentation](https://docs.localstack.cloud/getting-started/auth-token/).
+Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.
 
 ## Documentation
 
