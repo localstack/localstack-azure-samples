@@ -10,34 +10,34 @@ This repository contains comprehensive sample projects demonstrating how to deve
 
 Each sample project is organized by Azure service and includes:
 
-- Infrastructure templates** (Bicep/Terraform) and/or Bash installation scripts.
+- Infrastructure templates (Bicep/Terraform) and/or Bash installation scripts.
 - Application code with best practices
 - Step-by-step deployment guides and tutorials.
-- Optionalky, testing and validation scripts.
+- Optionally, testing and validation scripts.
 
 Browse the service-specific directories:
 
-- `azure-functions/` - Serverless function examples
-- `azure-storage/` - Storage account and blob examples
-- `azure-app-service/` - Web application examples
-- `azure-cosmos-db/` - NoSQL database examples
+- `azure-functions/`: Serverless function examples
+- `azure-storage/`: Storage account and blob examples
+- `azure-app-service/`: Web application examples
+- `azure-cosmos-db/`: NoSQL database examples
 - *[Additional services to be added]*
 
 ## Quick Start
 
-1. **Clone the repository**
+1. Clone the repository
    ```bash
    git clone https://github.com/paolosalvatori/localstack-azure-samples.git
    cd localstack-azure-samples
    ```
 
-2. **Set up LocalStack Pro**
+2. Set up LocalStack Pro
    ```bash
    export LOCALSTACK_AUTH_TOKEN="your-auth-token-here"
    docker-compose up -d
    ```
 
-3. **Choose a sample and follow its README**
+3. Choose a sample and follow its README
    ```bash
    cd azure-functions/basic-http-trigger
    # Follow the instructions in the sample's README.md
@@ -46,18 +46,18 @@ Browse the service-specific directories:
 ## Prerequisites
 
 ### Required Tools
-- [Docker](https://docs.docker.com/get-docker/) - Container runtime for LocalStack
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) - Azure command-line interface
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/) - LocalStack Azure CLI wrapper
-- [jq](https://jqlang.org/)** - JSON processor for scripting
+- [Docker](https://docs.docker.com/get-docker/): Container runtime for LocalStack
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
+- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [jq](https://jqlang.org/): JSON processor for scripting
 
 ### Infrastructure as Code
-- [Bicep](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install) - Azure ARM template language
-- [Terraform](https://developer.hashicorp.com/terraform/downloads) - Multi-cloud infrastructure provisioning
+- [Bicep](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install): Azure ARM template language
+- [Terraform](https://developer.hashicorp.com/terraform/downloads): Multi-cloud infrastructure provisioning
 
 ### Development Tools
-- [Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer) - GUI for Azure Storage
-- [Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local) - Local function development
+- [Azure Storage Explorer](https://azure.microsoft.com/en-us/products/storage/storage-explorer): GUI for Azure Storage
+- [Azure Functions Core Tools](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local): Local function development
 
 ## Configuration
 
@@ -65,14 +65,14 @@ Browse the service-specific directories:
 
 Most samples require LocalStack Pro features. Configure your authentication:
 
-1. **Get your Auth Token** from the [LocalStack Web Application](https://app.localstack.cloud/workspace/auth-token)
+1. Get your Auth Token from the [LocalStack Web Application](https://app.localstack.cloud/workspace/auth-token)
 
-2. **Set the environment variable**:
+2. Set the environment variable:
    ```bash
    export LOCALSTACK_AUTH_TOKEN="your-auth-token-here"
    ```
 
-3. **Verify configuration**:
+3. Verify configuration:
    ```bash
    curl -s http://localhost:4566/_localstack/health | jq
    ```
@@ -100,9 +100,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/localstack-samples/localstack-azure-samples/issues)
-- **LocalStack Support**: [Support Portal](https://support.localstack.cloud/)
-- **Community**: [LocalStack Discuss](https://discuss.localstack.cloud/)
+- Issues: [GitHub Issues](https://github.com/localstack-samples/localstack-azure-samples/issues)
+- LocalStack Support: [Support Portal](https://support.localstack.cloud/)
+- Community: [LocalStack Discuss](https://discuss.localstack.cloud/)
 
 ## Show Your Support
 
