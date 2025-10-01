@@ -39,7 +39,6 @@ Each sample project is organized by Azure service and includes:
 
 ## Configuration
 
-### LocalStack Pro Setup
 Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.
 
 ## Documentation
