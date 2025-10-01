@@ -39,7 +39,6 @@ Each sample project is organized by Azure service and includes:
 
 ## Configuration
 
-### LocalStack Pro Setup
 Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.
 
 ## Documentation
@@ -59,7 +58,7 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the [MIT LICENSE](LICENSE).
 
 ## Support
 
