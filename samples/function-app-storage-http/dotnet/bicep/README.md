@@ -315,12 +315,11 @@ output test1 string = storageAccount.properties.accessTier
 output test2 string = functionApp.properties.enabledHostNames[0]
 output test3 string = '${functionApp.kind} + ${appServicePlan.kind}'
 output test4 string = split(functionApp.id, '/')[3]
-
 ```
 
 ## Deployment Script
 
-You can use the `deploy.sh` script to automate the deployment of all Azure resources and the .NET Azure Functions application in a single step, streamlining setup and reducing manual configuration.
+Use the `deploy.sh` script to automate the provisioning of Azure resources and deployment of the Azure Functions App.
 
 ```bash
 #!/bin/bash
@@ -519,29 +518,30 @@ After deployment, validate that all resources were created and configured correc
 1. Verify resource creation:
 
    ```bash
-   # Check resource group
-   azlocal group show --name local-rg --output table
-   
-   # List resources
-   azlocal resource list --resource-group local-rg --output table
-   
-   # Check function app status
-   azlocal functionapp show --name local-func-test --resource-group local-rg --output table
+  # Check resource group
+  azlocal group show --name local-rg --output table
+  
+  # List resources
+  azlocal resource list --resource-group local-rg --output table
+  
+  # Check function app status
+  azlocal functionapp show --name local-func-test --resource-group local-rg --output table
    ```
 2. Validate storage account:
 
    ```bash
-   # Check storage account properties
-   azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+  # Check storage account properties
+  azlocal storage account show --name localstoragetest --resource-group local-rg --output table
 
-   # List storage containers
-   azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+  # List storage containers
+  azlocal storage container list --account-name localstoragetest --output table --only-show-errors
 
-   # List storage queues
-   azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-   
-   # List storage tables
-   azlocal storage table list --account-name localstoragetest --output table --only-show-errors
+  # List storage queues
+  azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
+  
+  # List storage tables
+  azlocal storage table list --account-name localstoragetest --output table --only-show-errors
+  ```
 
 ## Cleanup
 
@@ -560,7 +560,7 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
+- [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
 - [Azure Functions Documentation](https://docs.microsoft.com/en-us/azure/azure-functions/)
 - [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
 - [Azure Functions Methods Documentation](../src/sample/Methods.md) - Detailed documentation of all implemented functions
-- [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)

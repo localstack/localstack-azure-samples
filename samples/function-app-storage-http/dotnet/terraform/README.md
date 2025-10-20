@@ -1,6 +1,6 @@
 # Terraform Deployment
 
-This directory contains Terraform modules and `deploy.sh` deployment script for creating an Azure Functions application with supporting Azure services. The deployment creates a complete gaming scoreboard system using Azure Storage Account, App Service Plan, and Azure Functions. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
+This directory contains Terraform modules and `deploy.sh` deployment script for creating Azure services. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 
 ## Prerequisites
 
@@ -166,9 +166,6 @@ You can use the `deploy.sh` script to automate the deployment of all Azure resou
 ```bash
 #!/bin/bash
 
-# Start azure CLI local mode session
-# azlocal start_interception
-
 # Delete any existing terraform state and plan files
 rm -f terraform.tfstate terraform.tfstate.backup tfplan
 
@@ -285,29 +282,30 @@ After deployment, validate that all resources were created and configured correc
 1. Verify resource creation:
 
    ```bash
-   # Check resource group
-   azlocal group show --name local-rg --output table
-   
-   # List resources
-   azlocal resource list --resource-group local-rg --output table
-   
-   # Check function app status
-   azlocal functionapp show --name local-func-test --resource-group local-rg --output table
+  # Check resource group
+  azlocal group show --name local-rg --output table
+  
+  # List resources
+  azlocal resource list --resource-group local-rg --output table
+  
+  # Check function app status
+  azlocal functionapp show --name local-func-test --resource-group local-rg --output table
    ```
 2. Validate storage account:
 
    ```bash
-   # Check storage account properties
-   azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+  # Check storage account properties
+  azlocal storage account show --name localstoragetest --resource-group local-rg --output table
 
-   # List storage containers
-   azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+  # List storage containers
+  azlocal storage container list --account-name localstoragetest --output table --only-show-errors
 
-   # List storage queues
-   azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-   
-   # List storage tables
-   azlocal storage table list --account-name localstoragetest --output table --only-show-errors
+  # List storage queues
+  azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
+  
+  # List storage tables
+  azlocal storage table list --account-name localstoragetest --output table --only-show-errors
+   ```
 
 ## Cleanup
 
