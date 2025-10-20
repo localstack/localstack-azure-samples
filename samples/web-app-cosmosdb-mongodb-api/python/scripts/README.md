@@ -264,30 +264,46 @@ After deployment, validate that all resources were created and configured correc
 1. Verify resource creation:
 
    ```bash
-   # Check resource group
-   azlocal group show --name local-rg --output table
-   
-   # List resources
-   azlocal resource list --resource-group local-rg --output table
-   
-   # Check function app status
-   azlocal functionapp show --name local-func-test --resource-group local-rg --output table
+  # Check resource group
+  azlocal group show \
+  --name local-rg \
+  --output table
+  
+  # List resources
+  azlocal resource list \
+  --resource-group local-rg \
+  --output table
+  
+  # Check Azure Web App
+  azlocal webapp show \
+  --name local-webapp-test \
+  --resource-group local-rg \
+  --output table
    ```
 2. Validate storage account:
 
    ```bash
-   # Check storage account properties
-   azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+  # Check Azure CosmosDB Account
+  azlocal cosmosdb show \
+  --name local-mongodb-test \
+  --resource-group local-rg \
+  --output table
 
-   # List storage containers
-   azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+  # Check MongoDB database
+  azlocal cosmosdb mongodb database show \
+  --name sampledb \
+  --account-name local-mongodb-test \
+  --resource-group local-rg \
+  --output table
 
-   # List storage queues
-   azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-   
-   # List storage tables
-   azlocal storage table list --account-name localstoragetest --output table --only-show-errors
-   ```
+  # Check MongoDB collection
+  azlocal cosmosdb mongodb collection show \
+  --name activities \
+  --database-name sampledb \
+  --account-name local-mongodb-test \
+  --resource-group local-rg \
+  --output table
+  ```
 
 ## Cleanup
 
@@ -306,6 +322,4 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
-- [Azure Functions CLI Documentation](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)
-- [Azure Functions Methods Documentation](../src/sample/Methods.md) - Detailed documentation of all implemented functions
 - [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
