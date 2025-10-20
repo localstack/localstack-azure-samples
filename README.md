@@ -26,9 +26,9 @@ This repository contains comprehensive sample projects demonstrating how to deve
 
 | Sample Name | Description |
 |-------------|-------------|
-| [Function App and Storage](./samples/function-app-storage-http/dotnet/README.md) | Azure Functions App using Blob Storage, Queue Storage, and Table Storage |
-| [Function App and Front Door](./samples/function-app-front-door/python/README.md) | Azure Functions App using Blob Storage, Queue Storage, and Table Storage |
-| [Web App and CosmosDB for MongoDB API](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
+| [Function App and Storage](./samples/function-app-storage-http/dotnet/README.md) | Azure Functions App using Blob, Queue, and Table Storage |
+| [Function App and Front Door](./samples/function-app-front-door/python/README.md) | Azure Functions App exposed via Front Door |
+| [Web App and CosmosDB ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
  
 ## Sample Structure
 
