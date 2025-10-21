@@ -44,6 +44,27 @@ get_docker_container_ip_address_by_name() {
 	echo "$ip_address"
 }
 
+get_docker_container_port_mapping() {
+	local container_name="$1"
+	local container_port="$2"
+	local host_port
+
+	if [ -z "$container_name" ] || [ -z "$container_port" ]; then
+		echo "Error: Container name and container port are required" >&2
+		return 1
+	fi
+
+	# Get host port mapping
+	host_port=$(docker inspect -f "{{(index (index .NetworkSettings.Ports \"${container_port}/tcp\") 0).HostPort}}" "$container_name")
+
+	if [ -z "$host_port" ]; then
+		echo "Error: No host port mapping found for container [$container_name] port [$container_port]" >&2
+		return 1
+	fi
+
+	echo "$host_port"
+}
+
 call_http_trigger_functions() {
 	# Get the function app name
 	echo "Getting function app name..."
@@ -53,6 +74,32 @@ call_http_trigger_functions() {
 		echo "Function app [$function_app_name] successfully retrieved."
 	else
 		echo "Error: No function app found"
+		exit 1
+	fi
+
+	# Get the resource group name
+	echo "Getting resource group name for function app [$function_app_name]..."
+	resource_group_name=$(azlocal functionapp list --query '[0].resourceGroup' --output tsv)
+
+	if [ -n "$resource_group_name" ]; then
+		echo "Resource group [$resource_group_name] successfully retrieved."
+	else
+		echo "Error: No resource group found for function app [$function_app_name]"
+		exit 1
+	fi
+
+	# Get the the default host name of the function app
+	echo "Getting the default host name of the function app [$function_app_name]..."
+	function_host_name=$(azlocal functionapp show \
+		--name "$function_app_name" \
+		--resource-group "$resource_group_name" \
+		--query 'defaultHostName' \
+		--output tsv)
+
+	if [ -n "$function_host_name" ]; then
+		echo "Function app default host name [$function_host_name] successfully retrieved."
+	else
+		echo "Error: No function app default host name found"
 		exit 1
 	fi
 
@@ -80,13 +127,55 @@ call_http_trigger_functions() {
 		exit 1
 	fi
 
-	# Call the GET HTTP trigger function that returns a player status in a specified game session
-	echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session]..."
-	curl -s "http://$container_ip/api/player/$game_session/$player_name/status" | jq
+	# Get the mapped host port for function app HTTP trigger (internal port 80)
+	echo "Getting the host port mapped to internal port 80 in container [$container_name]..."
+	host_port=$(get_docker_container_port_mapping "$container_name" "80")
+	
+	if [ $? -eq 0 ] && [ -n "$host_port" ]; then
+		echo "Mapped host port [$host_port] retrieved successfully for container [$container_name]"
+	else
+		echo "Failed to get mapped host port for container [$container_name]"
+		exit 1
+	fi
 
-	# Call the POST HTTP trigger function that returns the game session details
-	echo "Calling HTTP trigger function to retrieve game session [$game_session] details..."
-	curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$container_ip/api/game/session" | jq
+	# Retrieve LocalStack proxy port
+	proxy_port=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
+
+	if [ -n "$proxy_port" ]; then
+		# Call the GET HTTP trigger function that returns a player status in a specified game session via emulator
+		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via emulator..."
+		curl  --proxy "http://localhost:$proxy_port/" -s "http://$function_host_name/api/player/$game_session/$player_name/status" | jq
+
+		# Call the POST HTTP trigger function that returns the game session details via emulator
+		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via emulator..."
+		curl --proxy "http://localhost:$proxy_port/" -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$function_host_name/api/game/session" | jq
+	else
+		echo "Failed to retrieve LocalStack proxy port"
+	fi
+	
+	if [ -n "$container_ip" ]; then
+		# Call the GET HTTP trigger function that returns a player status in a specified game session via the container IP address
+		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via container IP address [$container_ip]..."
+		curl -s "http://$container_ip/api/player/$game_session/$player_name/status" | jq
+
+		# Call the POST HTTP trigger function that returns the game session details via the container IP address
+		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via container IP address [$container_ip]..."
+		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$container_ip/api/game/session" | jq
+	else
+		echo "Failed to retrieve container IP address"
+	fi
+
+	if [ -n "$host_port" ]; then
+		# Call the GET HTTP trigger function that returns a player status in a specified game session via the host port
+		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via host port [$host_port]..."
+		curl -s "http://localhost:$host_port/api/player/$game_session/$player_name/status" | jq
+
+		# Call the POST HTTP trigger function that returns the game session details via the host port
+		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via host port [$host_port]..."
+		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://localhost:$host_port/api/game/session" | jq
+	else
+		echo "Failed to retrieve container IP address"
+	fi
 }
 
 call_http_trigger_functions
