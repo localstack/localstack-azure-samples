@@ -253,21 +253,16 @@ if [[ -z "$funcHost" ]]; then
   echo "Could not resolve function defaultHostName" >&2
   exit 1
 fi
-# Build test URL. In LocalStack, prefer the locally mapped host:port of the function container.
+# Build test URLs. In LocalStack, use local-friendly hostnames that route through the emulator.
 if [[ "$USE_LOCALSTACK" == "true" ]]; then
-  # Try to find the running function container created by the emulator (name pattern: ls-<funcName>-*)
-  container_name="$(docker ps --filter "name=ls-${funcName}-" --filter "status=running" --format "{{.Names}}" | head -n1 || true)"
-  if [[ -n "$container_name" ]]; then
-    mapped_port="$(docker port "$container_name" 80/tcp 2>/dev/null | head -n1 | awk -F: '{print $NF}' | tr -d '[:space:]')"
-    if [[ -n "$mapped_port" ]]; then
-      funcHost="127.0.0.1:$mapped_port"
-      functionTestUrl="http://$funcHost/john"
-    else
-      functionTestUrl="http://127.0.0.1/john"
-    fi
-  else
-    functionTestUrl="http://127.0.0.1/john"
-  fi
+  functionLocalHost="${funcName}website.localhost.localstack.cloud:4566"
+  functionTestUrl="https://${functionLocalHost}/john"
+  # Also expose an Azure-hostname variant bound to the edge port. Note: DNS will still resolve to Azure by default.
+  # Use curl --resolve to map <host>:4566 to 127.0.0.1 for the request.
+  functionAzureHostPort="${funcHost}:4566"
+  functionTestAzureHostUrl="https://${functionAzureHostPort}/john"
+  afdLocalHost="${endpointName}.afd.localhost.localstack.cloud:4566"
+  afdTestUrl="https://${afdLocalHost}/john"
 else
   functionTestUrl="https://$funcHost/john"
 fi
@@ -294,11 +289,25 @@ afdHost=$(az afd endpoint show -g "$RESOURCE_GROUP" --profile-name "$profileName
 # 13) Print summary and test URLs
 # -------------------------------
 echo
+echo
 echo "Deployment complete."
 echo "Resource Group: $RESOURCE_GROUP"
-echo "Function Host:  $funcHost"
-echo "Test Function:  $functionTestUrl"
+if [[ "$USE_LOCALSTACK" == "true" ]]; then
+  echo "Function Host (Azure-reported):  $funcHost"
+  echo "Function Local Host:            ${functionLocalHost:-N/A}"
+  echo "Test Function (local):          $functionTestUrl"
+  echo "Function Azure Host (edge):     ${functionAzureHostPort}"
+  echo "Test Function (azure host):     ${functionTestAzureHostUrl}"
+else
+  echo "Function Host:  $funcHost"
+  echo "Test Function:  $functionTestUrl"
+fi
 if [[ -n "$afdHost" ]]; then
-  echo "AFD Endpoint:  $afdHost"
-  echo "Test via AFD:  https://$afdHost/john"
+  echo "AFD Endpoint (Azure-reported):  $afdHost"
+  if [[ "$USE_LOCALSTACK" == "true" ]]; then
+    echo "AFD Local Endpoint:             ${afdLocalHost:-$endpointName.afd.localhost.localstack.cloud}"
+    echo "Test via AFD (local):           ${afdTestUrl:-https://$endpointName.afd.localhost.localstack.cloud/john}"
+  else
+    echo "Test via AFD:  https://$afdHost/john"
+  fi
 fi
