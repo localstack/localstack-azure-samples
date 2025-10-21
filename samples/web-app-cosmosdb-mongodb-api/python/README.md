@@ -363,14 +363,6 @@ call_web_app() {
 call_web_app
 ```
 
-You can also access the web app using the following methods:
-
-1. **Through the LocalStack for Azure emulator** - Call the Functions App endpoint exposed by the emulator, which proxies requests to your Azure Functions app
-
-
-
-2. **Via localhost** - Use `127.0.0.1` with the host port mapped to the container's port `80`
-
 ## References
 
 - [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
