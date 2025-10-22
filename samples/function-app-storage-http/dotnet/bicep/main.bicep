@@ -156,10 +156,10 @@ param outputQueueName string = 'output'
 param triggerQueueName string = 'trigger'
 
 @description('Specifies the name of the input table.')
-param inputTableName string = 'input'
+param inputTableName string = 'scoreboards'
 
 @description('Specifies the name of the output table.')
-param outputTableName string = 'output'
+param outputTableName string = 'winners'
 
 @description('Specifies the comma-separated list of player names.')
 param playerNames string = 'Alice,Anastasia,Paolo,Leo,Mia'

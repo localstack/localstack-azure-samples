@@ -449,9 +449,7 @@ azlocal functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
     --src-path ./azure-function-deployment.zip \
-    --type zip \
-    --verbose \
-		--debug
+    --type zip
 
 # Stop azure CLI local mode session
 azlocal stop_interception
@@ -476,7 +474,7 @@ The `deploy.sh` script executes the following steps:
 - Uploads pre-built application package to the newly created Azure Functions app.
 
 > **Note**  
-> Azure CLI commands use `--verbose` argument to print execution details and the `--debug` flag to show low-level REST calls for debugging. For more information, see [Get started with Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli)
+> Azure CLI commands supports `--verbose` argument to print execution details and the `--debug` flag to show low-level REST calls for debugging. For more information, see [Get started with Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli)
 
 ## Deployment
 
