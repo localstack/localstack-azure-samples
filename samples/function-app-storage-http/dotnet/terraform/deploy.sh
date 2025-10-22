@@ -52,9 +52,7 @@ azlocal functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
     --src-path ./azure-function-deployment.zip \
-    --type zip \
-    --verbose \
-		--debug
+    --type zip
 
 # Stop azure CLI local mode session
 azlocal stop_interception

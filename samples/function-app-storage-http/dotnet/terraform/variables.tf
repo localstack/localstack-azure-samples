@@ -270,7 +270,7 @@ variable "trigger_queue_name" {
 variable "input_table_name" {
   description = "(Optional) Specifies the name of the input table."
   type        = string
-  default     = "input"
+  default     = "scoreboards"
 
   validation {
     condition     = can(regex("^[A-Za-z][A-Za-z0-9]*$", var.input_table_name)) && length(var.input_table_name) >= 3 && length(var.input_table_name) <= 63
@@ -281,7 +281,7 @@ variable "input_table_name" {
 variable "output_table_name" {
   description = "(Optional) Specifies the name of the output table."
   type        = string
-  default     = "output"
+  default     = "winners"
 
   validation {
     condition     = can(regex("^[A-Za-z][A-Za-z0-9]*$", var.output_table_name)) && length(var.output_table_name) >= 3 && length(var.output_table_name) <= 63
