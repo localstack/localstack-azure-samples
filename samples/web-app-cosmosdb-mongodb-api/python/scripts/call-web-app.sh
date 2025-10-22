@@ -117,8 +117,6 @@ call_web_app() {
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	player_name='Leo'
-	game_session='1'
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
