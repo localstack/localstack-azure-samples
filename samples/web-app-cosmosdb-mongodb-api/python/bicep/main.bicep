@@ -195,21 +195,7 @@ param collectionName string = 'activities'
 param dedicatedThroughput int = 400
 
 @description('Specifies a list of field names for which to create single-field indexes on the MongoDB collection.')
-param mongoDbIndexKeys array = ['username', 'activity', 'timestamp']
-
-@description('Specifies the Azure client ID for service principal authentication.')
-@secure()
-param azureClientId string
-
-@description('Specifies the Azure client secret for service principal authentication.')
-@secure()
-param azureClientSecret string
-
-@description('Specifies the Azure tenant ID.')
-param azureTenantId string
-
-@description('Specifies the Azure subscription ID.')
-param azureSubscriptionId string
+param mongoDbIndexKeys array = ['_id','username', 'activity', 'timestamp']
 
 @description('Specifies the username for the application.')
 param username string = 'paolo'
@@ -282,21 +268,22 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' = {
   identity: {
     type: 'SystemAssigned'
   }
+}
 
-  resource configAppSettings 'config' = {
-    name: 'appsettings'
-    properties: {
-      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-      AZURE_CLIENT_ID: azureClientId
-      AZURE_CLIENT_SECRET: azureClientSecret
-      AZURE_TENANT_ID: azureTenantId
-      AZURE_SUBSCRIPTION_ID: azureSubscriptionId
-      COSMOSDB_BASE_URL: account.properties.documentEndpoint
-      COSMOSDB_DATABASE_NAME: databaseName
-      COSMOSDB_COLLECTION_NAME: collectionName
-      USERNAME: username
-    }
+resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
+  parent: webApp
+  name: 'appsettings'
+  properties: {
+    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+    ENABLE_ORYX_BUILD: 'true'
+    COSMOSDB_CONNECTION_STRING: account.listConnectionStrings().connectionStrings[0].connectionString
+    COSMOSDB_DATABASE_NAME: databaseName
+    COSMOSDB_COLLECTION_NAME: collectionName
+    LOGIN_NAME: username
   }
+  dependsOn: [
+    collection
+  ]
 }
 
 resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){

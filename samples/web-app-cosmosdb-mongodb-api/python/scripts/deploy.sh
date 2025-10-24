@@ -15,14 +15,11 @@ INDEXES='[{"key":{"keys":["username"]}},{"key":{"keys":["activity"]}},{"key":{"k
 SHARD="username"
 THROUGHPUT=400
 RUNTIME="python"
-RUNTIME_VERSION="3.12"
-AZURE_CLIENT_ID="211c8652-a609-453a-bdb3-eda8405f5c4c"
-AZURE_CLIENT_SECRET="D768Q~WrZz6STebgsEu28-.sLQx2kEhTpmpnLcPw"
-AZURE_TENANT_ID="24083153-e8cb-43bf-a098-be24dc3668f7"
-AZURE_SUBSCRIPTION_ID="00000000-0000-0000-0000-000000000000"
-USERNAME="Paolo"
+RUNTIME_VERSION="3.13"
+LOGIN_NAME="Paolo"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -43,7 +40,7 @@ fi
 
 # Create a CosmosDB account with MongoDB kind
 echo "Creating [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group..."
-azlocal cosmosdb create \
+az cosmosdb create \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--locations regionName=$LOCATION \
@@ -59,7 +56,7 @@ else
 fi
 
 # Retrieve document endpoint
-DOCUMENT_ENDPOINT=$(azlocal cosmosdb show \
+DOCUMENT_ENDPOINT=$(az cosmosdb show \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "documentEndpoint" \
@@ -75,7 +72,7 @@ fi
 
 # Create MongoDB database
 echo "Creating [$MONGODB_DATABASE_NAME] MongoDB database in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account..."
-azlocal cosmosdb mongodb database create \
+az cosmosdb mongodb database create \
 	--account-name $COSMOSDB_ACCOUNT_NAME \
 	--name $MONGODB_DATABASE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
@@ -91,7 +88,7 @@ fi
 
 # Create a MongoDB database collection
 echo "Creating [$COLLECTION_NAME] collection in the [$MONGODB_DATABASE_NAME] MongoDB database..."
-azlocal cosmosdb mongodb collection create \
+az cosmosdb mongodb collection create \
 	--account-name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--database-name $MONGODB_DATABASE_NAME \
@@ -108,9 +105,25 @@ else
 	exit 1
 fi
 
+# List CosmosDB connection strings
+echo "Listing connection strings for CosmosDB account [$COSMOSDB_ACCOUNT_NAME]..."
+COSMOSDB_CONNECTION_STRING=$(azlocal cosmosdb keys list \
+	--name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--type connection-strings \
+	--query "connectionStrings[0].connectionString" \
+	--output tsv)
+
+if [ $? -eq 0 ]; then
+	echo "CosmosDB connection strings retrieved successfully."
+	echo "Connection String: $COSMOSDB_CONNECTION_STRING"
+else
+	echo "Failed to retrieve CosmosDB connection strings."
+fi
+
 # Create App Service Plan
 echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-azlocal appservice plan create \
+az appservice plan create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--location "$LOCATION" \
@@ -127,7 +140,7 @@ fi
 
 # Create the web app
 echo "Creating web app [$WEB_APP_NAME]..."
-azlocal webapp create \
+az webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
@@ -148,14 +161,10 @@ az functionapp config appsettings set \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
-	AZURE_CLIENT_ID="$AZURE_CLIENT_ID" \
-	AZURE_CLIENT_SECRET="$AZURE_CLIENT_SECRET" \
-	AZURE_TENANT_ID="$AZURE_TENANT_ID" \
-	AZURE_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID" \
-	COSMOSDB_BASE_URL="$DOCUMENT_ENDPOINT" \
+	COSMOSDB_CONNECTION_STRING="$COSMOSDB_CONNECTION_STRING" \
 	COSMOSDB_DATABASE_NAME="$MONGODB_DATABASE_NAME" \
 	COSMOSDB_COLLECTION_NAME="$COLLECTION_NAME" \
-	USERNAME="$USERNAME" \
+	LOGIN_NAME="$LOGIN_NAME" \
 	--only-show-errors 1> /dev/null
 
 if [ $? -eq 0 ]; then
@@ -178,12 +187,24 @@ echo "Creating zip package of the web app..."
 zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
 
 # Deploy the web app
-azlocal webapp deploy \
-  --resource-group "$RESOURCE_GROUP_NAME" \
-  --name "$WEB_APP_NAME" \
-  --src-path planner_website.zip \
-  --type zip \
-  --async true
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using az webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+fi
 
 # Remove the zip package of the web app
 rm "$ZIPFILE"

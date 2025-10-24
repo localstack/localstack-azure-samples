@@ -215,30 +215,8 @@ variable "repo_url" {
   }
 }
 
-variable "azure_client_id" {
-  description = "(Required) Specifies the Azure client ID for service principal authentication."
-  type        = string
-  sensitive   = true
-}
-
-variable "azure_client_secret" {
-  description = "(Required) Specifies the Azure client secret for service principal authentication."
-  type        = string
-  sensitive   = true
-}
-
-variable "azure_tenant_id" {
-  description = "(Required) Specifies the Azure tenant ID."
-  type        = string
-}
-
-variable "azure_subscription_id" {
-  description = "(Required) Specifies the Azure subscription ID."
-  type        = string
-}
-
-variable "username" {
-  description = "(Required) Specifies the username for the application."
+variable "login_name" {
+  description = "(Required) Specifies the login name for the application."
   type        = string
   default     = "paolo"
 }
