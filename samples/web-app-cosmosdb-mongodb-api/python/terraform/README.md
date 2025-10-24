@@ -169,14 +169,10 @@ resource "azurerm_linux_web_app" "example" {
 
   app_settings = {
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
-    AZURE_CLIENT_ID                = var.azure_client_id
-    AZURE_CLIENT_SECRET            = var.azure_client_secret
-    AZURE_TENANT_ID                = var.azure_tenant_id
-    AZURE_SUBSCRIPTION_ID          = var.azure_subscription_id
-    COSMOSDB_BASE_URL              = azurerm_cosmosdb_account.example.endpoint
+    COSMOSDB_CONNECTION_STRING     = azurerm_cosmosdb_account.example.primary_mongodb_connection_string
     COSMOSDB_DATABASE_NAME         = azurerm_cosmosdb_mongo_database.example.name
     COSMOSDB_COLLECTION_NAME       = var.cosmosdb_collection_name
-    USERNAME                       = var.username
+    LOGIN_NAME                     = var.login_name
   }
 
   lifecycle {

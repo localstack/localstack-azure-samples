@@ -1,29 +1,33 @@
 #!/bin/bash
 
+# Start azure CLI local mode session
+# az start_interception
+
 # Variables
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="local-rg"
+RESOURCE_GROUP_NAME="paolo-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
-SUBSCRIPTION_NAME=$(azlocal account show --query name --output tsv)
+SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-azlocal group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	azlocal group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1> /dev/null
@@ -43,12 +47,12 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		azlocal deployment group what-if \
+		az deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
-			--parameters \
-			location=$LOCATION
+			--parameters location=$LOCATION \
+			--only-show-errors
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -59,12 +63,12 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$(azlocal deployment group validate \
+		output=$(az deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
-			--parameters \
-			location=$LOCATION)
+			--parameters location=$LOCATION \
+			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -78,7 +82,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(azlocal deployment group create \
+if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -110,9 +114,10 @@ fi
 
 # Print the application settings of the web app
 echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
-azlocal webapp config appsettings list \
+az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME"
+
 
 # Change current directory to source folder
 cd "../src" || exit
@@ -127,12 +132,25 @@ echo "Creating zip package of the web app..."
 zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
 
 # Deploy the web app
-azlocal webapp deploy \
-  --resource-group "$RESOURCE_GROUP_NAME" \
-  --name "$WEB_APP_NAME" \
-  --src-path planner_website.zip \
-  --type zip \
-  --async true
+# Deploy the web app
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+fi
 
 # Remove the zip package of the web app
 rm "$ZIPFILE"
