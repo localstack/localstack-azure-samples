@@ -37,141 +37,223 @@ The system implements a complete gaming scoreboard with multiple Azure Functions
 
 ## Deployment Script 
 
-The [deploy.sh](deploy.sh) script creates resources and deploys the .NET application using native Azure CLI command. Let's analyze the script step by step. 
+The [deploy.sh](deploy.sh) script creates resources and deploys the .NET application using native Azure CLI command. 
 
-- Defines the variables used in the remainder of the script. It instructs LocalStack to intercept all Azure CLI calls so they go to our local environment instead of real Azure. Configures the function app to use .NET 9 with the isolated runtime model and establish a region for the resource group and the resources.
-   ```bash
-   # Start azure CLI local mode session
-   azlocal start_interception
+```bash
+#!/bin/bash
 
-   # Variables
-   PREFIX='local'
-   SUFFIX='test'
-   LOCATION='westeurope'
-   FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
-   STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
-   RESOURCE_GROUP_NAME="${PREFIX}-rg"
-   RUNTIME="DOTNET-ISOLATED"
-   RUNTIME_VERSION="9"
-   ```
+# Variables
+PREFIX='local'
+SUFFIX='test'
+LOCATION='westeurope'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
+APP_SERVICE_PLAN_SKU="S1"
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
+COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
+MONGODB_DATABASE_NAME="sampledb"
+COLLECTION_NAME="activities"
+INDEXES='[{"key":{"keys":["username"]}},{"key":{"keys":["activity"]}},{"key":{"keys":["timestamp"]}}]'
+SHARD="username"
+THROUGHPUT=400
+RUNTIME="python"
+RUNTIME_VERSION="3.13"
+LOGIN_NAME="Paolo"
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZIPFILE="planner_website.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-- Creates an Azure resource group that will serve as a logical container for all the resources in the gaming system.
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
 
-   ```bash
-   # Create a resource group
-   echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-   az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+# Create a resource group
+echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+az group create \
+	--name $RESOURCE_GROUP_NAME \
+	--location $LOCATION \
+	--only-show-errors 1> /dev/null
 
-   if [ $? -eq 0 ]; then
-      echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
-   else
-      echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-      exit 1
-   fi
-   ```
+if [ $? -eq 0 ]; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+else
+	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	exit 1
+fi
 
-- Creates an Azure Storage Account that will provide blob containers, queues, and tables for the gaming system.
+# Create a CosmosDB account with MongoDB kind
+echo "Creating [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group..."
+az cosmosdb create \
+	--name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--locations regionName=$LOCATION \
+	--kind MongoDB \
+	--default-consistency-level Session \
+	--only-show-errors 1> /dev/null
 
-   ```bash
-   # Create a storage account
-   echo "Creating storage account [$STORAGE_ACCOUNT_NAME]..."
-   az storage account create \
-      --name $STORAGE_ACCOUNT_NAME \
-      --location $LOCATION \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --sku Standard_LRS
+if [ $? -eq 0 ]; then
+	echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
 
-   if [ $? -eq 0 ]; then
-      echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully."
-   else
-      echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME]."
-      exit 1
-   fi
-   ```
+# Retrieve document endpoint
+DOCUMENT_ENDPOINT=$(az cosmosdb show \
+	--name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query "documentEndpoint" \
+	--output tsv \
+	--only-show-errors)
 
-- Retrieves the primary access key for the storage account, which will be used to authenticate storage operations throughout the application.
+if [ -n "$DOCUMENT_ENDPOINT" ]; then
+	echo "Document endpoint retrieved successfully: $DOCUMENT_ENDPOINT"
+else
+	echo "Failed to retrieve document endpoint."
+	exit 1
+fi
 
-   ```bash
-   # Get the storage account key
-   echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-   STORAGE_ACCOUNT_KEY=$(az storage account keys list \
-      --account-name $STORAGE_ACCOUNT_NAME \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --query "[0].value" \
-      --output tsv)
+# Create MongoDB database
+echo "Creating [$MONGODB_DATABASE_NAME] MongoDB database in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account..."
+az cosmosdb mongodb database create \
+	--account-name $COSMOSDB_ACCOUNT_NAME \
+	--name $MONGODB_DATABASE_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--output json \
+	--only-show-errors 1> /dev/null
 
-   if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-      echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
-   else
-      echo "Failed to retrieve storage account key."
-      exit 1
-   fi
-   ```
+if [ $? -eq 0 ]; then
+	echo "[$MONGODB_DATABASE_NAME] MongoDB database successfully created in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account"
+else
+	echo "Failed to create [$MONGODB_DATABASE_NAME] MongoDB database in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account"
+	exit 1
+fi
 
-- Creates the Azure Functions application with a consumption plan, configuring it to run on Linux with .NET isolated runtime and connects the function app to the newly created storage account.
+# Create a MongoDB database collection
+echo "Creating [$COLLECTION_NAME] collection in the [$MONGODB_DATABASE_NAME] MongoDB database..."
+az cosmosdb mongodb collection create \
+	--account-name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--database-name $MONGODB_DATABASE_NAME \
+	--name $COLLECTION_NAME \
+	--idx "$INDEXES" \
+	--shard $SHARD \
+	--throughput $THROUGHPUT \
+	--only-show-errors 1> /dev/null
 
-   ```bash
-   # Create the function app
-   echo "Creating function app [$FUNCTION_APP_NAME]..."
-   az functionapp create \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --consumption-plan-location $LOCATION \
-      --runtime $RUNTIME \
-      --runtime-version $RUNTIME_VERSION \
-      --functions-version 4 \
-      --name $FUNCTION_APP_NAME \
-      --os-type linux \
-      --storage-account $STORAGE_ACCOUNT_NAME 
-   ```
+if [ $? -eq 0 ]; then
+	echo "[$COLLECTION_NAME] collection successfully created in the [$MONGODB_DATABASE_NAME] MongoDB database"
+else
+	echo "Failed to create [$COLLECTION_NAME] collection in the [$MONGODB_DATABASE_NAME] MongoDB database"
+	exit 1
+fi
 
-- Constructs the Azure Storage connection string using the retrieved account key, formatted for LocalStack compatibility.
+# List CosmosDB connection strings
+echo "Listing connection strings for CosmosDB account [$COSMOSDB_ACCOUNT_NAME]..."
+COSMOSDB_CONNECTION_STRING=$(azlocal cosmosdb keys list \
+	--name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--type connection-strings \
+	--query "connectionStrings[0].connectionString" \
+	--output tsv)
 
-   ```bash
-   # Construct the storage connection string for LocalStack
-   STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-   ```
+if [ $? -eq 0 ]; then
+	echo "CosmosDB connection strings retrieved successfully."
+	echo "Connection String: $COSMOSDB_CONNECTION_STRING"
+else
+	echo "Failed to retrieve CosmosDB connection strings."
+fi
 
-- Configures the Function App with all necessary application settings, including storage connections and gaming system parameters such as player names.
+# Create App Service Plan
+echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
+az appservice plan create \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--location "$LOCATION" \
+	--sku "$APP_SERVICE_PLAN_SKU" \
+	--is-linux \
+	--only-show-errors 1> /dev/null
 
-   ```bash
-   # Set function app settings
-   echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
-   az functionapp config appsettings set \
-      --name $FUNCTION_APP_NAME \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --settings \
-      AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" \
-      STORAGE_ACCOUNT_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
-      WEBSITE_CONTENTAZUREFILECONNECTIONSTRING="$STORAGE_CONNECTION_STRING" \
-      INPUT_STORAGE_CONTAINER_NAME="input" \
-      OUTPUT_STORAGE_CONTAINER_NAME="output" \
-      INPUT_QUEUE_NAME="input" \
-      OUTPUT_QUEUE_NAME="output" \
-      TRIGGER_QUEUE_NAME="trigger" \
-      INPUT_TABLE_NAME="scoreboards" \
-      OUTPUT_TABLE_NAME="winners" \
-      PLAYER_NAMES="Paolo,John,Jane,Max,Mary,Leo,Mia,Anna,Lisa,Anastasia" \
-      TIMER_SCHEDULE="0 */1 * * * *" \
-      FUNCTIONS_WORKER_RUNTIME="dotnet-isolated"
-   ```
+if [ $? -eq 0 ]; then
+	echo "App Service Plan [$APP_SERVICE_PLAN_NAME] created successfully."
+else
+	echo "Failed to create App Service Plan [$APP_SERVICE_PLAN_NAME]."
+	exit 1
+fi
 
-- Deploys the compiled .NET application code to the Function App and cleans up the LocalStack session using the `funclocal` tool. For more information, see [funclocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/).
+# Create the web app
+echo "Creating web app [$WEB_APP_NAME]..."
+az webapp create \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--plan "$APP_SERVICE_PLAN_NAME" \
+	--name "$WEB_APP_NAME" \
+	--runtime "$RUNTIME:$RUNTIME_VERSION" \
+	--only-show-errors 1> /dev/null
 
-   ```bash
-   # CD into the function app directory
-   cd ../src/sample || exit
+if [ $? -eq 0 ]; then
+	echo "Web app [$WEB_APP_NAME] created successfully."
+else
+	echo "Failed to create web app [$WEB_APP_NAME]."
+	exit 1
+fi
 
-   # Publish the function app
-   echo "Publishing function app [$FUNCTION_APP_NAME]..."
-   funclocal azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
+# Set web app settings
+echo "Setting web app settings for [$WEB_APP_NAME]..."
+az functionapp config appsettings set \
+	--name $WEB_APP_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--settings \
+	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	COSMOSDB_CONNECTION_STRING="$COSMOSDB_CONNECTION_STRING" \
+	COSMOSDB_DATABASE_NAME="$MONGODB_DATABASE_NAME" \
+	COSMOSDB_COLLECTION_NAME="$COLLECTION_NAME" \
+	LOGIN_NAME="$LOGIN_NAME" \
+	--only-show-errors 1> /dev/null
 
-   # Stop azure CLI local mode session
-   azlocal stop_interception
-   ```
+if [ $? -eq 0 ]; then
+	echo "Web app settings for [$WEB_APP_NAME] set successfully."
+else
+	echo "Failed to set web app settings for [$WEB_APP_NAME]."
+	exit 1
+fi
+
+# Change current directory to source folder
+cd "../src" || exit
+
+# Remove any existing zip package of the web app
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
+
+# Create the zip package of the web app
+echo "Creating zip package of the web app..."
+zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
+
+# Deploy the web app
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using az webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+fi
+
+# Remove the zip package of the web app
+rm "$ZIPFILE"
+```
 
 > [!NOTE]
 > You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop_interception`.
-
 
 ## Deployment
 
