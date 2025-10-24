@@ -130,7 +130,7 @@ param reserved bool = true
 @description('Specifies whether the hosting plan is zone redundant.')
 param zoneRedundant bool = false
 
-@description('Specifies the language runtime used by the Web App App.')
+@description('Specifies the language runtime used by the Azure Functions App.')
 @allowed([
   'dotnet'
   'dotnet-isolated'
@@ -142,7 +142,7 @@ param zoneRedundant bool = false
 ])
 param runtimeName string
 
-@description('Specifies the target language version used by the Web App App.')
+@description('Specifies the target language version used by the Azure Functions App.')
 param runtimeVersion string
 
 @description('Specifies the kind of the hosting plan.')
@@ -161,10 +161,10 @@ param runtimeVersion string
 ])
 param webAppKind string = 'app,linux'
 
-@description('Specifies whether HTTPS is enforced for the Web App App.')
+@description('Specifies whether HTTPS is enforced for the Azure Functions App.')
 param httpsOnly bool = false
 
-@description('Specifies the minimum TLS version for the Web App App.')
+@description('Specifies the minimum TLS version for the Azure Functions App.')
 @allowed([
   '1.0'
   '1.1'
@@ -241,21 +241,7 @@ param collectionName string = 'activities'
 param dedicatedThroughput int = 400
 
 @description('Specifies a list of field names for which to create single-field indexes on the MongoDB collection.')
-param mongoDbIndexKeys array = ['username', 'activity', 'timestamp']
-
-@description('Specifies the Azure client ID for service principal authentication.')
-@secure()
-param azureClientId string
-
-@description('Specifies the Azure client secret for service principal authentication.')
-@secure()
-param azureClientSecret string
-
-@description('Specifies the Azure tenant ID.')
-param azureTenantId string
-
-@description('Specifies the Azure subscription ID.')
-param azureSubscriptionId string
+param mongoDbIndexKeys array = ['_id','username', 'activity', 'timestamp']
 
 @description('Specifies the username for the application.')
 param username string = 'paolo'
@@ -328,21 +314,22 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' = {
   identity: {
     type: 'SystemAssigned'
   }
+}
 
-  resource configAppSettings 'config' = {
-    name: 'appsettings'
-    properties: {
-      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-      AZURE_CLIENT_ID: azureClientId
-      AZURE_CLIENT_SECRET: azureClientSecret
-      AZURE_TENANT_ID: azureTenantId
-      AZURE_SUBSCRIPTION_ID: azureSubscriptionId
-      COSMOSDB_BASE_URL: account.properties.documentEndpoint
-      COSMOSDB_DATABASE_NAME: databaseName
-      COSMOSDB_COLLECTION_NAME: collectionName
-      USERNAME: username
-    }
+resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
+  parent: webApp
+  name: 'appsettings'
+  properties: {
+    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+    ENABLE_ORYX_BUILD: 'true'
+    COSMOSDB_CONNECTION_STRING: account.listConnectionStrings().connectionStrings[0].connectionString
+    COSMOSDB_DATABASE_NAME: databaseName
+    COSMOSDB_COLLECTION_NAME: collectionName
+    LOGIN_NAME: username
   }
+  dependsOn: [
+    collection
+  ]
 }
 
 resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
@@ -428,20 +415,14 @@ using 'main.bicep'
 param prefix = 'local'
 param suffix = 'test'
 param runtimeName = 'python'
-param runtimeVersion = '3.12.1'
-param azureClientId = '<your-azure-client-id>'
-param azureClientSecret = '<your-azure-client-secret>'
-param azureTenantId = '<your-azure-tenant-id>'
-param azureSubscriptionId = '<your-azure-subscription-id>'
+param runtimeVersion = '3.13'
 param databaseName = 'sampledb'
 param collectionName = 'activities'
 param username = 'paolo'
-param primaryRegion = 'eastus'
-param secondaryRegion = 'westus'
+param primaryRegion = 'westeurope'
+param secondaryRegion = 'northeurope'
 
 ```
-
-Replace the placeholder values (enclosed in `< >`) with your actual Azure credentials and desired resource names. This ensures Bicep provisions resources with the correct configuration for your environment.
 
 ## Deployment Script
 
@@ -450,30 +431,34 @@ Use the `deploy.sh` script to automate the provisioning of Azure resources and d
 ```bash
 #!/bin/bash
 
+# Start azure CLI local mode session
+# az start_interception
+
 # Variables
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="local-rg"
+RESOURCE_GROUP_NAME="paolo-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
-SUBSCRIPTION_NAME=$(azlocal account show --query name --output tsv)
+SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-azlocal group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	azlocal group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1> /dev/null
@@ -493,12 +478,12 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		azlocal deployment group what-if \
+		az deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
-			--parameters \
-			location=$LOCATION
+			--parameters location=$LOCATION \
+			--only-show-errors
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -509,12 +494,12 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$(azlocal deployment group validate \
+		output=$(az deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
-			--parameters \
-			location=$LOCATION)
+			--parameters location=$LOCATION \
+			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -528,7 +513,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(azlocal deployment group create \
+if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -560,9 +545,10 @@ fi
 
 # Print the application settings of the web app
 echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
-azlocal webapp config appsettings list \
+az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME"
+
 
 # Change current directory to source folder
 cd "../src" || exit
@@ -577,12 +563,25 @@ echo "Creating zip package of the web app..."
 zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
 
 # Deploy the web app
-azlocal webapp deploy \
-  --resource-group "$RESOURCE_GROUP_NAME" \
-  --name "$WEB_APP_NAME" \
-  --src-path planner_website.zip \
-  --type zip \
-  --async true
+# Deploy the web app
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+fi
 
 # Remove the zip package of the web app
 rm "$ZIPFILE"
@@ -647,7 +646,7 @@ After deployment, validate that all resources were created and configured correc
 
 1. Verify resource creation:
 
-   ```bash
+```bash
   # Check resource group
   azlocal group show \
   --name local-rg \
@@ -663,10 +662,10 @@ After deployment, validate that all resources were created and configured correc
   --name local-webapp-test \
   --resource-group local-rg \
   --output table
-   ```
+```
 2. Validate storage account:
 
-   ```bash
+```bash
   # Check Azure CosmosDB Account
   azlocal cosmosdb show \
   --name local-mongodb-test \
@@ -687,7 +686,7 @@ After deployment, validate that all resources were created and configured correc
   --account-name local-mongodb-test \
   --resource-group local-rg \
   --output table
-  ```
+```
 
 ## Cleanup
 
