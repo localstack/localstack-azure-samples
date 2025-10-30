@@ -173,9 +173,11 @@ Prerequisites
 Quick start
 1) Deploy against real Azure (eastus by default):
    bash ./scripts/deploy.sh --name-prefix mydemo
+   bash ./scripts/deploy_multi_origins.sh --name-prefix mydemo --prio-a 1 --prio-b 2 --weight-a 50 --weight-b 50
 
 2) Deploy against LocalStack emulator:
    bash ./scripts/deploy.sh --name-prefix mydemo --use-localstack
+   bash ./scripts/deploy_multi_origins.sh --name-prefix mydemo --use-localstack --prio-a 1 --prio-b 2 --weight-a 50 --weight-b 50
 
 The script will print:
 - Resource group name
