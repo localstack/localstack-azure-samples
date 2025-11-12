@@ -1,0 +1,507 @@
+# Azure CLI Deployment
+
+This directory includes Bash scripts designed for deploying and testing the sample Web App utilizing the `azlocal` CLI. For further details about the sample application, refer to the [Azure Web App with Azure SQL Database](../README.md).
+
+## Prerequisites
+
+Before deploying this solution, ensure you have the following tools installed:
+
+- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
+- [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
+- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [Python](https://www.python.org/downloads/): Python runtime (version 3.12 or above)
+- [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
+
+### Installing azlocal CLI
+
+The deployment script uses the `azlocal` CLI to work with LocalStack. Install it using:
+
+```bash
+pip install azlocal
+```
+
+For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
+
+## Architecture Overview
+
+This CLI deployment creates the following Azure resources using direct Azure CLI commands:
+
+1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all resources
+2. [Azure SQL Server](https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview): Logical server hosting one or more Azure SQL Databases.
+3. [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/): The `PlannerDB` database storing relational vacation activity data.
+4. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
+5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to Azure SQL Database.
+6. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
+
+The system implements a Vacation Planner web application that stores and retrieves activity data from Azure SQL Database. For more information, see [Azure Web App with Azure SQL Database](../README.md).
+
+## Deployment Script 
+
+You can use the `deploy.sh` script to automate the deployment of all Azure resources and the sample application in a single step, streamlining setup and reducing manual configuration.
+
+```bash
+#!/bin/bash
+
+PREFIX='local'
+SUFFIX='test'
+LOCATION='westeurope'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+SQL_SERVER_NAME="${PREFIX}-sqlserver-${SUFFIX}"
+FIREWALL_RULE_NAME="AllowAllIPs"
+ADMIN_USER='sqladmin'
+ADMIN_PASSWORD='P@ssw0rd1234!'
+DATABASE_USER_NAME='testuser'
+DATABASE_USER_PASSWORD='TestP@ssw0rd123'
+SQL_DATABASE_NAME='PlannerDB'
+APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
+APP_SERVICE_PLAN_SKU="S1"
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
+LOGIN_NAME="Paolo"
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZIPFILE="planner_website.zip"
+RUNTIME="python"
+RUNTIME_VERSION="3.13"
+DEPLOY_APP=1
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
+
+# Create a resource group
+echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+az group create \
+	--name $RESOURCE_GROUP_NAME \
+	--location $LOCATION \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+else
+	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	exit 1
+fi
+
+# Create a sql server
+echo "Checking if [$SQL_SERVER_NAME] sql server exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az sql server show \
+	--name $SQL_SERVER_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--only-show-errors &>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "[$SQL_SERVER_NAME] sql server already exists in the [$RESOURCE_GROUP_NAME] resource group. Exiting script."
+else
+	echo "[$SQL_SERVER_NAME] sql server does not exist in the [$RESOURCE_GROUP_NAME] resource group. Proceeding to create it."
+	echo "Creating [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group..."
+	az sql server create \
+		--name $SQL_SERVER_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--location $LOCATION \
+		--admin-user $ADMIN_USER \
+		--admin-password $ADMIN_PASSWORD \
+		--assign-identity \
+		--identity-type SystemAssigned \
+		--minimal-tls-version 1.2 \
+		--tags environment=test \
+		--only-show-errors 1>/dev/null
+
+	if [ $? == 0 ]; then
+		echo "[$SQL_SERVER_NAME] sql server successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group"
+		exit
+	fi
+fi
+
+# Add firewall rule to allow all local network addresses (for testing/development)
+echo "Creating firewall rule to allow all IP addresses..."
+az sql server firewall-rule create \
+	--name $FIREWALL_RULE_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--server $SQL_SERVER_NAME \
+	--start-ip-address 0.0.0.0 \
+	--end-ip-address 255.255.255.255 \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Firewall rule [AllowLocalNetwork] created successfully"
+else
+	echo "Failed to create firewall rule"
+	exit 1
+fi
+
+# Create database if it does not exist
+echo "Checking if [$SQL_DATABASE_NAME] database exists in the [$SQL_SERVER_NAME] sql server..."
+az sql db show \
+	--name $SQL_DATABASE_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--server $SQL_SERVER_NAME \
+	--only-show-errors &>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "[$SQL_DATABASE_NAME] database already exists in the [$SQL_SERVER_NAME] sql server."
+else
+	echo "Creating [$SQL_DATABASE_NAME] database with Provisioned compute model in the [$SQL_SERVER_NAME] sql server..."
+	az sql db create \
+		--name $SQL_DATABASE_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--server $SQL_SERVER_NAME \
+		--service-objective S0 \
+		--compute-model Provisioned \
+		--zone-redundant false \
+		--tags environment=test \
+		--only-show-errors 1>/dev/null
+
+	if [ $? == 0 ]; then
+		echo "[$SQL_DATABASE_NAME] database with Provisioned compute model successfully created in the [$SQL_SERVER_NAME] sql server"
+	else
+		echo "Failed to create [$SQL_DATABASE_NAME] with Provisioned compute model database in the [$SQL_SERVER_NAME] sql server"
+		exit 1
+	fi
+fi
+
+# Retrieve the fullyQualifiedDomainName of the SQL server
+echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
+SQL_SERVER_FQDN=$(az sql server show \
+	--name "$SQL_SERVER_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "fullyQualifiedDomainName" \
+	--output tsv)
+
+if [ -z "$SQL_SERVER_FQDN" ]; then
+	echo "Failed to retrieve the fullyQualifiedDomainName of the SQL server"
+	exit 1
+fi
+
+# Create server-level login
+echo "Creating login [$DATABASE_USER_NAME] at server level..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d master \
+	-U "$ADMIN_USER" \
+	-P "$ADMIN_PASSWORD" \
+	-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME') 
+			CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Login [$DATABASE_USER_NAME] created successfully"
+else
+	echo "Failed to create login [$DATABASE_USER_NAME]"
+	exit 1
+fi
+
+# Create database user
+echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$ADMIN_USER" \
+	-P "$ADMIN_PASSWORD" \
+	-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME') 
+      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+else
+	echo "Failed to create user [$DATABASE_USER_NAME]"
+	exit 1
+fi
+
+# Grant permissions including DDL rights
+echo "Granting permissions to [$DATABASE_USER_NAME]..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$ADMIN_USER" \
+	-P "$ADMIN_PASSWORD" \
+	-Q "ALTER ROLE db_datareader ADD MEMBER [$DATABASE_USER_NAME]; 
+			ALTER ROLE db_datawriter ADD MEMBER [$DATABASE_USER_NAME];
+			ALTER ROLE db_ddladmin ADD MEMBER [$DATABASE_USER_NAME];" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Permissions granted successfully to [$DATABASE_USER_NAME]"
+else
+	echo "Failed to grant permissions to [$DATABASE_USER_NAME]"
+	exit 1
+fi
+
+# Test connection
+echo "Testing connection with user [$DATABASE_USER_NAME]..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$DATABASE_USER_NAME" \
+	-P "$DATABASE_USER_PASSWORD" \
+	-Q "SELECT SYSTEM_USER AS CurrentUser, DB_NAME() AS CurrentDatabase, GETDATE() AS CurrentTime;" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Connection test successful with user [$DATABASE_USER_NAME]"
+else
+	echo "Connection test failed with user [$DATABASE_USER_NAME]"
+	exit 1
+fi
+
+# Create table
+echo "Creating test [Products] table..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$DATABASE_USER_NAME" \
+	-P "$DATABASE_USER_PASSWORD" \
+	-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
+		CREATE TABLE dbo.Activities (
+			-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
+			id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
+
+			-- Username field
+			username VARCHAR(32) NOT NULL,
+
+			-- Description of the activity
+			activity VARCHAR(128) NOT NULL,
+
+			-- Timestamp of the activity
+			timestamp DATETIME NOT NULL
+		);" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Test [Activities] table created successfully"
+else
+	echo "Failed to create test [Activities] table"
+	exit 1
+fi
+
+# Insert data
+echo "Inserting test data into [Activities] table..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$DATABASE_USER_NAME" \
+	-P "$DATABASE_USER_PASSWORD" \
+	-Q "INSERT INTO Activities (username, activity, timestamp) 
+			VALUES 
+			('paolo', 'Go to Paris', GETDATE()),
+			('paolo', 'Go to London', GETDATE()),
+			('paolo', 'Go to Mexico', GETDATE());" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Test data inserted successfully into [Activities] table"
+else
+	echo "Failed to insert test data into [Activities] table"
+	exit 1
+fi
+
+# Query data
+echo "Querying test data from [Activities] table..."
+sqlcmd -S "$SQL_SERVER_FQDN" \
+	-d "$SQL_DATABASE_NAME" \
+	-U "$DATABASE_USER_NAME" \
+	-P "$DATABASE_USER_PASSWORD" \
+	-Q "SELECT * FROM Activities;" \
+	-V 1
+
+if [ $? -eq 0 ]; then
+	echo "Test data queried successfully from [Activities] table"
+else
+	echo "Failed to query test data from [Activities] table"
+	exit 1
+fi
+
+# Create App Service Plan
+echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
+az appservice plan create \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--location "$LOCATION" \
+	--sku "$APP_SERVICE_PLAN_SKU" \
+	--is-linux \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "App Service Plan [$APP_SERVICE_PLAN_NAME] created successfully."
+else
+	echo "Failed to create App Service Plan [$APP_SERVICE_PLAN_NAME]."
+	exit 1
+fi
+
+# Create the web app
+echo "Creating web app [$WEB_APP_NAME]..."
+az webapp create \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--plan "$APP_SERVICE_PLAN_NAME" \
+	--name "$WEB_APP_NAME" \
+	--runtime "$RUNTIME:$RUNTIME_VERSION" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Web app [$WEB_APP_NAME] created successfully."
+else
+	echo "Failed to create web app [$WEB_APP_NAME]."
+	exit 1
+fi
+
+# Set web app settings
+echo "Setting web app settings for [$WEB_APP_NAME]..."
+az webapp config appsettings set \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--settings \
+	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	ENABLE_ORYX_BUILD='true' \
+	SQL_SERVER="$SQL_SERVER_FQDN" \
+	SQL_DATABASE="$SQL_DATABASE_NAME" \
+	SQL_USERNAME="$DATABASE_USER_NAME" \
+	SQL_PASSWORD="$DATABASE_USER_PASSWORD" \
+	LOGIN_NAME="$LOGIN_NAME" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Web app settings for [$WEB_APP_NAME] set successfully."
+else
+	echo "Failed to set web app settings for [$WEB_APP_NAME]."
+	exit 1
+fi
+
+if [[ $DEPLOY_APP -eq 0 ]]; then
+	echo "Skipping web app deployment as DEPLOY_APP flag is set to 0."
+	exit 0
+fi
+
+# Change current directory to source folder
+cd "../src" || exit
+
+# Remove any existing zip package of the web app
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
+
+# Create the zip package of the web app
+echo "Creating zip package of the web app..."
+zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements.txt
+
+# Deploy the web app
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using az webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
+fi
+
+if [ $? -eq 0 ]; then
+	echo "Web app [$WEB_APP_NAME] created successfully."
+else
+	echo "Failed to create web app [$WEB_APP_NAME]."
+	exit 1
+fi
+
+# Remove the zip package of the web app
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
+```
+
+> [!NOTE]
+> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop_interception`.
+
+## Deployment
+
+You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
+
+```bash
+docker pull localstack/localstack-azure-alpha
+```
+
+Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+
+```bash
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+```
+
+Navigate to the `scripts` folder:
+
+```bash
+cd samples/web-app-sql-database/python/scripts
+```
+
+Make the script executable:
+
+```bash
+chmod +x deploy.sh
+```
+
+Run the deployment script:
+
+```bash
+./deploy.sh
+```
+
+## Validation
+
+After deployment, validate that all resources were created and configured correctly:
+
+```bash
+# Check resource group
+azlocal group show \
+--name local-rg \
+--output table
+
+# List resources
+azlocal resource list \
+--resource-group local-rg \
+--output table
+
+# Check Azure Web App
+azlocal webapp show \
+--name local-webapp-test \
+--resource-group local-rg \
+--output table
+```
+Validate Azure SQL Database:
+
+```bash
+# Check Azure SQL Server
+azlocal sql server show \
+--name local-sqlserver-test \
+--resource-group local-rg \
+--output table
+
+# Check Azure SQL Database
+azlocal sql db show \
+--name PlannerDB \
+--server local-sqlserver-test \
+--resource-group local-rg \
+--output table
+```
+
+## Cleanup
+
+To destroy all created resources:
+
+```bash
+# Delete resource group and all contained resources
+az group delete --name local-rg --yes --no-wait
+
+# Verify deletion
+az group list --output table
+```
+
+This will remove all Azure resources created by the CLI deployment script.
+
+## Related Documentation
+
+- [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
+- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)

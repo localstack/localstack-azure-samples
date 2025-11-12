@@ -1,6 +1,6 @@
 # Bicep Deployment
 
-This directory contains the Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. Refer to the [Azure Web App with CosmosDB for MongoDB](../README.md) guide for details about the sample application.
+This directory contains the Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Web App with Azure CosmosDB for MongoDB](../README.md).
 
 ## Prerequisites
 
@@ -9,10 +9,10 @@ Before deploying this solution, ensure you have the following tools installed:
 - [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
-- [.NET SDK](https://dotnet.microsoft.com/en-us/download): Required for building and publishing the C# Web App application
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [Python](https://www.python.org/downloads/): Python runtime (version 3.12 or above)
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
 ### Installing azlocal CLI
@@ -130,7 +130,7 @@ param reserved bool = true
 @description('Specifies whether the hosting plan is zone redundant.')
 param zoneRedundant bool = false
 
-@description('Specifies the language runtime used by the Azure Functions App.')
+@description('Specifies the language runtime used by the Azure Web App.')
 @allowed([
   'dotnet'
   'dotnet-isolated'
@@ -142,7 +142,7 @@ param zoneRedundant bool = false
 ])
 param runtimeName string
 
-@description('Specifies the target language version used by the Azure Functions App.')
+@description('Specifies the target language version used by the Azure Web App.')
 param runtimeVersion string
 
 @description('Specifies the kind of the hosting plan.')
@@ -161,10 +161,10 @@ param runtimeVersion string
 ])
 param webAppKind string = 'app,linux'
 
-@description('Specifies whether HTTPS is enforced for the Azure Functions App.')
+@description('Specifies whether HTTPS is enforced for the Azure Web App.')
 param httpsOnly bool = false
 
-@description('Specifies the minimum TLS version for the Azure Functions App.')
+@description('Specifies the minimum TLS version for the Azure Web App.')
 @allowed([
   '1.0'
   '1.1'
@@ -426,13 +426,13 @@ param secondaryRegion = 'northeurope'
 
 ## Deployment Script
 
-Use the `deploy.sh` script to automate the provisioning of Azure resources and deployment of the Azure Web App.
+You can use the `deploy.sh` script to automate the deployment of all Azure resources and the sample application in a single step, streamlining setup and reducing manual configuration.
 
 ```bash
 #!/bin/bash
 
 # Start azure CLI local mode session
-# az start_interception
+az start_interception
 
 # Variables
 TEMPLATE="main.bicep"
@@ -584,7 +584,9 @@ else
 fi
 
 # Remove the zip package of the web app
-rm "$ZIPFILE"
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
 ```
 
 > **Note**  
@@ -599,7 +601,7 @@ The `deploy.sh` script executes the following steps:
 - Runs the `main.bicep` template to create all the Azure resources.
 - Collects important information from the deployment (like resource names) for later use.
 - Uses jq (a JSON tool) to extract the names of resources we just created.
-- Shows us all the settings that got applied to the Function App.
+- Shows us all the settings that got applied to the Web App.
 - Removes previous build artifacts for consistency.
 - Creates zip archive in format expected by Web App.
 - Uploads pre-built application package to the newly created Web App app.
@@ -609,83 +611,81 @@ The `deploy.sh` script executes the following steps:
 
 ## Deployment
 
-1. You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
+You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
 
-   ```bash
-   docker pull localstack/localstack-azure-alpha
-   ```
+```bash
+docker pull localstack/localstack-azure-alpha
+```
 
-2. Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure-alpha localstack start
-   ```
+```bash
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+```
 
-3. Navigate to the scripts directory
+Navigate to the `bicep` folder:
 
-   ```bash
-   cd samples/function-app-and-storage/dotnet/bicep
-   ```
+```bash
+cd samples/web-app-cosmosdb-mongodb-api/python/bicep
+```
 
-4. Make the script executable:
+Make the script executable:
 
-   ```bash
-   chmod +x deploy.sh
-   ```
+```bash
+chmod +x deploy.sh
+```
 
-5. Run the deployment script:
+Run the deployment script:
 
-   ```bash
-   ./deploy.sh
-   ```
+```bash
+./deploy.sh
+```
 
 ## Validation
 
 After deployment, validate that all resources were created and configured correctly:
 
-1. Verify resource creation:
-
 ```bash
-  # Check resource group
-  azlocal group show \
-  --name local-rg \
-  --output table
-  
-  # List resources
-  azlocal resource list \
-  --resource-group local-rg \
-  --output table
-  
-  # Check Azure Web App
-  azlocal webapp show \
-  --name local-webapp-test \
-  --resource-group local-rg \
-  --output table
+# Check resource group
+azlocal group show \
+--name local-rg \
+--output table
+
+# List resources
+azlocal resource list \
+--resource-group local-rg \
+--output table
+
+# Check Azure Web App
+azlocal webapp show \
+--name local-webapp-test \
+--resource-group local-rg \
+--output table
 ```
-2. Validate storage account:
+Validate Azure CosmosDB account:
 
 ```bash
-  # Check Azure CosmosDB Account
-  azlocal cosmosdb show \
-  --name local-mongodb-test \
-  --resource-group local-rg \
-  --output table
+# Check Azure CosmosDB account
+azlocal cosmosdb show \
+--name local-mongodb-test \
+--resource-group local-rg \
+--output table
 
-  # Check MongoDB database
-  azlocal cosmosdb mongodb database show \
-  --name sampledb \
-  --account-name local-mongodb-test \
-  --resource-group local-rg \
-  --output table
+# Check MongoDB database
+azlocal cosmosdb mongodb database show \
+--name sampledb \
+--account-name local-mongodb-test \
+--resource-group local-rg \
+--output table
 
-  # Check MongoDB collection
-  azlocal cosmosdb mongodb collection show \
-  --name activities \
-  --database-name sampledb \
-  --account-name local-mongodb-test \
-  --resource-group local-rg \
-  --output table
+# Check MongoDB collection
+azlocal cosmosdb mongodb collection show \
+--name activities \
+--database-name sampledb \
+--account-name local-mongodb-test \
+--resource-group local-rg \
+--output table
 ```
 
 ## Cleanup
@@ -706,5 +706,4 @@ This will remove all Azure resources created by the CLI deployment script.
 
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
-- [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
 - [LocalStack for Azure Documentation](https://azure.localstack.cloud/)

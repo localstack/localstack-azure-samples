@@ -84,7 +84,7 @@ param reserved bool = true
 @description('Specifies whether the hosting plan is zone redundant.')
 param zoneRedundant bool = false
 
-@description('Specifies the language runtime used by the Azure Functions App.')
+@description('Specifies the language runtime used by the Azure Web App.')
 @allowed([
   'dotnet'
   'dotnet-isolated'
@@ -96,7 +96,7 @@ param zoneRedundant bool = false
 ])
 param runtimeName string
 
-@description('Specifies the target language version used by the Azure Functions App.')
+@description('Specifies the target language version used by the Azure Web App.')
 param runtimeVersion string
 
 @description('Specifies the kind of the hosting plan.')
@@ -115,10 +115,10 @@ param runtimeVersion string
 ])
 param webAppKind string = 'app,linux'
 
-@description('Specifies whether HTTPS is enforced for the Azure Functions App.')
+@description('Specifies whether HTTPS is enforced for the Azure Web App.')
 param httpsOnly bool = false
 
-@description('Specifies the minimum TLS version for the Azure Functions App.')
+@description('Specifies the minimum TLS version for the Azure Web App.')
 @allowed([
   '1.0'
   '1.1'
