@@ -153,4 +153,6 @@ else
 fi
 
 # Remove the zip package of the web app
-rm "$ZIPFILE"
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi

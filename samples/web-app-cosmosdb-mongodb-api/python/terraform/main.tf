@@ -1,5 +1,6 @@
 # Local Variables
 locals {
+  resource_group_name   = "${var.prefix}-rg"
   cosmosdb_account_name = "${var.prefix}-mongodb-${var.suffix}"
   app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
   web_app_name          = "${var.prefix}-webapp-${var.suffix}"
@@ -7,8 +8,8 @@ locals {
 
 # Create a resource group
 resource "azurerm_resource_group" "example" {
+  name     = local.resource_group_name
   location = var.location
-  name     = var.resource_group_name
   tags     = var.tags
 }
 

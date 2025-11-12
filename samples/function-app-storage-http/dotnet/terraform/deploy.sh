@@ -1,18 +1,27 @@
 #!/bin/bash
 
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
 # Start azure CLI local mode session
 azlocal start_interception
 
-# Delete any existing terraform state and plan files
-rm -f terraform.tfstate terraform.tfstate.backup tfplan
+# Run terraform init and apply
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using tflocal for LocalStack emulator environment."
+	TERRAFORM_CMD="tflocal"
+else
+	echo "Using standard terraform for AzureCloud environment."
+	TERRAFORM_CMD="terraform"
+fi
 
 # Run terraform init and apply
 echo "Initializing Terraform..."
-tflocal init -upgrade
+$TERRAFORM_CMD init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-tflocal plan -out=tfplan
+$TERRAFORM_CMD plan -out=tfplan
 
 if [[ $? != 0 ]]; then
 		echo "Terraform plan failed. Exiting."

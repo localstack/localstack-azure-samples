@@ -1,5 +1,5 @@
 output "resource_group_name" {
-  value = azurerm_resource_group.example.name
+  value = local.resource_group_name
 }
 
 output "cosmosdb_account_name" {
@@ -18,6 +18,6 @@ output "web_app_name" {
   value = azurerm_linux_web_app.example.name
 }
 
-output "function_app_url" {
-  value = "https://${azurerm_linux_web_app.example.name}.azurewebsites.net"
+output "web_app_url" {
+  value = azurerm_linux_web_app.example.default_hostname
 }

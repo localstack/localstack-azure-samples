@@ -1,6 +1,6 @@
 # Terraform Deployment
 
-This directory contains Terraform modules and a deployment script for provisioning Azure services in LocalStack for Azure. Refer to the [Azure Web App with CosmosDB for MongoDB](../README.md) guide for details about the sample application.
+This directory contains Terraform modules and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Web App with Azure CosmosDB for MongoDB](../README.md).
 
 ## Prerequisites
 
@@ -9,10 +9,10 @@ Before deploying this solution, ensure you have the following tools installed:
 - [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads): Infrastructure as Code tool for provisioning Azure resources
-- [.NET SDK](https://dotnet.microsoft.com/en-us/download): Required for building and publishing the C# Azure Functions application
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [Python](https://www.python.org/downloads/): Python runtime (version 3.12 or above)
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
 ### Installing azlocal CLI
@@ -53,6 +53,7 @@ Below you can read the declarative code in HashiCorp Configuration Language (HCL
 ```terraform
 # Local Variables
 locals {
+  resource_group_name   = "${var.prefix}-rg"
   cosmosdb_account_name = "${var.prefix}-mongodb-${var.suffix}"
   app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
   web_app_name          = "${var.prefix}-webapp-${var.suffix}"
@@ -60,8 +61,8 @@ locals {
 
 # Create a resource group
 resource "azurerm_resource_group" "example" {
+  name     = local.resource_group_name
   location = var.location
-  name     = var.resource_group_name
   tags     = var.tags
 }
 
@@ -195,28 +196,43 @@ resource "azurerm_app_service_source_control" "example" {
 
 ## Deployment Script
 
-You can use the `deploy.sh` script to automate the deployment of all Azure resources and the .NET Azure Functions application in a single step, streamlining setup and reducing manual configuration.
+You can use the `deploy.sh` script to automate the deployment of all Azure resources and the sample application in a single step, streamlining setup and reducing manual configuration.
 
 ```bash
 #!/bin/bash
 
 # Variables
+PREFIX='local'
+SUFFIX='test'
+LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Delete any existing terraform state and plan files
-rm -f terraform.tfstate terraform.tfstate.backup tfplan
+# Start azure CLI local mode session
+# azlocal start_interception
 
 # Run terraform init and apply
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using tflocal for LocalStack emulator environment."
+	TERRAFORM_CMD="tflocal"
+else
+	echo "Using standard terraform for AzureCloud environment."
+	TERRAFORM_CMD="terraform"
+fi
+
 echo "Initializing Terraform..."
-tflocal init -upgrade
+$TERRAFORM_CMD init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-tflocal plan -out=tfplan
+$TERRAFORM_CMD plan -out=tfplan \
+	-var="prefix=$PREFIX" \
+	-var="suffix=$SUFFIX" \
+	-var="location=$LOCATION"
 
 if [[ $? != 0 ]]; then
 		echo "Terraform plan failed. Exiting."
@@ -253,15 +269,29 @@ echo "Creating zip package of the web app..."
 zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
 
 # Deploy the web app
-azlocal webapp deploy \
-  --resource-group "$RESOURCE_GROUP_NAME" \
-  --name "$WEB_APP_NAME" \
-  --src-path planner_website.zip \
-  --type zip \
-  --async true
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal webapp deploy command for LocalStack emulator environment."
+	azlocal webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+else
+	echo "Using standard az webapp deploy command for AzureCloud environment."
+	az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true
+fi
 
 # Remove the zip package of the web app
-rm "$ZIPFILE"
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
 ```
 
 > **Note**  
@@ -282,98 +312,89 @@ The `deploy.sh` script executes the following steps:
 Before deploying the Terraform modules, update the `terraform.tfvars` file with your specific values:
 
 ```hcl
-resource_group_name      = "local-rg"
 location                 = "westeurope"
-azure_client_id          = "<your-azure-client-id>"
-azure_client_secret      = "<your-azure-client-secret>"
-azure_tenant_id          = "<your-azure-tenant-id>"
-azure_subscription_id    = "<your-azure-subscription-id>"
 cosmosdb_database_name   = "sampledb"
 cosmosdb_collection_name = "activities"
 ```
 
-Replace the placeholder values (enclosed in `< >`) with your actual Azure credentials and desired resource names. This ensures Terraform provisions resources with the correct configuration for your environment.
-
 ## Deployment
 
-1. You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
+You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
 
-   ```bash
-   docker pull localstack/localstack-azure-alpha
-   ```
+```bash
+docker pull localstack/localstack-azure-alpha
+```
 
-2. Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure-alpha localstack start
-   ```
+```bash
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+```
 
-3. Navigate to the scripts directory
+Navigate to the `terraform` folder:
 
-   ```bash
-   cd samples/function-app-and-storage/dotnet/terraform
-   ```
+```bash
+cd samples/web-app-cosmosdb-mongodb-api/python/terraform
+```
 
-4. Make the script executable:
+Make the script executable:
 
-   ```bash
-   chmod +x deploy.sh
-   ```
+```bash
+chmod +x deploy.sh
+```
 
-5. Run the deployment script:
+Run the deployment script:
 
-   ```bash
-   ./deploy.sh
-   ```
+```bash
+./deploy.sh
+```
 
 ## Validation
 
 After deployment, validate that all resources were created and configured correctly:
 
-1. Verify resource creation:
+```bash
+# Check resource group
+azlocal group show \
+--name local-rg \
+--output table
 
-   ```bash
-   # Check resource group
-   azlocal group show \
-    --name local-rg \
-    --output table
-   
-   # List resources
-   azlocal resource list \
-    --resource-group local-rg \
-    --output table
-   
-   # Check Azure Web App
-   azlocal webapp show \
-    --name local-webapp-test \
-    --resource-group local-rg \
-    --output table
-   ```
-2. Validate storage account:
+# List resources
+azlocal resource list \
+--resource-group local-rg \
+--output table
 
-   ```bash
-   # Check Azure CosmosDB Account
-   azlocal cosmosdb show \
-    --name local-mongodb-test \
-    --resource-group local-rg \
-    --output table
+# Check Azure Web App
+azlocal webapp show \
+--name local-webapp-test \
+--resource-group local-rg \
+--output table
+```
+Validate Azure CosmosDB account:
 
-   # Check MongoDB database
-   azlocal cosmosdb mongodb database show \
-    --name sampledb \
-    --account-name local-mongodb-test \
-    --resource-group local-rg \
-    --output table
+```bash
+# Check Azure CosmosDB account
+azlocal cosmosdb show \
+--name local-mongodb-test \
+--resource-group local-rg \
+--output table
 
-   # Check MongoDB collection
-   azlocal cosmosdb mongodb collection show \
-    --name activities \
-    --database-name sampledb \
-    --account-name local-mongodb-test \
-    --resource-group local-rg \
-    --output table
-   ```
+# Check MongoDB database
+azlocal cosmosdb mongodb database show \
+--name sampledb \
+--account-name local-mongodb-test \
+--resource-group local-rg \
+--output table
+
+# Check MongoDB collection
+azlocal cosmosdb mongodb collection show \
+--name activities \
+--database-name sampledb \
+--account-name local-mongodb-test \
+--resource-group local-rg \
+--output table
+```
 
 ## Cleanup
 
@@ -391,6 +412,5 @@ This will remove all Azure resources created by the CLI deployment script.
 
 ## Related Documentation
 
-- [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
 - [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest)
 - [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
