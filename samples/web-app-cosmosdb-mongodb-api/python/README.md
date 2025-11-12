@@ -1,14 +1,6 @@
-# Azure Web App with CosmosDB for MongoDB
+# Azure Web App with Azure CosmosDB for MongoDB
 
 This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in the `activities` collection of the `sampledb` MongoDB database on an [Azure CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction) account.
-
-## Overview
-
-The solution implements a vacation planning workflow that:
-
- - Hosts a Flask web app enabling users to browse and manage vacation activities
- - Persists activity data in a MongoDB database on Azure CosmosDB
- - Demonstrates cloud-native architecture using Azure PaaS services
 
 ## Architecture
 
@@ -37,9 +29,9 @@ The Vacation Planner Web App supports two secure approaches for accessing the Mo
 1. **Using an Azure CosmosDB account connection string**: Specify the MongoDB connection string in the `COSMOSDB_CONNECTION_STRING` environment variable.
 2. **Using Microsoft Entra ID service principal credentials**: Specify the service principal credentials in your environment using the following environment variables:
 
- - [AZURE_CLIENT_ID](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet): The client (application) ID of an App Registration in the Microsoft Entra ID Tenant.
- - [AZURE_CLIENT_SECRET](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet):
- - [AZURE_TENANT_ID](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet): The Microsoft Entra Tenant ID.
+ - [AZURE_CLIENT_ID](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.environmentcredential): The service principal's client ID.
+ - [AZURE_CLIENT_SECRET](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.environmentcredential): One of the service principal's client secrets.
+ - [AZURE_TENANT_ID](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.environmentcredential): The Microsoft Entra Tenant ID.
 
 This flexibility allows the app to run securely in Azure or in emulated environments like [LocalStack for Azure](https://azure.localstack.cloud/). The client code supports both authentication modes using [`ClientSecretCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.clientsecretcredential?view=azure-python) or [`DefaultAzureCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python) from the Azure SDK.
 
@@ -137,24 +129,24 @@ If you deploy the sample application using any of the following deployment metho
 
 ## Deployment
 
-1. Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the image, execute:
+Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the image, execute:
 
-   ```bash
-   docker pull localstack/localstack-azure-alpha
+```bash
+docker pull localstack/localstack-azure-alpha
+```
+
+Start the LocalStack Azure emulator by running:
+
+```bash
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start
    ```
 
-2. Start the LocalStack Azure emulator by running:
+Deploy the application to LocalStack for Azure using one of these methods:
 
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure-alpha localstack start
-   ```
-
-3. Deploy the application to LocalStack for Azure using one of these methods:
-
-    - [Azure CLI Deployment](./scripts/README.md)
-    - [Bicep Deployment](./bicep/README.md)
-    - [Terraform Deployment](./terraform/README.md)
+- [Azure CLI Deployment](./scripts/README.md)
+- [Bicep Deployment](./bicep/README.md)
+- [Terraform Deployment](./terraform/README.md)
 
 > **Note**  
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process involves downloading and building Docker images. This is a one-time operation—subsequent deployments will be significantly faster. Depending on your internet connection and system resources, this initial setup may take several minutes.
@@ -172,6 +164,7 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 1. **Through the LocalStack for Azure emulator**: Call the web app via the emulator using its default host name. The emulator acts as a proxy to the web app.
 2. **Via localhost and host port mapped to the container's port**: Use `127.0.0.1` with the host port mapped to the container's port `80`.
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the web app from the Docker host machine.
+4. **Via Runtime Gateway**: Use the `{web_app_name}website.localhost.localstack.cloud:4566` URL to call the web app via the LocalStack runtime gateway.
 
 ```bash
 #!/bin/bash
@@ -293,8 +286,6 @@ call_web_app() {
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	player_name='Leo'
-	game_session='1'
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
@@ -358,9 +349,84 @@ call_web_app() {
 	else
 		echo "Failed to retrieve host port"
 	fi
+
+	gateway_port=4566
+
+	if [ -n "$gateway_port" ]; then
+		# Call the web app via the runtime gateway
+		echo "Calling web app [$web_app_name] via runtime gateway on port [$gateway_port]..."
+		curl -s "http://${web_app_name}website.localhost.localstack.cloud:$gateway_port/" 1> /dev/null
+
+		if [ $? == 0 ]; then
+			echo "Web app call via runtime gateway on port [$gateway_port] succeeded."
+		else
+			echo "Web app call via runtime gateway on port [$gateway_port] failed."
+		fi
+	else
+		echo "Failed to retrieve runtime gateway port"
+	fi
 }
 
 call_web_app
+```
+
+## MongoDB Tooling
+
+You can utilize [MongoDB Compass](https://www.mongodb.com/try/download/compass) to explore and manage your MongoDB databases and collections. Ensure you connect using `mongodb://localhost:port` connection string, where `port` corresponds to the port published by the MongoDB container on the host and mapped to the internal MongoDB port `27017`.
+
+![MongoDB Compass](./images/mongodb-compass.png)
+
+Alternatively, you can use the [MongoDB Shell](https://www.mongodb.com/docs/mongodb-shell/) to interact with and administer your MongoDB instance, as shown in the following table:
+
+```bash
+~$ mongosh mongodb://localhost:32770
+Current Mongosh Log ID: 6914588406320f60899dc29c
+Connecting to:          mongodb://localhost:32770/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+2.5.9
+Using MongoDB:          8.0.15
+Using Mongosh:          2.5.9
+
+For mongosh info see: https://www.mongodb.com/docs/mongodb-shell/
+
+------
+   The server generated these startup warnings when booting
+   2025-11-12T09:28:07.726+00:00: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine. See http://dochub.mongodb.org/core/prodnotes-filesystem
+   2025-11-12T09:28:07.892+00:00: Access control is not enabled for the database. Read and write access to data and configuration is unrestricted
+   2025-11-12T09:28:07.892+00:00: For customers running the current memory allocator, we suggest changing the contents of the following sysfsFile
+   2025-11-12T09:28:07.892+00:00: We suggest setting the contents of sysfsFile to 0.
+   2025-11-12T09:28:07.892+00:00: vm.max_map_count is too low
+   2025-11-12T09:28:07.892+00:00: We suggest setting swappiness to 0 or 1, as swapping can cause performance problems.
+------
+
+test> show dbs
+admin     100.00 KiB
+config    108.00 KiB
+local      40.00 KiB
+sampledb  180.00 KiB
+test> use sampledb
+switched to db sampledb
+sampledb> show collections
+activities
+sampledb> db.activities.find().pretty()
+[
+  {
+    _id: '39ab62c2aaa0015ed5309876053e4146',
+    username: 'Paolo',
+    activity: 'Go to Paris',
+    timestamp: '2025-11-12T09:31:43.338268'
+  },
+  {
+    _id: '4fb8f53442d3ebe9167245f9555bac51',
+    username: 'Paolo',
+    activity: 'Go to Madrid',
+    timestamp: '2025-11-12T09:31:50.109456'
+  },
+  {
+    _id: '84646160cb1db21a7083b4c5b6e2d9d0',
+    username: 'Paolo',
+    activity: 'Go to Rome',
+    timestamp: '2025-11-12T09:32:21.781936'
+  }
+]
 ```
 
 ## References
