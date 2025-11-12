@@ -29,7 +29,7 @@ echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 az group create \
 	--name $RESOURCE_GROUP_NAME \
 	--location $LOCATION \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
@@ -46,7 +46,7 @@ az cosmosdb create \
 	--locations regionName=$LOCATION \
 	--kind MongoDB \
 	--default-consistency-level Session \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
@@ -77,7 +77,7 @@ az cosmosdb mongodb database create \
 	--name $MONGODB_DATABASE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--output json \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "[$MONGODB_DATABASE_NAME] MongoDB database successfully created in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account"
@@ -96,7 +96,7 @@ az cosmosdb mongodb collection create \
 	--idx "$INDEXES" \
 	--shard $SHARD \
 	--throughput $THROUGHPUT \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "[$COLLECTION_NAME] collection successfully created in the [$MONGODB_DATABASE_NAME] MongoDB database"
@@ -129,7 +129,7 @@ az appservice plan create \
 	--location "$LOCATION" \
 	--sku "$APP_SERVICE_PLAN_SKU" \
 	--is-linux \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "App Service Plan [$APP_SERVICE_PLAN_NAME] created successfully."
@@ -145,7 +145,7 @@ az webapp create \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
 	--runtime "$RUNTIME:$RUNTIME_VERSION" \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Web app [$WEB_APP_NAME] created successfully."
@@ -156,7 +156,7 @@ fi
 
 # Set web app settings
 echo "Setting web app settings for [$WEB_APP_NAME]..."
-az functionapp config appsettings set \
+az webapp config appsettings set \
 	--name $WEB_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
@@ -165,7 +165,7 @@ az functionapp config appsettings set \
 	COSMOSDB_DATABASE_NAME="$MONGODB_DATABASE_NAME" \
 	COSMOSDB_COLLECTION_NAME="$COLLECTION_NAME" \
 	LOGIN_NAME="$LOGIN_NAME" \
-	--only-show-errors 1> /dev/null
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Web app settings for [$WEB_APP_NAME] set successfully."
@@ -195,7 +195,7 @@ if [[ $ENVIRONMENT == "LocalStack" ]]; then
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 else
 	echo "Using standard az webapp deploy command for AzureCloud environment."
 	az webapp deploy \
@@ -203,8 +203,10 @@ else
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 fi
 
 # Remove the zip package of the web app
-rm "$ZIPFILE"
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi

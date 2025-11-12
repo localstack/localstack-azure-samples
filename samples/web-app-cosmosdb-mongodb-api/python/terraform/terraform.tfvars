@@ -1,8 +1,3 @@
-resource_group_name      = "local-rg"
 location                 = "westeurope"
-azure_client_id          = "<azure-client-id>"
-azure_client_secret      = "<azure-client-secret>"
-azure_tenant_id          = "<azure-tenant-id>"
-azure_subscription_id    = "<azure-subscription-id>"
 cosmosdb_database_name   = "sampledb"
 cosmosdb_collection_name = "activities"
