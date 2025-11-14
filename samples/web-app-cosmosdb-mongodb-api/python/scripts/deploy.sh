@@ -9,14 +9,15 @@ APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
 APP_SERVICE_PLAN_SKU="S1"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
+MONGODB_API_VERSION="7.0"
 MONGODB_DATABASE_NAME="sampledb"
 COLLECTION_NAME="activities"
-INDEXES='[{"key":{"keys":["username"]}},{"key":{"keys":["activity"]}},{"key":{"keys":["timestamp"]}}]'
+INDEXES='[{"key":{"keys":["_id"]}},{"key":{"keys":["username"]}},{"key":{"keys":["activity"]}},{"key":{"keys":["timestamp"]}}]'
 SHARD="username"
 THROUGHPUT=400
 RUNTIME="python"
 RUNTIME_VERSION="3.13"
-LOGIN_NAME="Paolo"
+LOGIN_NAME="paolo"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
@@ -45,6 +46,7 @@ az cosmosdb create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--locations regionName=$LOCATION \
 	--kind MongoDB \
+	--server-version $MONGODB_API_VERSION \
 	--default-consistency-level Session \
 	--only-show-errors 1>/dev/null
 
@@ -107,7 +109,7 @@ fi
 
 # List CosmosDB connection strings
 echo "Listing connection strings for CosmosDB account [$COSMOSDB_ACCOUNT_NAME]..."
-COSMOSDB_CONNECTION_STRING=$(azlocal cosmosdb keys list \
+COSMOSDB_CONNECTION_STRING=$(az cosmosdb keys list \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--type connection-strings \
@@ -161,6 +163,7 @@ az webapp config appsettings set \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	ENABLE_ORYX_BUILD='true' \
 	COSMOSDB_CONNECTION_STRING="$COSMOSDB_CONNECTION_STRING" \
 	COSMOSDB_DATABASE_NAME="$MONGODB_DATABASE_NAME" \
 	COSMOSDB_COLLECTION_NAME="$COLLECTION_NAME" \
@@ -184,7 +187,11 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
+
+# List the contents of the zip package
+echo "Contents of the zip package [$ZIPFILE]:"
+unzip -l "$ZIPFILE"
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
