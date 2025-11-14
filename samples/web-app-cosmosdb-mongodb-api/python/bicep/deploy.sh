@@ -4,9 +4,11 @@
 # az start_interception
 
 # Variables
+PREFIX='local'
+SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="paolo-rg"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -52,6 +54,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
 			--parameters location=$LOCATION \
+			prefix=$PREFIX \
+			suffix=$SUFFIX \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -68,6 +72,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
 			--parameters location=$LOCATION \
+			prefix=$PREFIX \
+			suffix=$SUFFIX \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -88,6 +94,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters location=$LOCATION \
+	prefix=$PREFIX \
+	suffix=$SUFFIX \
 	--query 'properties.outputs' -o json); then
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
 	echo "$DEPLOYMENT_OUTPUTS" | jq .
@@ -118,7 +126,6 @@ az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME"
 
-
 # Change current directory to source folder
 cd "../src" || exit
 
@@ -129,7 +136,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
 
 # Deploy the web app
 # Deploy the web app
@@ -141,7 +148,7 @@ if [[ $ENVIRONMENT == "LocalStack" ]]; then
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 else
 	echo "Using standard az webapp deploy command for AzureCloud environment."
 	az webapp deploy \
@@ -149,7 +156,7 @@ else
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 fi
 
 # Remove the zip package of the web app

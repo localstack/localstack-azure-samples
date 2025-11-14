@@ -1,10 +1,10 @@
-"""Flask application for managing vacation activities using Azure Cosmos DB."""
+"""Flask application for managing vacation activities using MongoDB."""
 import os
 import datetime
 import logging
 from typing import List, Tuple
 from flask import Flask, render_template, request, redirect, url_for
-from cosmosdb import CosmosDBClient
+from mongodb import MongoDbClient
 import hashlib
 
 # Initialize Flask application
@@ -27,8 +27,8 @@ logging.getLogger('werkzeug').setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Global variables for Azure and Cosmos DB configuration
-cosmosdb_client: CosmosDBClient
+# Global variables for MongoDB configuration
+mongodb_client: MongoDbClient
 
 debug: bool = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 activities: List[Tuple[int, str]] = []
@@ -52,13 +52,13 @@ def create_document(activity: str | None = None) -> dict:
     }
 
 def read_documents(username: str | None = None) -> List[dict]:
-    """Read all documents from the Cosmos DB collection."""
+    """Read all documents from the MongoDB collection."""
     documents = []
     try:
-        if cosmosdb_client:
+        if mongodb_client:
             activities.clear()
             query = {'username': username} if username else {}
-            for document in cosmosdb_client.read_documents(query=query):
+            for document in mongodb_client.read_documents(query=query):
                 documents.append(document)
                 activities.append((document["_id"], document["activity"]))
     except (ConnectionError, ValueError, KeyError) as e:
@@ -67,17 +67,32 @@ def read_documents(username: str | None = None) -> List[dict]:
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    """Handle the main page for viewing and adding activities."""    
+    """Handle the main page for viewing and adding activities."""
+    # Get edit data from query parameters (if any)
+    edit_id = request.args.get('edit_id')
+    edit_activity = request.args.get('edit_activity')
+    
     if request.method == 'POST':
         activity = request.form.get('activity')
         if activity:
             try:
-                # Create a document with the activity provided
-                document: dict = create_document(activity)
-                cosmosdb_client.insert_document(document)
+                row_id = request.form.get('row_id')
+                if row_id:
+                    # Update existing activity
+                    if not row_id.strip():
+                        raise ValueError("Row ID cannot be None or empty")
 
-                # Append the activity to the activities list
-                activities.append((document["_id"], activity))
+                    updated_activity = mongodb_client.update_document_by_id(row_id, {"activity": activity})
+                    if updated_activity:
+                        logger.info(f"Activity updated: {row_id}")
+                else:
+                    # Create a document with the activity provided
+                    document: dict = create_document(activity)
+                    mongodb_client.insert_document(document)
+
+                    # Append the activity to the activities list
+                    activities.append((document["_id"], activity))
+                    logger.info(f"Activity added: {activity}")
 
             except (ConnectionError, ValueError) as e:
                 logger.error("Error creating document: %s", e)
@@ -87,38 +102,55 @@ def index():
     # Always reload activities from Cosmos DB on GET (refresh)
     read_documents(username)
 
-    return render_template('index.html', activities=activities, username=username)
+    return render_template('index.html', activities=activities, username=username, edit_id=edit_id, edit_activity=edit_activity)
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve the favicon from the static folder."""
+    return app.send_static_file('favicon.ico')
 
 @app.route('/delete/<int:activity_id>', methods=['POST'])
 def delete(activity_id: int):
     """Handle deletion of an activity by its index."""
     if 0 <= activity_id < len(activities):
-        # Delete the document from Cosmos DB
-        cosmosdb_client.delete_document_by_id(activities[activity_id][0])
+        # Delete the document from MongoDB
+        mongodb_client.delete_document_by_id(activities[activity_id][0])
+
+    return redirect(url_for('index'))
+
+@app.route('/update/<int:activity_id>', methods=['GET'])
+def update(activity_id: int):
+    """Handle updating of an activity by its index in the list."""
+    try:
+        if 0 <= activity_id < len(activities):
+            db_activity_id = activities[activity_id][0]
+            activity_text = activities[activity_id][1]
+            # Redirect to index with edit parameters
+            return redirect(url_for('index', edit_id=db_activity_id, edit_activity=activity_text))
+    except (ConnectionError, ValueError) as e:
+        logger.error("Error preparing activity for update: %s", e)
 
     return redirect(url_for('index'))
 
 # Read debug environment variable
 debug = os.environ.get("DEBUG", "false").lower() == "true"
 
-# Initialize the application and Azure services when the module is loaded.
+# Initialize the application and MongoDB client when the module is loaded.
 # This ensures that the setup runs regardless of how the app is started
 # (e.g., via 'flask run' or directly).
-cosmosdb_client = CosmosDBClient.from_env()
+mongodb_client = MongoDbClient.from_env()
 
 # Get username from form or environment variable
-username = os.environ.get("USERNAME", "paolo")
+username = os.environ.get("LOGIN_NAME", "paolo")
 
 # Validate username
 if not username or not username.strip():
     raise ValueError("Username cannot be None or empty")
 
-if cosmosdb_client:
-    # Read documents from Cosmos DB to populate the activities list
+if mongodb_client:
+    # Read documents from MongoDB to populate the activities list
     read_documents(username)
 
 # Run the Flask application
 if __name__ == '__main__':
     app.run(debug=debug)
-
-    

@@ -20,6 +20,7 @@ resource "azurerm_cosmosdb_account" "example" {
   location                   = azurerm_resource_group.example.location
   offer_type                 = "Standard"
   kind                       = "MongoDB"
+  mongo_server_version        = var.mongodb_server_version
   automatic_failover_enabled = false
   tags                       = var.tags
 
