@@ -1,7 +1,7 @@
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "local"
+  default     = "terraform"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2
@@ -36,6 +36,26 @@ variable "secondary_region" {
   description = "(Required) Specifies the secondary region for the Azure Cosmos DB account."
   type        = string
   default     = "northeurope"
+}
+
+variable "mongodb_server_version" {
+  description = "(Optional) Specifies the version of MongoDB API for the Azure Cosmos DB account."
+  type        = string
+  default     = "7.0"
+
+  validation {
+    condition = contains([
+      "3.2",
+      "3.6",
+      "4.0",
+      "4.2",
+      "5.0",
+      "6.0",
+      "7.0",
+      "8.0"
+    ], var.mongodb_server_version)
+    error_message = "The mongodb_server_version must be one of the supported versions: 3.2, 3.6, 4.0, 4.2, 5.0, 6.0, 7.0, 8.0."
+  }
 }
 
 variable "consistency_level" {

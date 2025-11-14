@@ -164,9 +164,15 @@ param defaultConsistencyLevel string = 'Eventual'
   '3.6'
   '4.0'
   '4.2'
+  '5.0'
+  '6.0'
+  '7.0'
+  '8.0'
 ])
+
+
 @description('Specifies the Cosmos DB server version to use.')
-param serverVersion string = '4.2'
+param serverVersion string = '7.0'
 
 @minValue(10)
 @maxValue(2147483647)
