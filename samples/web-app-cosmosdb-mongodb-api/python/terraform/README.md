@@ -73,6 +73,7 @@ resource "azurerm_cosmosdb_account" "example" {
   location                   = azurerm_resource_group.example.location
   offer_type                 = "Standard"
   kind                       = "MongoDB"
+  mongo_server_version        = var.mongodb_server_version
   automatic_failover_enabled = false
   tags                       = var.tags
 
@@ -241,7 +242,7 @@ fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
-tflocal apply -auto-approve tfplan
+$TERRAFORM_CMD apply -auto-approve tfplan
 
 if [[ $? != 0 ]]; then
 		echo "Terraform apply failed. Exiting."
@@ -266,7 +267,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py cosmosdb.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
@@ -277,7 +278,7 @@ if [[ $ENVIRONMENT == "LocalStack" ]]; then
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 else
 	echo "Using standard az webapp deploy command for AzureCloud environment."
 	az webapp deploy \
@@ -285,7 +286,7 @@ else
 		--name "$WEB_APP_NAME" \
 		--src-path "$ZIPFILE" \
 		--type zip \
-		--async true
+		--async true 1>/dev/null
 fi
 
 # Remove the zip package of the web app
