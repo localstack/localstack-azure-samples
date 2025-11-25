@@ -1,209 +1,264 @@
 Function App + Azure Front Door (az CLI)
 
-This sample creates a minimal Python Azure Function App that responds to /{name} and configures Azure Front Door (Standard SKU) to route traffic to it. It can target real Azure or LocalStack’s Azure emulation via azlocal interception.
+This sample creates a minimal Python Azure Function App that responds to /{name} with "hello {name}", and configures Azure Front Door (Standard SKU) to route traffic to it. It provides bash scripts that can target either real Azure or LocalStack’s Azure emulation via azlocal interception.
 
-- scripts/deploy_all.sh: One script that provisions all scenarios below in a single resource group:
-  1) Basic single-origin routing
-  2) Multiple origins with priority/weight selection
-  3) Route specificity/precedence
-  4) Rules Engine demo (three rules: response header, rewrite, redirect)
-  5) Endpoint enabled/disabled state toggle
-- scripts/cleanup_all.sh: Deletes the resource group created by deploy_all.sh.
-
-Architecture at a glance (diagrams)
------------------------------------
-The following diagrams visualize each scenario provisioned by `deploy_all.sh`. They help you see the wiring between AFD endpoints, routes, origin groups/origins, and the Function App(s).
-
-- Basic single‑origin
-  
-  ![Basic single-origin](./images/basic.png)
-  
-  What to notice: one Endpoint → one Route (`/*`) → one Origin Group → one Origin → Function App.
-
-- Multi‑origin (priority/weight)
-  
-  ![Multi-origin (priority/weight)](./images/nulti.png)
-  
-  What to notice: two Origins in a single Origin Group with explicit `priority` and `weight`. A group‑level health probe (HEAD /, 120s) gates origin eligibility; selection prefers the lowest priority and distributes by weight among equally prioritized healthy origins.
-
-- Route specificity
-  
-  ![Route specificity](./images/spec.png)
-  
-  What to notice: two Routes on the same Endpoint and Origin Group: a catch‑all (`/*`) and a specific (`/john`). The most specific matching route should be chosen by the data plane.
-
-- Rules engine
-  
-  ![Rules engine](./images/rules.png)
-  
-  What to notice: a Route with an attached Rule Set (three rules):
-  - Rule 1: ModifyResponseHeader on GET → `X‑CDN: MSFT`
-  - Rule 2: UrlRewrite when path begins with `/api` → `/`
-  - Rule 3: UrlRedirect when path begins with `/old` → `/new` (302 Found)
-
-- Endpoint enabled/disabled state
-  
-  ![Endpoint enabled/disabled state](./images/disabled_state.png)
-  
-  What to notice: the Endpoint’s `enabled-state` can be toggled; when Disabled, requests should return a 4xx (e.g., 403). Re‑enabling restores normal behavior.
-
-Notes for LocalStack runs:
-- The printed test URLs use `*.afd.localhost.localstack.cloud:4566` for AFD and `*website.localhost.localstack.cloud:4566` for the Function App, so requests flow through the emulator’s edge.
+Contents
+- scripts/deploy.sh: Creates RG, Storage Account, Linux Consumption Python Function App v4, deploys the function via zip, and sets up Azure Front Door profile, endpoint, origin group, origin, and route.
+- scripts/cleanup.sh: Deletes the resource group created by the deployment.
+- function/: Minimal Python HTTP-trigger function app (host.json removes /api prefix; route is /{name}).
 
 Prerequisites
 - Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
 - Azure CLI installed and logged in (az login) for real Azure
-- Optional: azlocal (LocalStack’s Azure interception helper) in PATH to target the emulator
-- zip utility in PATH (used for zip deploy to Azure)
-- For LocalStack: funclocal and Azure Functions Core Tools ('func') for publishing
+- Optional: azlocal (LocalStack’s Azure interception helper) in PATH if you want to target the emulator
+- zip utility available in PATH (used for zip deploy)
 
 Quick start
 1) Deploy against real Azure (eastus by default):
-   bash ./scripts/deploy_all.sh --name-prefix mydemo
+   bash ./scripts/deploy.sh --name-prefix mydemo
 
 2) Deploy against LocalStack emulator:
-   bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack
+   bash ./scripts/deploy.sh --name-prefix mydemo --use-localstack
 
-The script prints:
+The script will print:
 - Resource group name
-- AFD endpoint hostnames for each scenario and sample URLs (e.g., https://<endpoint>.z01.azurefd.net/john)
+- Function default hostname and a sample URL to test (e.g., https://<func>.azurewebsites.net/john)
+- AFD endpoint hostname and a sample URL to test (e.g., https://<endpoint>.z01.azurefd.net/john)
 
 Cleanup
-- Delete the resource group created by the deploy script:
-  bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env
-  or
-  bash ./scripts/cleanup_all.sh --resource-group <rg-name>
-
-Scenarios deployed by deploy_all.sh
-1) Basic single-origin
-   - One Function App, one AFD endpoint with a catch‑all route.
-   - Test URL: printed as [Basic] in the output.
-
-2) Multiple origins (priority/weight)
-   - Two Function Apps (A primary, B secondary by default), one origin group with priorities/weights.
-   - Call repeatedly to observe distribution; the function response includes "from <WEBSITE_HOSTNAME>" to visualize selected origin.
-
-3) Route specificity
-   - One endpoint with two routes pointing to the same origin group: catch‑all ('/*') and a specific ['/john'] route.
-   - Compare responses for /john vs other paths.
-
-4) Rules Engine demo
-   - Creates a Rule Set with three rules and attaches it to the route:
-     • ModifyResponseHeader on GET: sets header `X-CDN: MSFT`
-     • UrlRewrite: when UrlPath begins with `/api`, rewrites to `/`
-     • UrlRedirect: when UrlPath begins with `/old`, redirects (302 Found) to `/new`
-   - If the `az afd rule-set`/`az afd rule` commands are unavailable, the script skips rule creation gracefully.
-
-5) Endpoint enabled/disabled state
-   - Provisions a dedicated endpoint you can toggle with:
-     az afd endpoint update -g <RG> --profile-name <PROFILE> --endpoint-name <ENDPOINT> --enabled-state Disabled
-     az afd endpoint update -g <RG> --profile-name <PROFILE> --endpoint-name <ENDPOINT> --enabled-state Enabled
-
-Unified scripts details
-=======================
-
-deploy_all.sh (what it provisions/tests)
-- Creates one AFD Profile and up to five Endpoints (one per scenario):
-  - Basic: single origin, catch‑all route
-  - Multi: two origins in one origin group with priority/weight and a HEAD health probe
-  - Spec: two routes on one endpoint to demonstrate route specificity (`/*` vs `/john`)
-  - Rules: a rules engine Rule Set attached to the endpoint’s route (three rules listed above)
-  - State: an endpoint to toggle Enabled/Disabled
-- Creates the necessary Function App(s): one main app for Basic/Spec/Rules/State, and two apps (A/B) for Multi.
-- Publishes the function code (zip deploy for Azure; `funclocal` + `func` for LocalStack).
-- Prints convenient test URLs for each scenario.
-- Writes an environment file for cleanup at: `scripts/.last_deploy_all.env`.
-
-deploy_all.sh (how to run)
-- Azure (cloud):
-  - `bash ./scripts/deploy_all.sh --name-prefix mydemo`
-- LocalStack (emulator):
-  - `bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack`
-- Useful flags:
-  - `-p, --name-prefix`: base name used for resources (auto-sanitized to lowercase/digits)
-  - `-l, --location`: Azure region (default: eastus)
-  - `-g, --resource-group`: use a specific RG instead of an auto-generated one
-  - `--python-version`: Python runtime for Function Apps (default: 3.11)
-  - `--use-localstack`: target LocalStack via azlocal interception and publish via funclocal/func
-  - Scenario toggles (all enabled by default): `--no-basic`, `--no-multi`, `--no-spec`, `--no-rules`, `--no-state`
-
-deploy_all.sh (outputs to expect)
-- Resource group name, e.g., `rg-<prefix>-<suffix>`
-- Scenario endpoints (Azure or LocalStack hosts) and example URLs, e.g.:
-  - `[Rules] AFD Local Endpoint:   https://ep-<prefix>-rules-<suffix>.afd.localhost.localstack.cloud:4566/john`
-- For LocalStack runs, the function host and AFD local endpoint names will use `*.localhost.localstack.cloud:4566`.
-- The script also writes `scripts/.last_deploy_all.env` with variables like:
-  - `RESOURCE_GROUP`, `PROFILE_NAME`, `EP_BASIC`, `EP_MULTI`, `EP_SPEC`, `EP_RULES`, `EP_STATE`, `FUNC_MAIN`, `FUNC_A`, `FUNC_B`.
-  - The Rules Engine rule set name follows the pattern `rs<prefix><suffix>` (alphanumeric), which can be derived from `PROFILE_NAME`:
-    - Example in bash: `BASE="${PROFILE_NAME#afd-}"; RULE_SET="rs${BASE//-/}"`
-
-cleanup_all.sh (what it does)
-- Deletes the entire resource group created by `deploy_all.sh` using `az group delete --no-wait`.
-- Supports two ways to specify the resource group:
-  1) `--env-file ./scripts/.last_deploy_all.env` (recommended after a fresh deploy)
-  2) `-g/--resource-group <rg-name>`
-- Supports `--use-localstack` to intercept the az CLI for emulator cleanup.
-
-cleanup_all.sh (how to run)
-- Using the env file created by the deploy:
-  - `bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env`
-- Passing RG explicitly:
-  - `bash ./scripts/cleanup_all.sh --resource-group rg-<prefix>-<suffix>`
-- LocalStack cleanup:
-  - add `--use-localstack` to either command above.
-
-Verifying the Rules Engine scenario quickly (LocalStack)
-- Assume you ran with `--name-prefix mydemo` and got `ep-mydemo-rules-12345`:
-```
-HOST="https://ep-mydemo-rules-12345.afd.localhost.localstack.cloud:4566"
-
-# 1) ModifyResponseHeader on GET → expect X-CDN: MSFT
-curl -i "$HOST/" | grep -i "^X-CDN:\s*MSFT" || echo "Header X-CDN not present"
-
-# 2) UrlRewrite for /api → /
-curl -i "$HOST/api" | head -n 1
-
-# 3) UrlRedirect for /old → /new
-curl -i -L "$HOST/old" | head -n 5
-```
-
-Deploy to Azure (cloud) and test
-1) Sign in/select subscription:
-   - az login
-   - az account set --subscription "<SUBSCRIPTION_ID_OR_NAME>"
-
-2) Run deployment (avoid --use-localstack):
-   - cd samples/function-app-front-door/python
-   - bash ./scripts/deploy_all.sh --name-prefix mydemo --location eastus
-
-3) Note the printed outputs (resource group and endpoints) and test as instructed. Allow 2–10 minutes for AFD readiness.
-
-If you closed the terminal and need hostnames later
-- Function host:
-  az functionapp show -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --query defaultHostName -o tsv
-- AFD endpoint hostname:
-  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <ENDPOINT_NAME> --query hostName -o tsv
-- List resources by RG:
-  - Function Apps: az functionapp list -g <RESOURCE_GROUP> --query "[].{name:name,host:defaultHostName}"
-  - AFD profiles:  az afd profile list -g <RESOURCE_GROUP> --query "[].name"
-  - AFD endpoints: az afd endpoint list -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --query "[].{name:name,host:hostName}"
-
-Common notes and troubleshooting
-- Windows users: use Git Bash or WSL to run bash scripts.
-- Authentication: the function trigger is Anonymous; no keys required.
-- The function returns plain text and echoes WEBSITE_HOSTNAME to help testing multi-origins.
-- Application Insights: disabled by default via --disable-app-insights.
-- Azure deploy uses zip deploy; LocalStack uses funclocal + func publish.
-- AFD readiness: 2–10 minutes typical; check provisioning state:
-  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <ENDPOINT_NAME> --query provisioningState -o tsv
-- Region/runtime: change with --location/--python-version in deploy_all.sh.
-
-Cleanup
-- Delete all resources by removing the resource group (non-blocking delete):
-  - Using env file: `bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env`
-  - Or directly:    `bash ./scripts/cleanup_all.sh --resource-group <rg-name>`
+- Delete all resources by removing the resource group:
+  bash ./scripts/cleanup.sh --resource-group <rg-name>
 
 Notes
 - Azure Front Door is a global resource; the script uses Standard_AzureFrontDoor SKU and links the route to the default domain of the endpoint.
 - The function removes the /api prefix so you can call /john directly.
 - The deployment uses zip deploy; because the function has no heavy dependencies, it should work without additional build steps. If you add dependencies that require native builds, consider using the Azure Functions Core Tools for publishing.
+
+Function App + Azure Front Door (az CLI)
+
+This sample creates a minimal Python Azure Function App that responds to /{name} with "hello {name}", and configures Azure Front Door (Standard SKU) to route traffic to it. It provides bash scripts that can target either real Azure or LocalStack’s Azure emulation via azlocal interception.
+
+Contents
+- scripts/deploy.sh: Creates RG, Storage Account, Linux Consumption Python Function App v4, deploys the function via zip, and sets up Azure Front Door profile, endpoint, origin group, origin, and route.
+- scripts/cleanup.sh: Deletes the resource group created by the deployment.
+- function/: Minimal Python HTTP-trigger function app (host.json removes /api prefix; route is /{name}).
+
+Prerequisites
+- Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
+- Azure CLI installed and logged in (az login) for real Azure
+- Optional: azlocal (LocalStack’s Azure interception helper) in PATH if you want to target the emulator
+- zip utility available in PATH (used for zip deploy)
+
+Quick start
+1) Deploy against real Azure (eastus by default):
+   bash ./scripts/deploy.sh --name-prefix mydemo
+
+2) Deploy against LocalStack emulator:
+   bash ./scripts/deploy.sh --name-prefix mydemo --use-localstack
+
+The script will print:
+- Resource group name
+- Function default hostname and a sample URL to test (e.g., https://<func>.azurewebsites.net/john)
+- AFD endpoint hostname and a sample URL to test (e.g., https://<endpoint>.z01.azurefd.net/john)
+
+Deploy to Azure (cloud) and test both endpoints
+1) Sign in and select subscription (if needed):
+   - az login
+   - az account set --subscription "<SUBSCRIPTION_ID_OR_NAME>"
+
+2) Run the deployment (avoid --use-localstack to target real Azure):
+   - cd samples/function-app-front-door
+   - bash ./scripts/deploy.sh --name-prefix mydemo --location eastus
+
+3) Note the outputs printed by the script:
+   - Resource Group: rg-mydemo-<suffix>
+   - Function Host:  <func>.azurewebsites.net
+   - Test Function:  https://<func>.azurewebsites.net/john
+   - AFD Endpoint:   <endpoint>.z01.azurefd.net (may take a few minutes to become active)
+   - Test via AFD:   https://<endpoint>.z01.azurefd.net/john
+
+4) Test the Function endpoint directly (immediate):
+   - Browser: open the "Test Function" URL
+   - curl:   curl -i https://<func>.azurewebsites.net/john
+   Expected response body:  hello john
+
+5) Test via Azure Front Door (allow a few minutes for readiness):
+   - AFD endpoints and routes can take 2–10 minutes to fully propagate.
+   - Retry the AFD test URL after a short wait:
+     curl -i https://<endpoint>.z01.azurefd.net/john
+   Expected response body:  hello john
+
+If you closed the terminal and need to rediscover hostnames
+- Get the Function default hostname:
+  az functionapp show -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --query defaultHostName -o tsv
+
+- Get the AFD endpoint hostname:
+  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <AFD_ENDPOINT_NAME> --query hostName -o tsv
+
+- If you don’t recall names, list them under the resource group:
+  - Function Apps: az functionapp list -g <RESOURCE_GROUP> --query "[].{name:name,host:defaultHostName}"
+  - AFD profiles:  az afd profile list -g <RESOURCE_GROUP> --query "[].name"
+  - AFD endpoints: az afd endpoint list -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --query "[].{name:name,host:hostName}"
+
+Common notes and troubleshooting
+- Windows users: use Git Bash or WSL to run the bash scripts.
+- Authentication: the function trigger is Anonymous; no keys required.
+- Hostnames: the function is reachable at https://<func>.azurewebsites.net; the AFD default is https://<endpoint>.z01.azurefd.net.
+- Application Insights: Azure CLI may auto-provision Application Insights for a new Function App. This sample explicitly disables it by passing --disable-app-insights to az functionapp create. If you want Application Insights, remove that flag and optionally provide --app-insights <NAME> or --app-insights-key <INSTRUMENTATION_KEY>.
+- Zip deploy reliability: the script explicitly sets WEBSITE_RUN_FROM_PACKAGE=1, FUNCTIONS_WORKER_RUNTIME=python, and SCM_DO_BUILD_DURING_DEPLOYMENT=false prior to deployment. If a transient zip deployment error occurs, simply run the deploy script again.
+- AFD readiness: 2–10 minutes is typical; 15+ minutes in rare cases. You can check status:
+  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <AFD_ENDPOINT_NAME> --query provisioningState -o tsv
+- Region and runtime: change with --location and --python-version flags in deploy.sh if needed.
+
+Cleanup
+- Delete all resources by removing the resource group (non-blocking delete):
+  bash ./scripts/cleanup.sh --resource-group <rg-name>
+
+Notes
+- Azure Front Door is a global resource; the script uses Standard_AzureFrontDoor SKU and links the route to the default domain of the endpoint.
+- The function removes the /api prefix so you can call /john directly.
+- The deployment uses zip deploy; because the function has no heavy dependencies, it should work without additional build steps. If you add dependencies that require native builds, consider using the Azure Functions Core Tools for publishing.
+
+Function App + Azure Front Door (az CLI)
+
+This sample creates a minimal Python Azure Function App that responds to /{name} with "hello {name}", and configures Azure Front Door (Standard SKU) to route traffic to it. It provides bash scripts that can target either real Azure or LocalStack’s Azure emulation via azlocal interception.
+
+Contents
+- scripts/deploy.sh: Creates RG, Storage Account, Linux Consumption Python Function App v4, deploys the function via zip, and sets up Azure Front Door profile, endpoint, origin group, origin, and route.
+- scripts/cleanup.sh: Deletes the resource group created by the deployment.
+- function/: Minimal Python HTTP-trigger function app (host.json removes /api prefix; route is /{name}).
+
+Prerequisites
+- Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
+- Azure CLI installed and logged in (az login) for real Azure
+- Optional: azlocal (LocalStack’s Azure interception helper) in PATH if you want to target the emulator
+- zip utility available in PATH (used for zip deploy)
+
+Quick start
+1) Deploy against real Azure (eastus by default):
+   bash ./scripts/deploy.sh --name-prefix mydemo
+
+2) Deploy against LocalStack emulator:
+   bash ./scripts/deploy.sh --name-prefix mydemo --use-localstack
+
+The script will print:
+- Resource group name
+- Function default hostname and a sample URL to test (e.g., https://<func>.azurewebsites.net/john)
+- AFD endpoint hostname and a sample URL to test (e.g., https://<endpoint>.z01.azurefd.net/john)
+
+Cleanup
+- Delete all resources by removing the resource group:
+  bash ./scripts/cleanup.sh --resource-group <rg-name>
+
+Notes
+- Azure Front Door is a global resource; the script uses Standard_AzureFrontDoor SKU and links the route to the default domain of the endpoint.
+- The function removes the /api prefix so you can call /john directly.
+- The deployment uses zip deploy; because the function has no heavy dependencies, it should work without additional build steps. If you add dependencies that require native builds, consider using the Azure Functions Core Tools for publishing.
+
+Function App + Azure Front Door (az CLI)
+
+This sample creates a minimal Python Azure Function App that responds to /{name} with "hello {name}", and configures Azure Front Door (Standard SKU) to route traffic to it. It provides bash scripts that can target either real Azure or LocalStack’s Azure emulation via azlocal interception.
+
+Contents
+- scripts/deploy.sh: Creates RG, Storage Account, Linux Consumption Python Function App v4, deploys the function via zip, and sets up Azure Front Door profile, endpoint, origin group, origin, and route.
+- scripts/cleanup.sh: Deletes the resource group created by the deployment.
+- function/: Minimal Python HTTP-trigger function app (host.json removes /api prefix; route is /{name}).
+
+Prerequisites
+- Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
+- Azure CLI installed and logged in (az login) for real Azure
+- Optional: azlocal (LocalStack’s Azure interception helper) in PATH if you want to target the emulator
+- zip utility available in PATH (used for zip deploy)
+
+Quick start
+1) Deploy against real Azure (eastus by default):
+   bash ./scripts/deploy.sh --name-prefix mydemo
+   bash ./scripts/deploy_multi_origins.sh --name-prefix mydemo --prio-a 1 --prio-b 2 --weight-a 50 --weight-b 50
+
+2) Deploy against LocalStack emulator:
+   bash ./scripts/deploy.sh --name-prefix mydemo --use-localstack
+   bash ./scripts/deploy_multi_origins.sh --name-prefix mydemo --use-localstack --prio-a 1 --prio-b 2 --weight-a 50 --weight-b 50
+
+The script will print:
+- Resource group name
+- Function default hostname and a sample URL to test (e.g., https://<func>.azurewebsites.net/john)
+- AFD endpoint hostname and a sample URL to test (e.g., https://<endpoint>.z01.azurefd.net/john)
+
+Deploy to Azure (cloud) and test both endpoints
+1) Sign in and select subscription (if needed):
+   - az login
+   - az account set --subscription "<SUBSCRIPTION_ID_OR_NAME>"
+
+2) Run the deployment (avoid --use-localstack to target real Azure):
+   - cd samples/function-app-front-door
+   - bash ./scripts/deploy.sh --name-prefix mydemo --location eastus
+
+3) Note the outputs printed by the script:
+   - Resource Group: rg-mydemo-<suffix>
+   - Function Host:  <func>.azurewebsites.net
+   - Test Function:  https://<func>.azurewebsites.net/john
+   - AFD Endpoint:   <endpoint>.z01.azurefd.net (may take a few minutes to become active)
+   - Test via AFD:   https://<endpoint>.z01.azurefd.net/john
+
+4) Test the Function endpoint directly (immediate):
+   - Browser: open the "Test Function" URL
+   - curl:   curl -i https://<func>.azurewebsites.net/john
+   Expected response body:  hello john
+
+5) Test via Azure Front Door (allow a few minutes for readiness):
+   - AFD endpoints and routes can take 2–10 minutes to fully propagate.
+   - Retry the AFD test URL after a short wait:
+     curl -i https://<endpoint>.z01.azurefd.net/john
+   Expected response body:  hello john
+
+If you closed the terminal and need to rediscover hostnames
+- Get the Function default hostname:
+  az functionapp show -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --query defaultHostName -o tsv
+
+- Get the AFD endpoint hostname:
+  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <AFD_ENDPOINT_NAME> --query hostName -o tsv
+
+- If you don’t recall names, list them under the resource group:
+  - Function Apps: az functionapp list -g <RESOURCE_GROUP> --query "[].{name:name,host:defaultHostName}"
+  - AFD profiles:  az afd profile list -g <RESOURCE_GROUP> --query "[].name"
+  - AFD endpoints: az afd endpoint list -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --query "[].{name:name,host:hostName}"
+
+Common notes and troubleshooting
+- Windows users: use Git Bash or WSL to run the bash scripts.
+- Authentication: the function trigger is Anonymous; no keys required.
+- Hostnames: the function is reachable at https://<func>.azurewebsites.net; the AFD default is https://<endpoint>.z01.azurefd.net.
+- Application Insights: Azure CLI may auto-provision Application Insights for a new Function App. This sample explicitly disables it by passing --disable-app-insights to az functionapp create. If you want Application Insights, remove that flag and optionally provide --app-insights <NAME> or --app-insights-key <INSTRUMENTATION_KEY>.
+- Zip deploy reliability: the script explicitly sets WEBSITE_RUN_FROM_PACKAGE=1, FUNCTIONS_WORKER_RUNTIME=python, and SCM_DO_BUILD_DURING_DEPLOYMENT=false prior to deployment. If a transient zip deployment error occurs, simply run the deploy script again.
+- AFD readiness: 2–10 minutes is typical; 15+ minutes in rare cases. You can check status:
+  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <AFD_ENDPOINT_NAME> --query provisioningState -o tsv
+- Region and runtime: change with --location and --python-version flags in deploy.sh if needed.
+
+Cleanup
+- Delete all resources by removing the resource group (non-blocking delete):
+  bash ./scripts/cleanup.sh --resource-group <rg-name>
+
+LocalStack emulator notes
+- Ensure azlocal is installed and available in PATH. Example quick check: azlocal --help
+- Azure Functions Core Tools v4 ('func') must be installed and available in PATH to publish in emulator mode. Verify with: func --version. Install via npm: npm i -g azure-functions-core-tools@4 --unsafe-perm true. See: https://learn.microsoft.com/azure/azure-functions/functions-run-local#install-the-azure-functions-core-tools
+- When running with --use-localstack, the scripts isolate the Azure CLI config by setting AZURE_CONFIG_DIR to a temporary directory before starting interception. This prevents issues from a corrupt ~/.azure/clouds.config (e.g., errors like "The suffix 'storage_endpoint' for this cloud is not set ... clouds.config may be corrupt or invalid"). The temporary directory is automatically removed on exit.
+- In emulator mode, the deploy script uses funclocal azure functionapp publish (instead of zip deploy to Kudu) to publish the function code, because azurewebsites.net SCM endpoints are not resolvable in LocalStack.
+- The scripts use: azlocal start_interception to begin routing az CLI calls to the emulator, and will automatically call azlocal stop_interception on exit.
+- If you pass --use-localstack but azlocal or funclocal is not installed or cannot start, the scripts will exit with an error instead of falling back to real Azure. This prevents accidental cloud deployments and avoids subscription errors.
+- Make sure LocalStack Pro with Azure support is running and configured before running the scripts in emulator mode.
+
+
+
+---
+Additional LocalStack notes (update)
+- The deploy script now forces a local build for Python when --use-localstack is specified by invoking: funclocal azure functionapp publish <APP_NAME> --python --build local. This avoids relying on SCM/Kudu endpoints that aren’t available in the emulator and prevents the repeating "SCM update poll timed out" messages.
+- Ensure your local Python version matches the Function App runtime version. If your local is Python 3.11 but the Function App was created with 3.10 (default), either switch your local environment to 3.10 or create the app with --python-version 3.11:
+  bash ./scripts/deploy.sh --name-prefix mydemo --python-version 3.11 --use-localstack
+- If you previously saw SCM_* settings being updated repeatedly during publish in emulator mode, re-run the deployment with this updated script; the publish should complete without SCM polling timeouts.
+- In emulator mode, the script now sets AzureWebJobsStorage and WEBSITE_CONTENTAZUREFILECONNECTIONSTRING to a LocalStack-specific Storage connection string with explicit Blob/Queue/Table/File endpoints (e.g., https://<acct>.blob.localhost.localstack.cloud:4566). This ensures the package upload/SCM_RUN_FROM_PACKAGE URL points to LocalStack and avoids hangs on "Uploading ...".
+
+---
+Offline-friendly Python function for LocalStack
+- To ensure emulator publishes don’t attempt to download packages from PyPI, this sample keeps function/requirements.txt empty.
+- The function implementation avoids importing azure.functions and simply returns a plain text string. The Functions runtime will serialize this to an HTTP 200 response.
+- If you want to use azure.functions types (HttpRequest/HttpResponse) explicitly, add azure-functions to requirements.txt and ensure your environment has internet access (or a local wheel cache) during funclocal --build local.
+- This approach works in both emulator and real Azure. For real Azure, zip deploy does not need to build native deps for this sample.
