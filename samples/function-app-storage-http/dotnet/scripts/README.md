@@ -37,137 +37,164 @@ The system implements a complete gaming scoreboard with multiple Azure Functions
 
 ## Deployment Script 
 
-The [deploy.sh](deploy.sh) script creates resources and deploys the .NET application using native Azure CLI command. Let's analyze the script step by step. 
+The [deploy.sh](deploy.sh) script creates resources and deploys the .NET application using native Azure CLI command. 
 
-- Defines the variables used in the remainder of the script. It instructs LocalStack to intercept all Azure CLI calls so they go to our local environment instead of real Azure. Configures the function app to use .NET 9 with the isolated runtime model and establish a region for the resource group and the resources.
-   ```bash
-   # Start azure CLI local mode session
-   azlocal start_interception
+```bash
+#!/bin/bash
 
-   # Variables
-   PREFIX='local'
-   SUFFIX='test'
-   LOCATION='westeurope'
-   FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
-   STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
-   RESOURCE_GROUP_NAME="${PREFIX}-rg"
-   RUNTIME="DOTNET-ISOLATED"
-   RUNTIME_VERSION="9"
-   ```
+# Variables
+PREFIX='local'
+SUFFIX='test'
+LOCATION='westeurope'
+FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+RUNTIME="DOTNET-ISOLATED"
+RUNTIME_VERSION="9"
+PLAYER_NAMES="Alice,Anastasia,Paolo,Leo,Mia"
+INPUT_STORAGE_CONTAINER_NAME="input" 
+OUTPUT_STORAGE_CONTAINER_NAME="output" 
+INPUT_QUEUE_NAME="input" 
+OUTPUT_QUEUE_NAME="output" 
+TRIGGER_QUEUE_NAME="trigger" 
+INPUT_TABLE_NAME="scoreboards" 
+OUTPUT_TABLE_NAME="winners" 
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-- Creates an Azure resource group that will serve as a logical container for all the resources in the gaming system.
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
 
-   ```bash
-   # Create a resource group
-   echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-   az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+	FUNC="funclocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+	FUNC="func"
+fi
 
-   if [ $? -eq 0 ]; then
-      echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
-   else
-      echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-      exit 1
-   fi
-   ```
+# Create a resource group
+echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
+$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+if [[ $? != 0 ]]; then
+	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
+	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
-- Creates an Azure Storage Account that will provide blob containers, queues, and tables for the gaming system.
+	# Create the resource group
+	$AZ group create \
+		--name $RESOURCE_GROUP_NAME \
+		--location $LOCATION \
+		--only-show-errors 1>/dev/null
 
-   ```bash
-   # Create a storage account
-   echo "Creating storage account [$STORAGE_ACCOUNT_NAME]..."
-   az storage account create \
-      --name $STORAGE_ACCOUNT_NAME \
-      --location $LOCATION \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --sku Standard_LRS
+	if [[ $? == 0 ]]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
+		exit
+	fi
+else
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
+fi
 
-   if [ $? -eq 0 ]; then
-      echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully."
-   else
-      echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME]."
-      exit 1
-   fi
-   ```
+# Create a storage account
+echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
+$AZ storage account show \
+	--name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
-- Retrieves the primary access key for the storage account, which will be used to authenticate storage operations throughout the application.
+if [[ $? != 0 ]]; then
+	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
+	$AZ storage account create \
+		--name $STORAGE_ACCOUNT_NAME \
+		--location $LOCATION \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--sku Standard_LRS 1>/dev/null
 
-   ```bash
-   # Get the storage account key
-   echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-   STORAGE_ACCOUNT_KEY=$(az storage account keys list \
-      --account-name $STORAGE_ACCOUNT_NAME \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --query "[0].value" \
-      --output tsv)
+	if [ $? -eq 0 ]; then
+		echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "Storage account [$STORAGE_ACCOUNT_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
 
-   if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-      echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
-   else
-      echo "Failed to retrieve storage account key."
-      exit 1
-   fi
-   ```
+# Get the storage account key
+echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
+STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
+	--account-name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query "[0].value" \
+	--output tsv)
 
-- Creates the Azure Functions application with a consumption plan, configuring it to run on Linux with .NET isolated runtime and connects the function app to the newly created storage account.
+if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
+	echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
+else
+	echo "Failed to retrieve storage account key."
+	exit 1
+fi
 
-   ```bash
-   # Create the function app
-   echo "Creating function app [$FUNCTION_APP_NAME]..."
-   az functionapp create \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --consumption-plan-location $LOCATION \
-      --runtime $RUNTIME \
-      --runtime-version $RUNTIME_VERSION \
-      --functions-version 4 \
-      --name $FUNCTION_APP_NAME \
-      --os-type linux \
-      --storage-account $STORAGE_ACCOUNT_NAME 
-   ```
+# Create the function app
+echo "Creating function app [$FUNCTION_APP_NAME]..."
+$AZ functionapp create \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--consumption-plan-location $LOCATION \
+	--runtime $RUNTIME \
+	--runtime-version $RUNTIME_VERSION \
+	--functions-version 4 \
+	--name $FUNCTION_APP_NAME \
+	--os-type linux \
+	--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
 
-- Constructs the Azure Storage connection string using the retrieved account key, formatted for LocalStack compatibility.
+if [ $? -eq 0 ]; then
+	echo "Function app [$FUNCTION_APP_NAME] created successfully."
+else
+	echo "Failed to create function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
 
-   ```bash
-   # Construct the storage connection string for LocalStack
-   STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-   ```
+# Construct the storage connection string for LocalStack
+STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
 
-- Configures the Function App with all necessary application settings, including storage connections and gaming system parameters such as player names.
+# Set function app settings
+echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
+$AZ functionapp config appsettings set \
+	--name $FUNCTION_APP_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--settings \
+	AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" \
+	STORAGE_ACCOUNT_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
+	WEBSITE_CONTENTAZUREFILECONNECTIONSTRING="$STORAGE_CONNECTION_STRING" \
+	INPUT_STORAGE_CONTAINER_NAME="$INPUT_STORAGE_CONTAINER_NAME" \
+	OUTPUT_STORAGE_CONTAINER_NAME="$OUTPUT_STORAGE_CONTAINER_NAME" \
+	INPUT_QUEUE_NAME="$INPUT_QUEUE_NAME" \
+	OUTPUT_QUEUE_NAME="$OUTPUT_QUEUE_NAME" \
+	TRIGGER_QUEUE_NAME="$TRIGGER_QUEUE_NAME" \
+	INPUT_TABLE_NAME="$INPUT_TABLE_NAME" \
+	OUTPUT_TABLE_NAME="$OUTPUT_TABLE_NAME" \
+	PLAYER_NAMES="$PLAYER_NAMES" \
+	TIMER_SCHEDULE="0 */1 * * * *" \
+	FUNCTIONS_WORKER_RUNTIME="dotnet-isolated" 1>/dev/null
 
-   ```bash
-   # Set function app settings
-   echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
-   az functionapp config appsettings set \
-      --name $FUNCTION_APP_NAME \
-      --resource-group $RESOURCE_GROUP_NAME \
-      --settings \
-      AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" \
-      STORAGE_ACCOUNT_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
-      WEBSITE_CONTENTAZUREFILECONNECTIONSTRING="$STORAGE_CONNECTION_STRING" \
-      INPUT_STORAGE_CONTAINER_NAME="input" \
-      OUTPUT_STORAGE_CONTAINER_NAME="output" \
-      INPUT_QUEUE_NAME="input" \
-      OUTPUT_QUEUE_NAME="output" \
-      TRIGGER_QUEUE_NAME="trigger" \
-      INPUT_TABLE_NAME="scoreboards" \
-      OUTPUT_TABLE_NAME="winners" \
-      PLAYER_NAMES="Paolo,John,Jane,Max,Mary,Leo,Mia,Anna,Lisa,Anastasia" \
-      TIMER_SCHEDULE="0 */1 * * * *" \
-      FUNCTIONS_WORKER_RUNTIME="dotnet-isolated"
-   ```
+if [ $? -eq 0 ]; then
+	echo "Function app settings for [$FUNCTION_APP_NAME] set successfully."
+else
+	echo "Failed to set function app settings for [$FUNCTION_APP_NAME]."
+	exit 1
+fi
 
-- Deploys the compiled .NET application code to the Function App and cleans up the LocalStack session using the `funclocal` tool. For more information, see [funclocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/).
+# CD into the function app directory
+cd ../src/sample || exit
 
-   ```bash
-   # CD into the function app directory
-   cd ../src/sample || exit
-
-   # Publish the function app
-   echo "Publishing function app [$FUNCTION_APP_NAME]..."
-   funclocal azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
-
-   # Stop azure CLI local mode session
-   azlocal stop_interception
-   ```
+# Publish the function app
+echo "Publishing function app [$FUNCTION_APP_NAME]..."
+$FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
+```
 
 > [!NOTE]
 > You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop_interception`.
@@ -259,35 +286,63 @@ The script configures the following application settings for the gaming system:
 
 ## Validation
 
-After deployment, validate that all resources were created and configured correctly:
+After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
 
-1. Verify resource creation:
+```bash
+#!/bin/bash
 
-   ```bash
-   # Check resource group
-   azlocal group show --name local-rg --output table
-   
-   # List resources
-   azlocal resource list --resource-group local-rg --output table
-   
-   # Check function app status
-   azlocal functionapp show --name local-func-test --resource-group local-rg --output table
-   ```
-2. Validate storage account:
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-   ```bash
-   # Check storage account properties
-   azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
 
-   # List storage containers
-   azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+# Check resource group
+$AZ group show \
+  --name local-rg \
+  --output table
 
-   # List storage queues
-   azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-   
-   # List storage tables
-   azlocal storage table list --account-name localstoragetest --output table --only-show-errors
-   ```
+# List resources
+$AZ resource list \
+  --resource-group local-rg \
+  --output table
+
+# Check function app status
+$AZ functionapp show  \
+  --name local-func-test \
+  --resource-group local-rg \
+  --output table
+
+# Check storage account properties
+$AZ storage account show \
+  --name localstoragetest \
+  --resource-group local-rg \
+  --output table
+
+# List storage containers
+$AZ storage container list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage queues
+$AZ storage queue list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage tables
+$AZ storage table list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+```
 
 ## Cleanup
 

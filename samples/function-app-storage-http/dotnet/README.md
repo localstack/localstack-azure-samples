@@ -154,6 +154,8 @@ The sample uses the following configurable settings in `local.settings.json`:
     - [Bicep Deployment](./bicep/README.md)
     - [Terraform Deployment](./terraform/README.md)
 
+All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
+
 > **Note**  
 > The first time you run Azure Functions on LocalStack for Azure, the emulator downloads a ZIP archive of the selected version of the [Azure Functions Core Tools](https://github.com/Azure/azure-functions-core-tools/tags) to build the container image that hosts your functions. By default, version 4.2.2 is used. You can override this by setting the AZURE_FUNCTIONS_CORE_TOOLS_VERSION environment variable. The archive is large (over 500 MB), so the initial download may take several minutes. Subsequent runs will use the cached copy.
 

@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "AzureFunctionsJobHost__fileWatchingEnabled": "false",
+    "STORAGE_ACCOUNT_CONNECTION_STRING__blobServiceUri": "https://regmanaged100blob.localhost.localstack.cloud:4566",
+    "STORAGE_ACCOUNT_CONNECTION_STRING__queueServiceUri": "https://regmanaged100queue.localhost.localstack.cloud:4566",
+    "STORAGE_ACCOUNT_CONNECTION_STRING__tableServiceUri": "https://regmanaged100table.localhost.localstack.cloud:4566",
+    "INPUT_STORAGE_CONTAINER_NAME": "input",
+    "OUTPUT_STORAGE_CONTAINER_NAME": "output"
+  }
+}
