@@ -324,28 +324,40 @@ Use the `deploy.sh` script to automate the provisioning of Azure resources and d
 ```bash
 #!/bin/bash
 
-# Start azure CLI local mode session
-azlocal start_interception
-
 # Variables
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="local-rg"
+RESOURCE_GROUP_NAME="bingo-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZIPFILE="function_app.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
+
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-az group show --name $RESOURCE_GROUP_NAME &>/dev/null
+$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	az group create --name $RESOURCE_GROUP_NAME --location $LOCATION 1>/dev/null
+	$AZ group create --name $RESOURCE_GROUP_NAME --location $LOCATION 1>/dev/null
 
 	if [[ $? == 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
@@ -362,7 +374,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		az deployment group what-if \
+		$AZ deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -378,7 +390,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$(az deployment group validate \
+		output=$($AZ deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -397,7 +409,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(az deployment group create \
+if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -424,7 +436,7 @@ fi
 
 # Print the application settings of the function app
 echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
-az webapp config appsettings list \
+$AZ webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME"
 
@@ -440,19 +452,21 @@ dotnet publish -c Release -o publish
 
 # Create deployment zip from the published output
 cd publish || exit
-zip -r ../azure-function-deployment.zip .
+zip -r ../$ZIPFILE .
 cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-azlocal functionapp deploy \
+$AZ functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
-    --src-path ./azure-function-deployment.zip \
-    --type zip
+    --src-path $ZIPFILE \
+    --type zip 1>/dev/null
 
-# Stop azure CLI local mode session
-azlocal stop_interception
+# Remove the zip package of the function app
+if [ -f "$ZIPFILE" ]; then
+	rm "$ZIPFILE"
+fi
 ```
 
 > **Note**  
@@ -511,35 +525,63 @@ The `deploy.sh` script executes the following steps:
 
 ## Validation
 
-After deployment, validate that all resources were created and configured correctly:
+After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
 
-1. Verify resource creation:
+```bash
+#!/bin/bash
 
-   ```bash
-  # Check resource group
-  azlocal group show --name local-rg --output table
-  
-  # List resources
-  azlocal resource list --resource-group local-rg --output table
-  
-  # Check function app status
-  azlocal functionapp show --name local-func-test --resource-group local-rg --output table
-   ```
-2. Validate storage account:
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-   ```bash
-  # Check storage account properties
-  azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
 
-  # List storage containers
-  azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+# Check resource group
+$AZ group show \
+  --name local-rg \
+  --output table
 
-  # List storage queues
-  azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-  
-  # List storage tables
-  azlocal storage table list --account-name localstoragetest --output table --only-show-errors
-  ```
+# List resources
+$AZ resource list \
+  --resource-group local-rg \
+  --output table
+
+# Check function app status
+$AZ functionapp show  \
+  --name local-func-test \
+  --resource-group local-rg \
+  --output table
+
+# Check storage account properties
+$AZ storage account show \
+  --name localstoragetest \
+  --resource-group local-rg \
+  --output table
+
+# List storage containers
+$AZ storage container list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage queues
+$AZ storage queue list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage tables
+$AZ storage table list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+```
 
 ## Cleanup
 

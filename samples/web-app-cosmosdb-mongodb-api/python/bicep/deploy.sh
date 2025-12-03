@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Start azure CLI local mode session
-# az start_interception
-
 # Variables
 PREFIX='local'
 SUFFIX='test'
@@ -20,16 +17,25 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-az group show --name $RESOURCE_GROUP_NAME &>/dev/null
+$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	az group create \
+	$AZ group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1> /dev/null
@@ -49,7 +55,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		az deployment group what-if \
+		$AZ deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -67,7 +73,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$(az deployment group validate \
+		output=$($AZ deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -88,7 +94,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(az deployment group create \
+if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -122,7 +128,7 @@ fi
 
 # Print the application settings of the web app
 echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
-az webapp config appsettings list \
+$AZ webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME"
 
@@ -141,23 +147,12 @@ zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
 # Deploy the web app
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal webapp deploy command for LocalStack emulator environment."
-	azlocal webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-else
-	echo "Using standard az webapp deploy command for AzureCloud environment."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-fi
+$AZ webapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$WEB_APP_NAME" \
+	--src-path "$ZIPFILE" \
+	--type zip \
+	--async true 1>/dev/null
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then
