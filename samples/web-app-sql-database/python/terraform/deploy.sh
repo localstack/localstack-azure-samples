@@ -16,24 +16,23 @@ DEPLOY_APP=1
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Start azure CLI local mode session
-# azlocal start_interception
-
 # Run terraform init and apply
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using tflocal for LocalStack emulator environment."
-	TERRAFORM_CMD="tflocal"
+	echo "Using tflocal and azlocal for LocalStack emulator environment and ."
+	TERRAFORM="tflocal"
+	AZ="azlocal"
 else
-	echo "Using standard terraform for AzureCloud environment."
-	TERRAFORM_CMD="terraform"
+	echo "Using standard terraform and az for AzureCloud environment."
+	TERRAFORM="terraform"
+	AZ="az"
 fi
 
 echo "Initializing Terraform..."
-$TERRAFORM_CMD init -upgrade
+$TERRAFORM init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-$TERRAFORM_CMD plan -out=tfplan \
+$TERRAFORM plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
 	-var "location=$LOCATION" \
@@ -49,7 +48,7 @@ fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
-$TERRAFORM_CMD apply -auto-approve tfplan
+$TERRAFORM apply -auto-approve tfplan
 
 if [[ $? != 0 ]]; then
 	echo "Terraform apply failed. Exiting."
@@ -69,7 +68,7 @@ fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
 echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
-SQL_SERVER_FQDN=$(az sql server show \
+SQL_SERVER_FQDN=$($AZ sql server show \
 	--name "$SQL_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "fullyQualifiedDomainName" \
@@ -232,23 +231,12 @@ zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using az webapp deploy command for LocalStack emulator environment."
-	azlocal webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-else
-	echo "Using standard az webapp deploy command for AzureCloud environment."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-fi
+$AZ webapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$WEB_APP_NAME" \
+	--src-path "$ZIPFILE" \
+	--type zip \
+	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Web app [$WEB_APP_NAME] created successfully."

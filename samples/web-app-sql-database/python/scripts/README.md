@@ -44,6 +44,7 @@ You can use the `deploy.sh` script to automate the deployment of all Azure resou
 ```bash
 #!/bin/bash
 
+# Variables
 PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
@@ -69,9 +70,18 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
+$AZ group create \
 	--name $RESOURCE_GROUP_NAME \
 	--location $LOCATION \
 	--only-show-errors 1>/dev/null
@@ -85,7 +95,7 @@ fi
 
 # Create a sql server
 echo "Checking if [$SQL_SERVER_NAME] sql server exists in the [$RESOURCE_GROUP_NAME] resource group..."
-az sql server show \
+$AZ sql server show \
 	--name $SQL_SERVER_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors &>/dev/null
@@ -95,7 +105,7 @@ if [ $? -eq 0 ]; then
 else
 	echo "[$SQL_SERVER_NAME] sql server does not exist in the [$RESOURCE_GROUP_NAME] resource group. Proceeding to create it."
 	echo "Creating [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group..."
-	az sql server create \
+	$AZ sql server create \
 		--name $SQL_SERVER_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
@@ -117,7 +127,7 @@ fi
 
 # Add firewall rule to allow all local network addresses (for testing/development)
 echo "Creating firewall rule to allow all IP addresses..."
-az sql server firewall-rule create \
+$AZ sql server firewall-rule create \
 	--name $FIREWALL_RULE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--server $SQL_SERVER_NAME \
@@ -134,7 +144,7 @@ fi
 
 # Create database if it does not exist
 echo "Checking if [$SQL_DATABASE_NAME] database exists in the [$SQL_SERVER_NAME] sql server..."
-az sql db show \
+$AZ sql db show \
 	--name $SQL_DATABASE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--server $SQL_SERVER_NAME \
@@ -144,7 +154,7 @@ if [ $? -eq 0 ]; then
 	echo "[$SQL_DATABASE_NAME] database already exists in the [$SQL_SERVER_NAME] sql server."
 else
 	echo "Creating [$SQL_DATABASE_NAME] database with Provisioned compute model in the [$SQL_SERVER_NAME] sql server..."
-	az sql db create \
+	$AZ sql db create \
 		--name $SQL_DATABASE_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--server $SQL_SERVER_NAME \
@@ -164,7 +174,7 @@ fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
 echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
-SQL_SERVER_FQDN=$(az sql server show \
+SQL_SERVER_FQDN=$($AZ sql server show \
 	--name "$SQL_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "fullyQualifiedDomainName" \
@@ -310,7 +320,7 @@ fi
 
 # Create App Service Plan
 echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-az appservice plan create \
+$AZ appservice plan create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--location "$LOCATION" \
@@ -327,7 +337,7 @@ fi
 
 # Create the web app
 echo "Creating web app [$WEB_APP_NAME]..."
-az webapp create \
+$AZ webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
@@ -343,7 +353,7 @@ fi
 
 # Set web app settings
 echo "Setting web app settings for [$WEB_APP_NAME]..."
-az webapp config appsettings set \
+$AZ webapp config appsettings set \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--settings \
@@ -382,23 +392,12 @@ zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using az webapp deploy command for LocalStack emulator environment."
-	azlocal webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-else
-	echo "Using standard az webapp deploy command for AzureCloud environment."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-fi
+$AZ webapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$WEB_APP_NAME" \
+	--src-path "$ZIPFILE" \
+	--type zip \
+	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Web app [$WEB_APP_NAME] created successfully."
@@ -451,36 +450,47 @@ Run the deployment script:
 
 ## Validation
 
-After deployment, validate that all resources were created and configured correctly:
+After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
 
 ```bash
+#!/bin/bash
+
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Check resource group
-azlocal group show \
+$AZ group show \
 --name local-rg \
 --output table
 
 # List resources
-azlocal resource list \
+$AZ resource list \
 --resource-group local-rg \
 --output table
 
 # Check Azure Web App
-azlocal webapp show \
+$AZ webapp show \
 --name local-webapp-test \
 --resource-group local-rg \
 --output table
-```
-Validate Azure SQL Database:
 
-```bash
 # Check Azure SQL Server
-azlocal sql server show \
+$AZ sql server show \
 --name local-sqlserver-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Database
-azlocal sql db show \
+$AZ sql db show \
 --name PlannerDB \
 --server local-sqlserver-test \
 --resource-group local-rg \

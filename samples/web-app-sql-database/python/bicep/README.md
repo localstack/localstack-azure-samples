@@ -525,9 +525,6 @@ You can use the `deploy.sh` script to automate the deployment of all Azure resou
 ```bash
 #!/bin/bash
 
-# Start azure CLI local mode session
-# az start_interception
-
 # Variables
 PREFIX='local'
 SUFFIX='test'
@@ -550,16 +547,25 @@ DEPLOY_APP=1
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-az group show --name $RESOURCE_GROUP_NAME &>/dev/null
+$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	az group create \
+	$AZ group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1>/dev/null
@@ -579,7 +585,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		az deployment group what-if \
+		$AZ deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -601,7 +607,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$(az deployment group validate \
+		output=$($AZ deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -626,7 +632,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(az deployment group create \
+if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -663,7 +669,7 @@ fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
 echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
-SQL_SERVER_FQDN=$(az sql server show \
+SQL_SERVER_FQDN=$($AZ sql server show \
 	--name "$SQL_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "fullyQualifiedDomainName" \
@@ -826,23 +832,12 @@ zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using az webapp deploy command for LocalStack emulator environment."
-	azlocal webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-else
-	echo "Using standard az webapp deploy command for AzureCloud environment."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-fi
+$AZ webapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$WEB_APP_NAME" \
+	--src-path "$ZIPFILE" \
+	--type zip \
+	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Web app [$WEB_APP_NAME] created successfully."
@@ -872,7 +867,7 @@ The `deploy.sh` script executes the following steps:
 - Shows us all the settings that got applied to the Web App.
 - Removes previous build artifacts for consistency.
 - Creates zip archive in format expected by Web App.
-- Uploads pre-built application package to the newly created Web App app.
+- Uploads pre-built application package to the newly created Web App.
 
 > **Note**  
 > Azure CLI commands use `--verbose` argument to print execution details and the `--debug` flag to show low-level REST calls for debugging. For more information, see [Get started with Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli)
@@ -912,36 +907,47 @@ Run the deployment script:
 
 ## Validation
 
-After deployment, validate that all resources were created and configured correctly:
+After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
 
 ```bash
+#!/bin/bash
+
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Check resource group
-azlocal group show \
+$AZ group show \
 --name local-rg \
 --output table
 
 # List resources
-azlocal resource list \
+$AZ resource list \
 --resource-group local-rg \
 --output table
 
 # Check Azure Web App
-azlocal webapp show \
+$AZ webapp show \
 --name local-webapp-test \
 --resource-group local-rg \
 --output table
-```
-Validate Azure SQL Database:
 
-```bash
 # Check Azure SQL Server
-azlocal sql server show \
+$AZ sql server show \
 --name local-sqlserver-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Database
-azlocal sql db show \
+$AZ sql db show \
 --name PlannerDB \
 --server local-sqlserver-test \
 --resource-group local-rg \

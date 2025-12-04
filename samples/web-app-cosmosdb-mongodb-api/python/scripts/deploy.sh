@@ -25,9 +25,18 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
+
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
+$AZ group create \
 	--name $RESOURCE_GROUP_NAME \
 	--location $LOCATION \
 	--only-show-errors 1>/dev/null
@@ -41,7 +50,7 @@ fi
 
 # Create a CosmosDB account with MongoDB kind
 echo "Creating [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group..."
-az cosmosdb create \
+$AZ cosmosdb create \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--locations regionName=$LOCATION \
@@ -58,7 +67,7 @@ else
 fi
 
 # Retrieve document endpoint
-DOCUMENT_ENDPOINT=$(az cosmosdb show \
+DOCUMENT_ENDPOINT=$($AZ cosmosdb show \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "documentEndpoint" \
@@ -74,7 +83,7 @@ fi
 
 # Create MongoDB database
 echo "Creating [$MONGODB_DATABASE_NAME] MongoDB database in the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account..."
-az cosmosdb mongodb database create \
+$AZ cosmosdb mongodb database create \
 	--account-name $COSMOSDB_ACCOUNT_NAME \
 	--name $MONGODB_DATABASE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
@@ -90,7 +99,7 @@ fi
 
 # Create a MongoDB database collection
 echo "Creating [$COLLECTION_NAME] collection in the [$MONGODB_DATABASE_NAME] MongoDB database..."
-az cosmosdb mongodb collection create \
+$AZ cosmosdb mongodb collection create \
 	--account-name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--database-name $MONGODB_DATABASE_NAME \
@@ -109,7 +118,7 @@ fi
 
 # List CosmosDB connection strings
 echo "Listing connection strings for CosmosDB account [$COSMOSDB_ACCOUNT_NAME]..."
-COSMOSDB_CONNECTION_STRING=$(az cosmosdb keys list \
+COSMOSDB_CONNECTION_STRING=$($AZ cosmosdb keys list \
 	--name $COSMOSDB_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--type connection-strings \
@@ -125,7 +134,7 @@ fi
 
 # Create App Service Plan
 echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-az appservice plan create \
+$AZ appservice plan create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--location "$LOCATION" \
@@ -142,7 +151,7 @@ fi
 
 # Create the web app
 echo "Creating web app [$WEB_APP_NAME]..."
-az webapp create \
+$AZ webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
@@ -158,7 +167,7 @@ fi
 
 # Set web app settings
 echo "Setting web app settings for [$WEB_APP_NAME]..."
-az webapp config appsettings set \
+$AZ webapp config appsettings set \
 	--name $WEB_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
@@ -195,23 +204,13 @@ unzip -l "$ZIPFILE"
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using az webapp deploy command for LocalStack emulator environment."
-	azlocal webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-else
-	echo "Using standard az webapp deploy command for AzureCloud environment."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
-fi
+echo "Using standard $AZ webapp deploy command for AzureCloud environment."
+$AZ webapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$WEB_APP_NAME" \
+	--src-path "$ZIPFILE" \
+	--type zip \
+	--async true 1>/dev/null
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then

@@ -1,0 +1,8 @@
+# Azure Functions Worker
+azure-functions>=1.23.0
+
+# Azure SDK packages for blob storage
+azurefunctions-extensions-bindings-blob>=1.1.1
+
+# Other dependencies
+protobuf>=5.28.0

@@ -166,25 +166,51 @@ You can use the `deploy.sh` script to automate the deployment of all Azure resou
 ```bash
 #!/bin/bash
 
-# Delete any existing terraform state and plan files
-rm -f terraform.tfstate terraform.tfstate.backup tfplan
+# Variables
+PREFIX='user' #system or user
+SUFFIX='test'
+LOCATION='westeurope'
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZIPFILE="function_app.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
 
 # Run terraform init and apply
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using tflocal and azlocal for LocalStack emulator environment and ."
+	TERRAFORM="tflocal"
+	AZ="azlocal"
+else
+	echo "Using standard terraform and az for AzureCloud environment."
+	TERRAFORM="terraform"
+	AZ="az"
+fi
+
 echo "Initializing Terraform..."
-tflocal init -upgrade
+$TERRAFORM init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-tflocal plan -out=tfplan
+$TERRAFORM plan -out=tfplan \
+	-var "prefix=$PREFIX" \
+	-var "suffix=$SUFFIX" \
+	-var "location=$LOCATION"
 
 if [[ $? != 0 ]]; then
-		echo "Terraform plan failed. Exiting."
-		exit 1
+	echo "Terraform plan failed. Exiting."
+	exit 1
 fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
-tflocal apply -auto-approve tfplan
+$TERRAFORM apply -auto-approve tfplan
+
+if [[ $? != 0 ]]; then
+	echo "Terraform apply failed. Exiting."
+	exit 1
+fi
 
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
@@ -206,19 +232,16 @@ dotnet publish -c Release -o publish
 
 # Create deployment zip from the published output
 cd publish || exit
-zip -r ../azure-function-deployment.zip .
+zip -r ../$ZIPFILE .
 cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-azlocal functionapp deploy \
+$AZ functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
-    --src-path ./azure-function-deployment.zip \
-    --type zip
-
-# Stop azure CLI local mode session
-azlocal stop_interception
+    --src-path $ZIPFILE \
+    --type zip 1> /dev/null
 ```
 
 > **Note**  
@@ -274,35 +297,63 @@ The `deploy.sh` script executes the following steps:
 
 ## Validation
 
-After deployment, validate that all resources were created and configured correctly:
+After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
 
-1. Verify resource creation:
+```bash
+#!/bin/bash
 
-   ```bash
-  # Check resource group
-  azlocal group show --name local-rg --output table
-  
-  # List resources
-  azlocal resource list --resource-group local-rg --output table
-  
-  # Check function app status
-  azlocal functionapp show --name local-func-test --resource-group local-rg --output table
-   ```
-2. Validate storage account:
+# Variables
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-   ```bash
-  # Check storage account properties
-  azlocal storage account show --name localstoragetest --resource-group local-rg --output table
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+fi
 
-  # List storage containers
-  azlocal storage container list --account-name localstoragetest --output table --only-show-errors
+# Check resource group
+$AZ group show \
+  --name local-rg \
+  --output table
 
-  # List storage queues
-  azlocal storage queue list --account-name localstoragetest --output table --only-show-errors
-  
-  # List storage tables
-  azlocal storage table list --account-name localstoragetest --output table --only-show-errors
-   ```
+# List resources
+$AZ resource list \
+  --resource-group local-rg \
+  --output table
+
+# Check function app status
+$AZ functionapp show  \
+  --name local-func-test \
+  --resource-group local-rg \
+  --output table
+
+# Check storage account properties
+$AZ storage account show \
+  --name localstoragetest \
+  --resource-group local-rg \
+  --output table
+
+# List storage containers
+$AZ storage container list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage queues
+$AZ storage queue list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+
+# List storage tables
+$AZ storage table list \
+  --account-name localstoragetest \
+  --output table \
+  --only-show-errors
+```
 
 ## Cleanup
 
