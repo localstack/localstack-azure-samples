@@ -1,36 +1,50 @@
 #!/bin/bash
 
 # Variables
+PREFIX='user' #system or user
+SUFFIX='test'
+LOCATION='westeurope'
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZIPFILE="function_app.zip"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
-# Start azure CLI local mode session
-azlocal start_interception
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
 
 # Run terraform init and apply
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using tflocal for LocalStack emulator environment."
-	TERRAFORM_CMD="tflocal"
+	echo "Using tflocal and azlocal for LocalStack emulator environment and ."
+	TERRAFORM="tflocal"
+	AZ="azlocal"
 else
-	echo "Using standard terraform for AzureCloud environment."
-	TERRAFORM_CMD="terraform"
+	echo "Using standard terraform and az for AzureCloud environment."
+	TERRAFORM="terraform"
+	AZ="az"
 fi
 
-# Run terraform init and apply
 echo "Initializing Terraform..."
-$TERRAFORM_CMD init -upgrade
+$TERRAFORM init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-$TERRAFORM_CMD plan -out=tfplan
+$TERRAFORM plan -out=tfplan \
+	-var "prefix=$PREFIX" \
+	-var "suffix=$SUFFIX" \
+	-var "location=$LOCATION"
 
 if [[ $? != 0 ]]; then
-		echo "Terraform plan failed. Exiting."
-		exit 1
+	echo "Terraform plan failed. Exiting."
+	exit 1
 fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
-tflocal apply -auto-approve tfplan
+$TERRAFORM apply -auto-approve tfplan
+
+if [[ $? != 0 ]]; then
+	echo "Terraform apply failed. Exiting."
+	exit 1
+fi
 
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
@@ -52,16 +66,13 @@ dotnet publish -c Release -o publish
 
 # Create deployment zip from the published output
 cd publish || exit
-zip -r ../azure-function-deployment.zip .
+zip -r ../$ZIPFILE .
 cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-azlocal functionapp deploy \
+$AZ functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
-    --src-path ./azure-function-deployment.zip \
-    --type zip
-
-# Stop azure CLI local mode session
-azlocal stop_interception
+    --src-path $ZIPFILE \
+    --type zip 1> /dev/null

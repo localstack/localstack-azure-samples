@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Start azure CLI local mode session
-azlocal start_interception
-
 # Variables
 PREFIX='local'
 SUFFIX='test'
@@ -20,32 +17,74 @@ OUTPUT_QUEUE_NAME="output"
 TRIGGER_QUEUE_NAME="trigger" 
 INPUT_TABLE_NAME="scoreboards" 
 OUTPUT_TABLE_NAME="winners" 
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
+
+# Choose the appropriate CLI based on the environment
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
+	FUNC="funclocal"
+else
+	echo "Using standard az for AzureCloud environment."
+	AZ="az"
+	FUNC="func"
+fi
 
 # Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
+$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+if [[ $? != 0 ]]; then
+	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
+	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	# Create the resource group
+	$AZ group create \
+		--name $RESOURCE_GROUP_NAME \
+		--location $LOCATION \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
+		exit
+	fi
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
 fi
 
 # Create a storage account
-echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-az storage account create --name $STORAGE_ACCOUNT_NAME --location $LOCATION --resource-group $RESOURCE_GROUP_NAME --sku Standard_LRS
+echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
+$AZ storage account show \
+	--name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+if [[ $? != 0 ]]; then
+	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
+	$AZ storage account create \
+		--name $STORAGE_ACCOUNT_NAME \
+		--location $LOCATION \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--sku Standard_LRS 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
 else
-	echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group."
-	exit 1
+	echo "Storage account [$STORAGE_ACCOUNT_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
 fi
 
 # Get the storage account key
 echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-STORAGE_ACCOUNT_KEY=$(az storage account keys list \
+STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "[0].value" \
@@ -60,7 +99,7 @@ fi
 
 # Create the function app
 echo "Creating function app [$FUNCTION_APP_NAME]..."
-az functionapp create \
+$AZ functionapp create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--consumption-plan-location $LOCATION \
 	--runtime $RUNTIME \
@@ -68,9 +107,7 @@ az functionapp create \
 	--functions-version 4 \
 	--name $FUNCTION_APP_NAME \
 	--os-type linux \
-	--storage-account $STORAGE_ACCOUNT_NAME \
-	--verbose \
-	--debug
+	--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Function app [$FUNCTION_APP_NAME] created successfully."
@@ -80,12 +117,11 @@ else
 fi
 
 # Construct the storage connection string for LocalStack
-#STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;BlobEndpoint=https://${STORAGE_ACCOUNT_NAME}blob.localhost.localstack.cloud:4566;QueueEndpoint=https://${STORAGE_ACCOUNT_NAME}queue.localhost.localstack.cloud:4566;TableEndpoint=https://${STORAGE_ACCOUNT_NAME}table.localhost.localstack.cloud:4566"
 STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
-az functionapp config appsettings set \
+$AZ functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
@@ -101,7 +137,7 @@ az functionapp config appsettings set \
 	OUTPUT_TABLE_NAME="$OUTPUT_TABLE_NAME" \
 	PLAYER_NAMES="$PLAYER_NAMES" \
 	TIMER_SCHEDULE="0 */1 * * * *" \
-	FUNCTIONS_WORKER_RUNTIME="dotnet-isolated"
+	FUNCTIONS_WORKER_RUNTIME="dotnet-isolated" 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Function app settings for [$FUNCTION_APP_NAME] set successfully."
@@ -115,7 +151,4 @@ cd ../src/sample || exit
 
 # Publish the function app
 echo "Publishing function app [$FUNCTION_APP_NAME]..."
-funclocal azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
-
-# Stop azure CLI local mode session
-azlocal stop_interception
+$FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vacation Planner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+</head>
+<body style="background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%); min-height: 100vh;">
+    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:480px;">
+        <img src="{{ url_for('static', filename='summer_banner.jpg') }}" alt="Summer Banner" class="img-fluid rounded mb-3 w-100" style="max-height:180px; object-fit:cover;">
+        <h1 class="display-9 fw-bold sea-title mb-4">Vacation Planner</h1>
+        <form method="post" class="sea-form mb-4" style="max-width: 520px; margin: 0 auto;">
+            <div style="display: flex; width: 100%;">
+                <input type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." required>
+                <button type="submit" class="sea-btn">Add</button>
+            </div>
+        </form>
+        <div class="table-responsive" style="width: 100%;">
+            <table class="table sea-table align-middle" style="width: 100%; margin: 0;">
+                <thead>
+                    <tr>
+                        <th class="text-start">Activity</th>
+                        <th class="text-start align-middle action-col" style="width: 90px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for activity in activities %}
+                    <tr>
+                        <td class="text-start">{{ activity[1] }}</td>
+                        <td class="text-start align-middle action-col" style="width: 90px;">
+                            <form method="post" action="{{ url_for('delete', activity_id=loop.index0) }}" class="d-inline">
+                                <input type="hidden" name="row_id" value="{{ activity[0] }}">
+                                <button type="submit" class="sea-btn" style="width: 90px;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="2" class="text-center text-muted fst-italic">No vacation plans yet!</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

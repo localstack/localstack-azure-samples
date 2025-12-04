@@ -174,7 +174,7 @@ param tags object = {
 }
 
 var functionAppName = '${prefix}-functionapp-${suffix}'
-var appServicePlanPortalName = '${prefix}-app-service-plan-${suffix}'
+var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
 var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
 
@@ -192,7 +192,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
 }
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanPortalName
+  name: appServicePlanName
   location: location
   tags: tags
   kind: appServicePlanKind
