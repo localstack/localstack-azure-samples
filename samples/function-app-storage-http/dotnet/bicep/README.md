@@ -334,6 +334,7 @@ USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
+SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
