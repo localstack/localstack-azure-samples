@@ -18,6 +18,7 @@ TRIGGER_QUEUE_NAME="trigger"
 INPUT_TABLE_NAME="scoreboards" 
 OUTPUT_TABLE_NAME="winners" 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
