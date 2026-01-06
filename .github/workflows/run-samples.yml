@@ -27,6 +27,7 @@ jobs:
     # This divides the total number of samples into multiple parallel jobs,
     # significantly reducing the total time taken for the CI to complete.
     name: "Run Test Scripts (amd64) — Part ${{ matrix.shard }} of ${{ matrix.splits }}"
+    environment: AZURE
     strategy:
       fail-fast: false
       matrix:
@@ -66,12 +67,10 @@ jobs:
       - name: Login to Docker Hub
         # Logging into Docker Hub helps avoid rate limiting issues when pulling images.
         # This requires DOCKERHUB_PULL_USERNAME and DOCKERHUB_PULL_TOKEN secrets to be set.
-        # If not set, it will attempt to pull images anonymously.
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
-        continue-on-error: true
 
       - name: Free up disk space
         # Deletes unused Docker images and build caches to ensure enough space for the emulator.
