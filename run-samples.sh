@@ -9,7 +9,7 @@ set -euo pipefail
 # - Node.js & npm
 # - Azure CLI (az)
 # - LocalStack CLI
-# - azlocal & tflocal (pip install azlocal tflocal)
+# - azlocal & terraform-local (pip install azlocal terraform-local)
 # - funclocal (pip install funclocal)
 # - Azure Functions Core Tools (func)
 # - jq & zip (sudo apt-get install jq zip)
@@ -30,7 +30,8 @@ fi
 command -v localstack >/dev/null 2>&1 || { echo >&2 "localstack CLI is required but not installed. Aborting."; exit 1; }
 command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installed. Aborting."; exit 1; }
 command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
-command -v funclocal >/dev/null 2>&1 || { echo >&2 "funclocal is required but not installed. Run 'pip install funclocal'. Aborting."; exit 1; }
+command -v funclocal >/dev/null 2>&1 || { echo >&2 "funclocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
+command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
 command -v func >/dev/null 2>&1 || { echo >&2 "Azure Functions Core Tools (func) is required but not installed. Aborting."; exit 1; }
 
 if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
@@ -66,8 +67,23 @@ SAMPLES=(
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
 )
 
-# 4. Run Samples
-for item in "${SAMPLES[@]}"; do
+# 4. Calculate Shard
+TOTAL=${#SAMPLES[@]}
+SHARD=${1:-1}
+SPLITS=${2:-1}
+
+COUNT=$(( TOTAL / SPLITS ))
+START=$(( (SHARD - 1) * COUNT ))
+
+if [ "$SHARD" -eq "$SPLITS" ]; then
+  COUNT=$(( TOTAL - START ))
+fi
+
+echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
+
+# 5. Run Samples
+for (( i=START; i<START+COUNT; i++ )); do
+  item="${SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
   echo "============================================================"
   echo "Testing Sample: $path"

@@ -2,21 +2,18 @@ name: Samples CI
 
 # Theory of Operation:
 # This workflow automates the testing of Azure sample applications against the LocalStack Azure emulator.
-# It replicates a production-grade CI environment by:
-# 1. Setting up multiple runtimes (Python, .NET) required by different samples.
-# 2. Installing the full Azure toolchain (Azure CLI, Functions Core Tools, MSSQL tools).
-# 3. Configuring the Azure CLI to redirect all traffic to LocalStack (Cloud Registration).
-# 4. Bypassing SSL restrictions to allow seamless communication with self-signed certificates.
-# 5. Using a matrix strategy (sharding) to run tests in parallel, saving time.
+# It follows the best practices from the localstack-pro repository:
+# 1. Parallel Testing: Splits the sample suite into shards to reduce execution time.
+# 2. Standardized Tooling: Uses a Makefile for environment setup and test orchestration.
+# 3. Cloud Emulation: Configures the Azure CLI to target the LocalStack emulator.
 
 concurrency:
-  # Prevents multiple runs of the same workflow on the same branch from overlapping.
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 on:
   push:
-    branches: [ '**' ] # Trigger on all branches for testing
+    branches: [ '**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -24,7 +21,6 @@ on:
 jobs:
   scripts:
     name: "Run Test Scripts (amd64) — Part ${{ matrix.shard }} of ${{ matrix.splits }}"
-    # Use the AZURE environment to access secrets like TEST_LOCALSTACK_AUTH_TOKEN
     environment: AZURE
     strategy:
       fail-fast: false
@@ -34,18 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     
     env:
-      # Secrets and core configuration
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
       DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
-      
-      # SSL and Networking Robustness
-      # Tell .NET and Azure CLI to trust LocalStack's self-signed certificates.
       PERMIT_ALL_CERTIFICATES: "true"
       AZURE_CLI_DISABLE_CONNECTION_VERIFICATION: "1"
-      # Prevent LocalStack from trying to hijack host DNS, which can be unstable in CI.
       DNS_ADDRESS: "0"
-      
-      # Emulation endpoints
       LOCALSTACK_HOSTNAME: "127.0.0.1"
       EDGE_PORT: "4566"
 
@@ -57,6 +46,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -64,61 +54,32 @@ jobs:
           dotnet-version: '9.0'
 
       - name: Login to Docker Hub
-        # High-volume CI environments can be throttled by Docker Hub.
-        # Providing credentials ensures reliable image pulls.
+        if: ${{ secrets.DOCKERHUB_PULL_USERNAME != '' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
 
       - name: Free up disk space
-        # The LocalStack Azure image and its sidecars (SQL, etc.) are large.
-        # Pruning ensure we don't run out of disk space on the runner.
         run: |
           docker system prune -af --volumes
           docker builder prune -af
 
-      - name: Install Base Dependencies
-        # jq for JSON parsing, zip for packaging Web/Function apps.
-        # azlocal is the core wrapper for the Azure CLI.
-        # unixodbc-dev is required for pyodbc used in SQL samples.
-        # libsnappy-dev is a dependency for some Python libraries (e.g., pymongo).
-        # tflocal is the wrapper for Terraform.
+      - name: Install System Dependencies
         run: |
-          pip install localstack azlocal tflocal
           sudo apt-get update
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
 
-      - name: Install Python Requirements
-        # Install all dependencies found in the sample apps to the host environment.
-        # This ensures that 'funclocal publish --build local' works correctly.
-        run: |
-          find samples -name "requirements.txt" -exec pip install -r {} +
+      - name: Install test dependencies
+        run: make install
 
       - name: Install Bicep
-        # Required if any deployment script uses Bicep templates.
-        run: |
-          az bicep install
+        run: az bicep install
 
       - name: Install Azure Functions Core Tools
-        # Using npm is the method used in the localstack-pro repo.
-        # It provides the 'func' command used to publish apps.
-        run: |
-          npm install -g azure-functions-core-tools@4 --unsafe-perm true
-
-      - name: Setup funclocal shim
-        # The sample scripts specifically call 'funclocal'.
-        # Since it is an entry point in azlocal, it should be present,
-        # but we create a shim to 'func' as a robust fallback.
-        run: |
-          if ! command -v funclocal >/dev/null 2>&1; then
-            echo "Creating funclocal shim..."
-            echo -e '#!/bin/bash\nfunc "$@"' | sudo tee /usr/local/bin/funclocal
-            sudo chmod +x /usr/local/bin/funclocal
-          fi
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Install MSSQL ODBC and Tools
-        # Required for the 'web-app-sql-database' sample which uses 'sqlcmd'.
         run: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
           curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
@@ -126,32 +87,12 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
           echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
 
-      - name: Print Tool Versions
-        # For debugging: print versions of all installed tools.
-        run: |
-          echo "Python: $(python --version)"
-          echo "Pip: $(pip --version)"
-          echo "Azure CLI: $(az --version | head -n 1)"
-          echo "Bicep: $(az bicep version)"
-          echo "Terraform: $(terraform version | head -n 1)"
-          echo "LocalStack: $(localstack --version)"
-          echo "azlocal: $(azlocal --version || echo 'N/A')"
-          echo "tflocal: $(tflocal --version || echo 'N/A')"
-          echo "Functions CLI: $(func --version)"
-          echo "Node: $(node --version)"
-          echo "npm: $(npm --version)"
-          echo "Dotnet: $(dotnet --version)"
-          echo "sqlcmd: $(sqlcmd -? | head -n 1)"
-
       - name: Start LocalStack
-        # Starts the emulator in detached mode and waits for the edge port to be ready.
         run: |
           IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
           localstack wait -t 60
 
       - name: Register LocalStack Cloud
-        # This is the "Magic" that redirects standard Azure CLI commands to LocalStack.
-        # We use http://127.0.0.1:4566 to avoid SSL handshaking entirely where possible.
         run: |
           az cloud register -n LocalStack \
             --endpoint-resource-manager "http://127.0.0.1:4566" \
@@ -162,59 +103,11 @@ jobs:
             --endpoint-management "http://127.0.0.1:4566" || true
           
           az cloud set -n LocalStack
-          
-          # Perform a dummy login to satisfy the CLI's internal state.
           az login --service-principal -u "ignored" -p "ignored" --tenant "ignored" --allow-no-subscriptions || true
 
       - name: Run Test Scripts
-        run: |
-          # Define all samples and their scripts. Format: path | deploy_command | test_command
-          SAMPLES=(
-            "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
-            "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/test.sh"
-            "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
-            "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
-            "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
-            "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
-          )
-
-          TOTAL=${#SAMPLES[@]}
-          SHARD=${{ matrix.shard }}
-          SPLITS=${{ matrix.splits }}
-
-          # Calculate start and end index for this shard to parallelize execution.
-          COUNT=$(( TOTAL / SPLITS ))
-          START=$(( (SHARD - 1) * COUNT ))
-          
-          if [ "$SHARD" -eq "$SPLITS" ]; then
-            COUNT=$(( TOTAL - START ))
-          fi
-
-          echo "Running samples from index $START, count $COUNT"
-
-          for (( i=START; i<START+COUNT; i++ )); do
-            IFS='|' read -r path deploy test <<< "${SAMPLES[$i]}"
-            echo "============================================================"
-            echo "Testing Sample: $path"
-            echo "============================================================"
-            
-            pushd "$path"
-            
-            echo "Deploying..."
-            # Note: Scripts in the samples/ directory are NOT modified.
-            # All redirection and SSL bypass happens via environment variables.
-            bash $deploy
-            
-            if [ -n "$test" ]; then
-              echo "Testing..."
-              bash -c "$test"
-            fi
-            
-            popd
-          done
+        run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
 
       - name: Get LocalStack Logs
-        # Always collect logs on failure to help diagnose provisioning issues.
         if: always()
-        run: |
-          localstack logs
+        run: make logs
