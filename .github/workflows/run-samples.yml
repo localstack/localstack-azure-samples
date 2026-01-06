@@ -56,6 +56,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
+          find . -name "*.sh" -exec chmod +x {} +
 
       - name: Install test dependencies
         # Mirroring the localstack-pro approach: install all Python dependencies 

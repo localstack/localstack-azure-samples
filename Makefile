@@ -17,6 +17,7 @@ $(VENV_ACTIVATE): pyproject.toml
 
 install: venv ## Install dependencies
 	$(VENV_RUN); pip install -r requirements-dev.txt
+	chmod +x run-samples.sh cleanup.sh
 
 clean: ## Clean the environment
 	rm -rf $(VENV_DIR)
@@ -30,7 +31,7 @@ SHARD ?= 1
 SPLITS ?= 1
 
 test: venv ## Run all samples
-	$(VENV_RUN); ./run-samples.sh $(SHARD) $(SPLITS)
+	$(VENV_RUN); bash ./run-samples.sh $(SHARD) $(SPLITS)
 
 start: venv ## Start LocalStack
 	$(VENV_RUN); localstack start -d
