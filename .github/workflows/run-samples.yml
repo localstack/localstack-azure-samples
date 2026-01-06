@@ -116,21 +116,6 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
           echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
 
-      - name: Register LocalStack Cloud
-        # This is the 'magic' step that redirects all standard Azure CLI commands 
-        # to the LocalStack edge proxy running at http://127.0.0.1:4566.
-        run: |
-          az cloud register -n LocalStack \
-            --endpoint-resource-manager "http://127.0.0.1:4566" \
-            --suffix-storage-endpoint "localhost.localstack.cloud" \
-            --suffix-keyvault-dns ".localhost.localstack.cloud" \
-            --endpoint-active-directory "http://127.0.0.1:4566" \
-            --endpoint-gallery "http://127.0.0.1:4566" \
-            --endpoint-management "http://127.0.0.1:4566" || true
-          
-          az cloud set -n LocalStack
-          az login --service-principal -u "ignored" -p "ignored" --tenant "ignored" --allow-no-subscriptions || true
-
       - name: Run Test Scripts
         # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
