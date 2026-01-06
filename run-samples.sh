@@ -6,10 +6,14 @@ set -euo pipefail
 # - Docker
 # - Python 3.12+
 # - .NET 9.0+
-# - Azure CLI
-# - azlocal (pip install azlocal)
+# - Node.js & npm
+# - Azure CLI (az)
+# - LocalStack CLI
+# - azlocal & tflocal (pip install azlocal tflocal)
 # - funclocal (pip install funclocal)
 # - Azure Functions Core Tools (func)
+# - jq & zip (sudo apt-get install jq zip)
+# - MSSQL Tools (sqlcmd)
 # - LOCALSTACK_AUTH_TOKEN environment variable
 
 # 0. Load environment variables from .env file if it exists
