@@ -1,0 +1,166 @@
+name: Samples CI
+
+# Control how many workflows can run at the same time.
+# This ensures that only one pull request triggered run is executed at a time,
+# saving resources and avoiding potential race conditions in the CI environment.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Centralized environment variables for consistency across the workflow.
+env:
+  IMAGE_NAME: "localstack/localstack-azure-alpha"
+  DEFAULT_TAG: "latest"
+  # Check whether the current job was kicked off by a pull request.
+  IS_PR: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scripts:
+    # Use sharding to parallelize the test execution.
+    # This divides the total number of samples into multiple parallel jobs,
+    # significantly reducing the total time taken for the CI to complete.
+    name: "Run Test Scripts (amd64) — Part ${{ matrix.shard }} of ${{ matrix.splits }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+        splits: [2]
+    runs-on: ubuntu-latest
+    
+    # Environment variables specific to the LocalStack emulator and Azure CLI.
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+      # Required for Microsoft SQL Server emulator to accept the license agreement.
+      DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
+      # Bypassing strict SSL verification for LocalStack's self-signed certificates.
+      # This is critical for .NET tools like the Azure Functions Core Tools.
+      PERMIT_ALL_CERTIFICATES: "true"
+      AZURE_CLI_DISABLE_CONNECTION_VERIFICATION: "1"
+      # Use DNS_ADDRESS=0 to avoid DNS resolution issues in the detached container.
+      DNS_ADDRESS: "0"
+
+    steps:
+      - name: Checkout repo
+        # clones the repository into the runner's workspace.
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        # Installs the Python runtime. Version 3.12 is chosen for compatibility with the samples.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up .NET
+        # Installs the .NET SDK. Version 9.0 is required for the C# based samples.
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0'
+
+      - name: Login to Docker Hub
+        # Logging into Docker Hub helps avoid rate limiting issues when pulling images.
+        # This requires DOCKERHUB_PULL_USERNAME and DOCKERHUB_PULL_TOKEN secrets to be set.
+        # If not set, it will attempt to pull images anonymously.
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+        continue-on-error: true
+
+      - name: Free up disk space
+        # Deletes unused Docker images and build caches to ensure enough space for the emulator.
+        run: |
+          docker system prune -af --volumes
+          docker builder prune -af
+
+      - name: Install dependencies
+        # Installs the required CLI tools and libraries.
+        run: |
+          pip install localstack azlocal funclocal
+          sudo apt-get install -y jq zip
+
+      - name: Install Azure Functions Core Tools
+        # Specifically installs 'func' version 4, which is required for publishing Function Apps to the emulator.
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/microsoft-ubuntu-$(lsb_release -rs)-prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/dotnetdev.list
+          sudo apt-get update
+          sudo apt-get install azure-functions-core-tools-4
+
+      - name: Install MSSQL ODBC dependencies
+        # One of the samples uses Azure SQL Database. These dependencies provide 'sqlcmd',
+        # which is used to initialize the database schema and seed data.
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
+          echo 'export PATH="$PATH:/opt/mssql-tools18/bin"' >> ~/.bashrc
+          # Make tools available for the current shell session.
+          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+
+      - name: Start LocalStack
+        # Launches the LocalStack Azure emulator in detached mode.
+        run: |
+          IMAGE_NAME=${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} localstack start -d
+          localstack wait -t 60
+
+      - name: Run Test Scripts
+        # Iterates through the sample projects and executes their deployment and test scripts.
+        run: |
+          # Define the list of samples to test. Format: path | deploy_command | test_command
+          SAMPLES=(
+            "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
+            "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/test.sh"
+            "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
+            "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
+            "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
+            "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
+          )
+
+          TOTAL=${#SAMPLES[@]}
+          SHARD=${{ matrix.shard }}
+          SPLITS=${{ matrix.splits }}
+
+          # Calculate the range of samples for this specific shard.
+          COUNT=$(( TOTAL / SPLITS ))
+          START=$(( (SHARD - 1) * COUNT ))
+          
+          if [ "$SHARD" -eq "$SPLITS" ]; then
+            COUNT=$(( TOTAL - START ))
+          fi
+
+          echo "Running samples from index $START, count $COUNT"
+
+          for (( i=START; i<START+COUNT; i++ )); do
+            IFS='|' read -r path deploy test <<< "${SAMPLES[$i]}"
+            echo "------------------------------------------------------------"
+            echo "Testing Sample: $path"
+            echo "------------------------------------------------------------"
+            
+            pushd "$path"
+            
+            echo "Deploying..."
+            # Execute the deployment script.
+            bash $deploy
+            
+            if [ -n "$test" ]; then
+              echo "Testing..."
+              # Execute the validation or functional test script.
+              bash -c "$test"
+            fi
+            
+            popd
+          done
+
+      - name: Get LocalStack Logs
+        # Captured logs are invaluable for debugging if a deployment or test fails.
+        if: always()
+        run: |
+          localstack logs
