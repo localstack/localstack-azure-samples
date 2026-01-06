@@ -122,8 +122,6 @@ jobs:
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
-          PERMIT_ALL_CERTIFICATES: "true"
-          AZURE_CLI_DISABLE_CONNECTION_VERIFICATION: "1"
           LOCALSTACK_HOSTNAME: "127.0.0.1"
           EDGE_PORT: "4566"
 
