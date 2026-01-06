@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     
     env:
+      IMAGE_NAME: localstack/localstack-azure-alpha
+      DEFAULT_TAG: latest
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
       DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
       PERMIT_ALL_CERTIFICATES: "true"
@@ -53,32 +55,61 @@ jobs:
         with:
           dotnet-version: '9.0'
 
+      - name: Install System Dependencies
+        # Essential tools for script execution, app packaging, and database connectivity.
+        # jq: for parsing JSON responses from Azure CLI.
+        # zip: for packaging function/web apps.
+        # unixodbc-dev & libsnappy-dev: required for Python database drivers (pyodbc, pymongo).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
+
+      - name: Install test dependencies
+        # Mirroring the localstack-pro approach: install all Python dependencies 
+        # (including the localstack CLI) into a virtual environment to avoid system-level conflicts.
+        run: make install
+
       - name: Login to Docker Hub
+        # Mandatory login to Docker Hub to benefit from higher rate limits for authenticated pulls.
+        # This prevents '429 Too Many Requests' errors during the pull of large emulator images.
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
 
       - name: Free up disk space
+        # Azure emulator images are large. Pruning unused Docker objects ensures enough 
+        # disk space is available on the GitHub runner for image pulls and sidecar containers.
         run: |
           docker system prune -af --volumes
           docker builder prune -af
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
+      - name: Pull LocalStack Azure Image
+        # Explicitly pull the image before starting. This mirrors the "Build Docker Image" 
+        # step in localstack-pro and ensures the pull logic is separated from the start logic.
+        run: docker pull ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
 
-      - name: Install test dependencies
-        run: make install
+      - name: Start LocalStack
+        # Run the emulator in detached mode using the virtual environment.
+        # We use 'python -m localstack.cli.main' to ensure the correct CLI version from the venv is used.
+        run: |
+          source .venv/bin/activate
+          python -m localstack.cli.main start -d
+          python -m localstack.cli.main wait -t 60
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
 
       - name: Install Bicep
+        # Required for samples that use Bicep templates for infrastructure-as-code.
         run: az bicep install
 
       - name: Install Azure Functions Core Tools
+        # Required for publishing function app samples to the emulator.
         run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Install MSSQL ODBC and Tools
+        # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to 
+        # initialize and verify the database schema in the local emulator.
         run: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
           curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
@@ -86,12 +117,9 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
           echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
 
-      - name: Start LocalStack
-        run: |
-          IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
-          localstack wait -t 60
-
       - name: Register LocalStack Cloud
+        # This is the 'magic' step that redirects all standard Azure CLI commands 
+        # to the LocalStack edge proxy running at http://127.0.0.1:4566.
         run: |
           az cloud register -n LocalStack \
             --endpoint-resource-manager "http://127.0.0.1:4566" \
@@ -105,8 +133,10 @@ jobs:
           az login --service-principal -u "ignored" -p "ignored" --tenant "ignored" --allow-no-subscriptions || true
 
       - name: Run Test Scripts
+        # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
 
       - name: Get LocalStack Logs
+        # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
         if: always()
         run: make logs
