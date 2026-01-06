@@ -32,13 +32,6 @@ jobs:
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
-      DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
-      PERMIT_ALL_CERTIFICATES: "true"
-      AZURE_CLI_DISABLE_CONNECTION_VERIFICATION: "1"
-      DNS_ADDRESS: "0"
-      LOCALSTACK_HOSTNAME: "127.0.0.1"
-      EDGE_PORT: "4566"
 
     steps:
       - name: Checkout repo
@@ -98,6 +91,12 @@ jobs:
           python -m localstack.cli.main wait -t 60
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
+          LS_LOG: "DEBUG"
+          DISABLE_EVENTS: "1"
+          ACTIVATE_PRO: "1"
+          DNS_ADDRESS: "0"
 
       - name: Install Bicep
         # Required for samples that use Bicep templates for infrastructure-as-code.
@@ -135,6 +134,12 @@ jobs:
       - name: Run Test Scripts
         # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          PERMIT_ALL_CERTIFICATES: "true"
+          AZURE_CLI_DISABLE_CONNECTION_VERIFICATION: "1"
+          LOCALSTACK_HOSTNAME: "127.0.0.1"
+          EDGE_PORT: "4566"
 
       - name: Get LocalStack Logs
         # Captured on failure or success to provide a detailed audit trail of the emulator's activity.

@@ -40,9 +40,13 @@ if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
 fi
 
 # 1. Start LocalStack
-echo "Starting LocalStack Azure emulator..."
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
-localstack wait -t 60
+if ! localstack status | grep -q "running"; then
+  echo "Starting LocalStack Azure emulator..."
+  IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+  localstack wait -t 60
+else
+  echo "LocalStack is already running."
+fi
 
 # 2. Register LocalStack Cloud in az CLI
 #echo "Registering LocalStack cloud profile..."
