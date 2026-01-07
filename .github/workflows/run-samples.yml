@@ -32,9 +32,6 @@ jobs:
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
-      # Isolate Azure CLI auth/config per shard to avoid cross-runner contention.
-      # This follows the best practices from localstack-pro.
-      AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli-${{ matrix.shard }}
 
     steps:
       - name: Checkout repo
@@ -105,6 +102,8 @@ jobs:
       - name: Pre-login Azure CLI
         # Ensures the Azure CLI is correctly configured to target the LocalStack emulator.
         # Mirroring the approach in localstack-pro.
+        env:
+          AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli-${{ matrix.shard }}
         run: |
           mkdir -p "$AZURE_CONFIG_DIR"
           source .venv/bin/activate
@@ -118,6 +117,8 @@ jobs:
 
       - name: Install Bicep
         # Required for samples that use Bicep templates for infrastructure-as-code.
+        env:
+          AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli-${{ matrix.shard }}
         run: az bicep install
 
       - name: Install Azure Functions Core Tools
@@ -136,9 +137,10 @@ jobs:
 
       - name: Run Test Scripts
         # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
-        run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
         env:
+          AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli-${{ matrix.shard }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+        run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
 
       - name: Get LocalStack Logs
         # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
