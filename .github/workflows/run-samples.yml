@@ -32,11 +32,13 @@ jobs:
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
-      AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: echo "AZURE_CONFIG_DIR=${{ runner.temp }}/azure-cli" >> $GITHUB_ENV
 
       - name: Set up Python
         uses: actions/setup-python@v5
