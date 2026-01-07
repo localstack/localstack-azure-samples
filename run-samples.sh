@@ -48,8 +48,21 @@ else
   echo "LocalStack is already running."
 fi
 
+# 2. Configure Azure CLI for LocalStack
+echo "Configuring Azure CLI for LocalStack..."
+if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
+  mkdir -p "$AZURE_CONFIG_DIR"
+fi
 
-# 2. Define Samples
+if command -v azlocal >/dev/null 2>&1; then
+  azlocal login || true
+  azlocal start_interception
+else
+  az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
+fi
+
+
+# 3. Define Samples
 SAMPLES=(
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
@@ -59,7 +72,7 @@ SAMPLES=(
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
 )
 
-# 3. Calculate Shard
+# 4. Calculate Shard
 TOTAL=${#SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
@@ -73,7 +86,7 @@ fi
 
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
 
-# 4. Run Samples
+# 5. Run Samples
 for (( i=START; i<START+COUNT; i++ )); do
   item="${SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
