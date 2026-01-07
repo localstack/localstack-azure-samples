@@ -32,6 +32,9 @@ jobs:
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
+      # Isolate Azure CLI auth/config per shard to avoid cross-runner contention.
+      # This follows the best practices from localstack-pro.
+      AZURE_CONFIG_DIR: ${{ runner.temp }}/azure-cli-${{ matrix.shard }}
 
     steps:
       - name: Checkout repo
@@ -98,6 +101,20 @@ jobs:
           DISABLE_EVENTS: "1"
           ACTIVATE_PRO: "1"
           DNS_ADDRESS: "0"
+
+      - name: Pre-login Azure CLI
+        # Ensures the Azure CLI is correctly configured to target the LocalStack emulator.
+        # Mirroring the approach in localstack-pro.
+        run: |
+          mkdir -p "$AZURE_CONFIG_DIR"
+          source .venv/bin/activate
+          if command -v azlocal >/dev/null 2>&1; then
+            azlocal login || true
+          else
+            # Fallback for environments where azlocal is not available
+            az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
+          fi
+          az account show --output table || true
 
       - name: Install Bicep
         # Required for samples that use Bicep templates for infrastructure-as-code.
