@@ -48,20 +48,8 @@ else
   echo "LocalStack is already running."
 fi
 
-# 2. Register LocalStack Cloud in az CLI
-#echo "Registering LocalStack cloud profile..."
-#az cloud register -n LocalStack \
-#  --endpoint-resource-manager "http://localhost:4566" \
-#  --suffix-storage-endpoint "localhost.localstack.cloud" \
-#  --suffix-keyvault-dns ".localhost.localstack.cloud" \
-#  --endpoint-active-directory "http://localhost:4566" \
-#  --endpoint-gallery "http://localhost:4566" \
-#  --endpoint-management "http://localhost:4566" || true
 
-#az cloud set -n LocalStack
-#az login --service-principal -u "ignored" -p "ignored" --tenant "ignored" --allow-no-subscriptions || true
-
-# 3. Define Samples
+# 2. Define Samples
 SAMPLES=(
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/test.sh"
@@ -71,7 +59,7 @@ SAMPLES=(
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
 )
 
-# 4. Calculate Shard
+# 3. Calculate Shard
 TOTAL=${#SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
@@ -85,7 +73,7 @@ fi
 
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
 
-# 5. Run Samples
+# 4. Run Samples
 for (( i=START; i<START+COUNT; i++ )); do
   item="${SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
