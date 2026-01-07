@@ -6,11 +6,12 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
+	azlocal start_interception
 else
 	echo "Using standard az for AzureCloud environment."
-	AZ="az"
 fi
+
+AZ="az"
 
 # Check resource group
 $AZ group show \

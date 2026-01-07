@@ -19,13 +19,15 @@ API_VERSION="2024-11-30"
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
+  azlocal start_interception
 	CURL="env http_proxy=http://127.0.0.1:$PROXY_PORT https_proxy=http://127.0.0.1:$PROXY_PORT curl -k -s"
 else
 	echo "Using standard az for AzureCloud environment."
-	AZ="az"
+
 	CURL="curl -s"
 fi
+
+AZ="az"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
