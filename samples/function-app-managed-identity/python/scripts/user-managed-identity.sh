@@ -96,11 +96,7 @@ else
 fi
 
 # Construct the storage connection string for LocalStack
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-else
-	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-fi
+STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
 echo "Storage connection string constructed: [$STORAGE_CONNECTION_STRING]"
 
 # Get the storage account resource ID
@@ -360,15 +356,9 @@ fi
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
 
 # Set storage URIs based on environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	BLOB_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-	QUEUE_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
-	TABLE_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
-else
-	BLOB_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-	QUEUE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
-	TABLE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
-fi
+BLOB_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+QUEUE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
+TABLE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
 	
 
 $AZ functionapp config appsettings set \

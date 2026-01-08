@@ -74,10 +74,6 @@ DOCUMENT_ENDPOINT=$($AZ cosmosdb show \
 	--output tsv \
 	--only-show-errors)
 
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	DOCUMENT_ENDPOINT=$(echo $DOCUMENT_ENDPOINT | sed 's/https/http/')
-fi
-
 if [ -n "$DOCUMENT_ENDPOINT" ]; then
 	echo "Document endpoint retrieved successfully: $DOCUMENT_ENDPOINT"
 else

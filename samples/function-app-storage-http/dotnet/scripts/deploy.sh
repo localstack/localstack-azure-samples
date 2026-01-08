@@ -118,11 +118,7 @@ else
 fi
 
 # Construct the storage connection string for LocalStack
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-else
-	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-fi
+STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."

@@ -120,10 +120,6 @@ AZURE_STORAGE_ACCOUNT_URL=$($AZ storage account show \
 	--output tsv \
 	--only-show-errors)
 
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	AZURE_STORAGE_ACCOUNT_URL=$(echo $AZURE_STORAGE_ACCOUNT_URL | sed 's/https/http/')
-fi
-
 if [ -n "$AZURE_STORAGE_ACCOUNT_URL" ]; then
 	echo "Storage account blob primary endpoint retrieved successfully: $AZURE_STORAGE_ACCOUNT_URL"
 else
