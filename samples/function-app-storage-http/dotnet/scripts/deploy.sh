@@ -150,6 +150,10 @@ fi
 # CD into the function app directory
 cd ../src/sample || exit
 
-# Publish the function app
 echo "Publishing function app [$FUNCTION_APP_NAME]..."
-$FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	# Disable proxy for NuGet during build to avoid proxy interference
+	NO_PROXY="api.nuget.org,*.nuget.org" no_proxy="api.nuget.org,*.nuget.org" $FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
+else
+	$FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated --verbose --debug
+fi
