@@ -178,8 +178,6 @@ if [[ "$USE_LOCALSTACK" == "true" ]]; then
   fi
   if azlocal start_interception; then
     INTERCEPTION_STARTED="true"; echo "LocalStack interception started."
-    export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
-    export AZURE_SDK_DISABLE_CONNECTION_VERIFICATION=1
   else
     echo "Error: azlocal failed to start interception. Ensure LocalStack is running." >&2
     exit 1
