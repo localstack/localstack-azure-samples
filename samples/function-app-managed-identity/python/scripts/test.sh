@@ -17,6 +17,7 @@ cd "$CURRENT_DIR" || exit
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
 	azlocal start_interception
+	export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
 else
 	echo "Using standard az for AzureCloud environment."
 fi
