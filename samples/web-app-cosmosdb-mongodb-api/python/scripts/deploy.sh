@@ -28,12 +28,11 @@ cd "$CURRENT_DIR" || exit
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
-	azlocal start_interception
+	AZ="azlocal"
 else
 	echo "Using standard az for AzureCloud environment."
+	AZ="az"
 fi
-
-AZ="az"
 
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
@@ -74,6 +73,10 @@ DOCUMENT_ENDPOINT=$($AZ cosmosdb show \
 	--query "documentEndpoint" \
 	--output tsv \
 	--only-show-errors)
+
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	DOCUMENT_ENDPOINT=$(echo $DOCUMENT_ENDPOINT | sed 's/https/http/')
+fi
 
 if [ -n "$DOCUMENT_ENDPOINT" ]; then
 	echo "Document endpoint retrieved successfully: $DOCUMENT_ENDPOINT"

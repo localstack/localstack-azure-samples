@@ -24,13 +24,11 @@ cd "$CURRENT_DIR" || exit
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
-	azlocal start_interception
-	export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
+	AZ="azlocal"
 else
 	echo "Using standard az for AzureCloud environment."
+	AZ="az"
 fi
-
-AZ="az"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
@@ -96,7 +94,11 @@ else
 fi
 
 # Construct the storage connection string for LocalStack
-STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+else
+	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+fi
 echo "Storage connection string constructed: [$STORAGE_CONNECTION_STRING]"
 
 # Get the storage account resource ID
@@ -297,9 +299,15 @@ fi
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
 
 # Set storage URIs based on environment
-BLOB_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-QUEUE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
-TABLE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	BLOB_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+	QUEUE_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
+	TABLE_SERVICE_URI="http://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
+else
+	BLOB_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+	QUEUE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
+	TABLE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
+fi
 	
 
 $AZ functionapp config appsettings set \

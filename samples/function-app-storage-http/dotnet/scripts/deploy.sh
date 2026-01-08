@@ -27,14 +27,13 @@ cd "$CURRENT_DIR" || exit
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using azlocal for LocalStack emulator environment."
-	azlocal start_interception
+	AZ="azlocal"
 	FUNC="funclocal"
 else
 	echo "Using standard az for AzureCloud environment."
+	AZ="az"
 	FUNC="func"
 fi
-
-AZ="az"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
@@ -119,7 +118,11 @@ else
 fi
 
 # Construct the storage connection string for LocalStack
-STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+else
+	STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+fi
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."

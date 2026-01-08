@@ -178,6 +178,8 @@ if [[ "$USE_LOCALSTACK" == "true" ]]; then
   fi
   if azlocal start_interception; then
     INTERCEPTION_STARTED="true"; echo "LocalStack interception started."
+    export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
+    export AZURE_SDK_DISABLE_CONNECTION_VERIFICATION=1
   else
     echo "Error: azlocal failed to start interception. Ensure LocalStack is running." >&2
     exit 1
@@ -212,7 +214,7 @@ create_function_app() {
     STORAGE_KEY=$(az storage account keys list -g "$RESOURCE_GROUP" -n "$storageName" --query "[0].value" -o tsv)
     if [[ -z "$STORAGE_KEY" ]]; then echo "Failed to get storage key for $storageName" >&2; exit 1; fi
     local STORAGE_CONNECTION_STRING
-    STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$storageName;AccountKey=$STORAGE_KEY;BlobEndpoint=https://$storageName.blob.localhost.localstack.cloud:4566;QueueEndpoint=https://$storageName.queue.localhost.localstack.cloud:4566;TableEndpoint=https://$storageName.table.localhost.localstack.cloud:4566;FileEndpoint=https://$storageName.file.localhost.localstack.cloud:4566"
+    STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$storageName;AccountKey=$STORAGE_KEY;BlobEndpoint=http://$storageName.blob.localhost.localstack.cloud:4566;QueueEndpoint=http://$storageName.queue.localhost.localstack.cloud:4566;TableEndpoint=http://$storageName.table.localhost.localstack.cloud:4566;FileEndpoint=http://$storageName.file.localhost.localstack.cloud:4566"
     az functionapp config appsettings set -g "$RESOURCE_GROUP" -n "$funcName" \
       --settings AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" WEBSITE_CONTENTAZUREFILECONNECTIONSTRING="$STORAGE_CONNECTION_STRING" SCM_RUN_FROM_PACKAGE= -o none
   fi
