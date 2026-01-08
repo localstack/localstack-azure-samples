@@ -57,8 +57,6 @@ fi
 if command -v azlocal >/dev/null 2>&1; then
   azlocal login || true
   azlocal start_interception
-  export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
-  export AZURE_SDK_DISABLE_CONNECTION_VERIFICATION=1
 else
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
 fi
