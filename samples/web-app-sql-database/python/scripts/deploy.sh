@@ -162,12 +162,13 @@ fi
 # Create database user
 echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
 sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME') 
-      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
-	-V 1
+    -d "$SQL_DATABASE_NAME" \
+    -U "$ADMIN_USER" \
+    -P "$ADMIN_PASSWORD" \
+    -N -C \
+    -Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME')
+          CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
+    -V 1
 
 if [ $? -eq 0 ]; then
 	echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
