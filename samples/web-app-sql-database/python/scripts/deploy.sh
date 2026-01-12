@@ -144,12 +144,13 @@ fi
 # Create server-level login
 echo "Creating login [$DATABASE_USER_NAME] at server level..."
 sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d master \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME') 
-			CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
-	-V 1
+    -d master \
+    -U "$ADMIN_USER" \
+    -P "$ADMIN_PASSWORD" \
+    -N -C \
+    -Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME')
+            CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
+    -V 1
 
 if [ $? -eq 0 ]; then
 	echo "Login [$DATABASE_USER_NAME] created successfully"
