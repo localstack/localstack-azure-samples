@@ -183,6 +183,7 @@ sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$ADMIN_USER" \
 	-P "$ADMIN_PASSWORD" \
+  -N -C \
 	-Q "ALTER ROLE db_datareader ADD MEMBER [$DATABASE_USER_NAME]; 
 			ALTER ROLE db_datawriter ADD MEMBER [$DATABASE_USER_NAME];
 			ALTER ROLE db_ddladmin ADD MEMBER [$DATABASE_USER_NAME];" \
@@ -201,6 +202,7 @@ sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
+  -N -C \
 	-Q "SELECT SYSTEM_USER AS CurrentUser, DB_NAME() AS CurrentDatabase, GETDATE() AS CurrentTime;" \
 	-V 1
 
@@ -217,6 +219,7 @@ sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
+  -N -C \
 	-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
 		CREATE TABLE dbo.Activities (
 			-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
@@ -246,6 +249,7 @@ sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
+  -N -C \
 	-Q "INSERT INTO Activities (username, activity, timestamp) 
 			VALUES 
 			('paolo', 'Go to Paris', GETDATE()),
@@ -266,6 +270,7 @@ sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
+  -N -C \
 	-Q "SELECT * FROM Activities;" \
 	-V 1
 
