@@ -102,10 +102,6 @@ jobs:
           ACTIVATE_PRO: "1"
           DNS_ADDRESS: "0"
 
-      - name: Install Bicep
-        # Required for samples that use Bicep templates for infrastructure-as-code.
-        run: az bicep install
-
       - name: Install Azure Functions Core Tools
         # Required for publishing function app samples to the emulator.
         run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
