@@ -90,7 +90,7 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m localstack.cli.main start -d
-          python -m localstack.cli.main wait -t 60
+          python -m localstack.cli.main wait -t 120
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
