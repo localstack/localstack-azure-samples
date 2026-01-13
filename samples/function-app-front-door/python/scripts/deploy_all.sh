@@ -228,7 +228,7 @@ publish_function_code() {
       echo "Error: Azure Functions Core Tools ('func') not found in PATH." >&2; exit 1
     fi
     pushd "$FUNCTION_SRC" >/dev/null
-    funclocal azure functionapp publish "$funcName" --python --build local --verbose --debug
+    funclocal azure functionapp publish "$funcName" --python --build local #--verbose --debug
     popd >/dev/null
   else
     rm -f "$zipPath"; ( cd "$FUNCTION_SRC" && zip -rq "$zipPath" . )
