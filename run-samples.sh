@@ -106,6 +106,10 @@ for (( i=START; i<START+COUNT; i++ )); do
   
   popd > /dev/null
   echo "Completed: $path"
+  
+  # Cleanup Docker resources after each test to free up disk space
+  echo "Cleaning up Docker resources..."
+  docker system prune -af --volumes || true
   echo ""
 done
 
