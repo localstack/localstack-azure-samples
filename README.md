@@ -47,6 +47,8 @@ Each sample project is organized by Azure service and includes:
 To validate all samples locally, you can run the same test suite used in the CI. This script will start LocalStack, configure the Azure CLI cloud profile, and execute the deployment and test scripts for each sample.
 
 ```bash
+cd localstack-azure-samples
+
 # Set your LOCALSTACK_AUTH_TOKEN
 export LOCALSTACK_AUTH_TOKEN=<your-token>
 
@@ -54,13 +56,6 @@ export LOCALSTACK_AUTH_TOKEN=<your-token>
 # echo "LOCALSTACK_AUTH_TOKEN=<your-token>" > .env
 
 ./run-samples.sh
-```
-
-## Cleanup
-
-To stop LocalStack and all associated containers, and revert your Azure CLI configuration, run:
-```bash
-./cleanup.sh
 ```
 
 ### Troubleshooting: Line Endings
