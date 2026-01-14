@@ -42,6 +42,29 @@ Each sample project is organized by Azure service and includes:
 - Step-by-step deployment guides and tutorials.
 - Optionally, testing and validation scripts.
 
+## Local Testing
+
+To validate all samples locally, you can run the same test suite used in the CI. This script will start LocalStack, configure the Azure CLI cloud profile, and execute the deployment and test scripts for each sample.
+
+```bash
+cd localstack-azure-samples
+
+# Set your LOCALSTACK_AUTH_TOKEN
+export LOCALSTACK_AUTH_TOKEN=<your-token>
+
+# Or create a .env file:
+# echo "LOCALSTACK_AUTH_TOKEN=<your-token>" > .env
+
+./run-samples.sh
+```
+
+### Troubleshooting: Line Endings
+If you encounter errors like `invalid option name` or `: command not found` when running on Linux/WSL, it's likely due to Windows-style line endings (CRLF). You can fix this by running:
+```bash
+find . -name "*.sh" -exec sed -i 's/\r$//' {} +
+```
+Or by installing and using `dos2unix`.
+
 ## Configuration
 
 Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.
