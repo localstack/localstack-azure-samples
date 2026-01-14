@@ -1,0 +1,126 @@
+name: Samples CI
+
+# Theory of Operation:
+# This workflow automates the testing of Azure sample applications against the LocalStack Azure emulator.
+# It follows the best practices from the localstack-pro repository:
+# 1. Parallel Testing: Splits the sample suite into shards to reduce execution time.
+# 2. Standardized Tooling: Uses a Makefile for environment setup and test orchestration.
+# 3. Cloud Emulation: Configures the Azure CLI to target the LocalStack emulator.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  scripts:
+    name: "Run Test Scripts (amd64) — Part ${{ matrix.shard }} of ${{ matrix.splits }}"
+    environment: AZURE
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+        splits: [2]
+    runs-on: ubuntu-latest
+    
+    env:
+      IMAGE_NAME: localstack/localstack-azure-alpha
+      DEFAULT_TAG: latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: echo "AZURE_CONFIG_DIR=${{ runner.temp }}/azure-cli" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0'
+
+      - name: Install System Dependencies
+        # Essential tools for script execution, app packaging, and database connectivity.
+        # jq: for parsing JSON responses from Azure CLI.
+        # zip: for packaging function/web apps.
+        # unixodbc-dev & libsnappy-dev: required for Python database drivers (pyodbc, pymongo).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
+          find . -name "*.sh" -exec chmod +x {} +
+
+      - name: Install test dependencies
+        # Mirroring the localstack-pro approach: install all Python dependencies 
+        # (including the localstack CLI) into a virtual environment to avoid system-level conflicts.
+        run: make install
+
+      - name: Login to Docker Hub
+        # Mandatory login to Docker Hub to benefit from higher rate limits for authenticated pulls.
+        # This prevents '429 Too Many Requests' errors during the pull of large emulator images.
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+
+      - name: Free up disk space
+        # Azure emulator images are large. Pruning unused Docker objects ensures enough 
+        # disk space is available on the GitHub runner for image pulls and sidecar containers.
+        run: |
+          docker system prune -af --volumes
+          docker builder prune -af
+
+      - name: Pull LocalStack Azure Image
+        # Explicitly pull the image before starting. This mirrors the "Build Docker Image" 
+        # step in localstack-pro and ensures the pull logic is separated from the start logic.
+        run: docker pull ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+
+      - name: Start LocalStack
+        # Run the emulator in detached mode using the virtual environment.
+        # We use 'python -m localstack.cli.main' to ensure the correct CLI version from the venv is used.
+        run: |
+          source .venv/bin/activate
+          python -m localstack.cli.main start -d
+          python -m localstack.cli.main wait -t 120
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
+          LS_LOG: "DEBUG"
+          DISABLE_EVENTS: "1"
+          ACTIVATE_PRO: "1"
+          DNS_ADDRESS: "0"
+
+      - name: Install Azure Functions Core Tools
+        # Required for publishing function app samples to the emulator.
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Install MSSQL ODBC and Tools
+        # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to 
+        # initialize and verify the database schema in the local emulator.
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+
+      - name: Run Test Scripts
+        # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
+        run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+
+      - name: Get LocalStack Logs
+        # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
+        if: always()
+        run: make logs
