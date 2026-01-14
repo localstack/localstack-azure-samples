@@ -22,6 +22,8 @@ RUNTIME="python"
 RUNTIME_VERSION="3.13"
 DEPLOY_APP=1
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
+KEYVAULT_NAME="${PREFIX}-kv-${SUFFIX}"
+SECRET_NAME="SqlConnectionString"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -298,6 +300,7 @@ $AZ webapp create \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
 	--runtime "$RUNTIME:$RUNTIME_VERSION" \
+	--assign-identity \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -306,6 +309,72 @@ else
 	echo "Failed to create web app [$WEB_APP_NAME]."
 	exit 1
 fi
+
+# Get Web App principal ID
+PRINCIPAL_ID=$($AZ webapp identity show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "principalId" \
+	--output tsv)
+
+# Create Key Vault
+echo "Creating Key Vault [$KEY_VAULT_NAME]..."
+$AZ keyvault create \
+	--name "$KEY_VAULT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--location "$LOCATION" \
+	--enable-soft-delete true \
+	--retention-days 7 \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Key Vault [$KEY_VAULT_NAME] created successfully."
+else
+	echo "Failed to create Key Vault [$KEY_VAULT_NAME]."
+	exit 1
+fi
+
+# Assign access policy to Web App managed identity
+echo "Assigning Key Vault access policy to Web App..."
+$AZ keyvault set-policy \
+	--name "$KEY_VAULT_NAME" \
+	--object-id "$PRINCIPAL_ID" \
+	--secret-permissions get \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Key Vault access policy assigned successfully."
+else
+	echo "Failed to assign Key Vault access policy."
+	exit 1
+fi
+
+# Build connection string
+SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
+
+# Create secret
+echo "Creating secret [$SECRET_NAME] in Key Vault..."
+$AZ keyvault secret set \
+	--vault-name "$KEY_VAULT_NAME" \
+	--name "$SECRET_NAME" \
+	--value "$SQL_CONNECTION_STRING" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Secret [$SECRET_NAME] created successfully."
+else
+	echo "Failed to create secret [$SECRET_NAME]."
+	exit 1
+fi
+
+# Get Secret URI
+SECRET_URI=$($AZ keyvault secret show \
+	--vault-name "$KEY_VAULT_NAME" \
+	--name "$SECRET_NAME" \
+	--query "id" \
+	--output tsv)
+
+echo "Secret URI: $SECRET_URI"
 
 # Set web app settings
 echo "Setting web app settings for [$WEB_APP_NAME]..."

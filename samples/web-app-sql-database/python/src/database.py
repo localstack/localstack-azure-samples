@@ -3,6 +3,7 @@ Azure SQL Database Helper Class
 Supports both traditional ODBC connections and passwordless Azure AD authentication
 """
 
+from multiprocessing import connection
 import os
 import struct
 import pyodbc
@@ -73,6 +74,10 @@ class SqlHelper:
             - SQL_USERNAME
             - SQL_PASSWORD
         """
+        connection_string = os.environ.get("SQL_CONNECTION_STRING")
+        if connection_string:
+            return cls.from_connection_string(connection_string)
+        
         client_id = os.environ.get("AZURE_CLIENT_ID")
         client_secret = os.environ.get("AZURE_CLIENT_SECRET")
         tenant_id = os.environ.get("AZURE_TENANT_ID")
@@ -93,6 +98,44 @@ class SqlHelper:
             password=password,
             use_azure_credential=all([client_id, client_secret, tenant_id])
         )
+
+    @classmethod
+    def from_connection_string(cls, connection_string: str) -> 'SqlHelper':
+        """
+        Create a SqlHelper instance from a connection string.
+        
+        This is useful when the connection string is stored in an environment variable
+        (e.g., resolved by Azure App Service from Key Vault via @Microsoft.KeyVault(SecretUri=...)).
+        
+        """
+        parts = {}
+        for part in connection_string.split(';'):
+            if '=' in part:
+                key, value = part.split('=', 1)
+                parts[key.strip()] = value.strip()
+            
+        server = parts.get('Server', '').replace('tcp:', '').replace(',1433', '')
+        database = parts.get('Database')
+        username = parts.get('User ID')
+        password = parts.get('Password')
+            
+        if not all([server, database, username, password]):
+            raise ValueError(
+                f"Could not parse all required parameters from connection string. "
+                f"Found - Server: {bool(server)}, Database: {bool(database)}, "
+                f"Username: {bool(username)}, Password: {bool(password)}"
+            )
+            
+        logger.info("Connection string parsed successfully")
+        logger.debug(f"Server: {server}, Database: {database}, Username: {username}")
+            
+        return cls(
+            server=server,
+            database=database,
+            username=username,
+            password=password,
+            use_azure_credential=False
+            )
 
     def _build_connection_string(self) -> str:
         """Build the ODBC connection string."""
