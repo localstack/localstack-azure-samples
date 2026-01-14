@@ -1,0 +1,12 @@
+flask
+pyodbc
+pymongo
+azure-functions
+azure-identity
+azure-storage-blob
+azure-mgmt-cosmosdb
+azure-core
+python-dotenv
+localstack
+azlocal
+terraform-local

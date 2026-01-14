@@ -1,0 +1,31 @@
+[build-system]
+requires = ['setuptools>=64', 'wheel']
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localstack-azure-samples"
+version = "0.1.0"
+description = "Samples for LocalStack Azure"
+requires-python = ">=3.10"
+dependencies = [
+    "flask",
+    "pyodbc",
+    "pymongo",
+    "azure-functions",
+    "azure-identity",
+    "azure-storage-blob",
+    "azure-mgmt-cosmosdb",
+    "azure-core",
+    "python-dotenv",
+    "localstack",
+    "azlocal",
+    "terraform-local",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-xdist",
+    "pytest-timeout",
+    "pytest-rerunfailures",
+]
