@@ -6,14 +6,21 @@ SUFFIX='test'
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Determine environment - check if azlocal is configured first
+ENVIRONMENT=$(azlocal account show --query environmentName --output tsv 2>/dev/null || echo "")
+
+if [[ -z "$ENVIRONMENT" ]]; then
+	# Try with regular az if azlocal failed
+	ENVIRONMENT=$(az account show --query environmentName --output tsv 2>/dev/null || echo "AzureCloud")
+fi
+
 # Run terraform init and apply
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using tflocal and azlocal for LocalStack emulator environment and ."
+	echo "Using tflocal and azlocal for LocalStack emulator environment."
 	TERRAFORM="tflocal"
 	AZ="azlocal"
 else
@@ -47,8 +54,8 @@ if [[ $? != 0 ]]; then
 fi
 
 # Get the output values
-RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
-FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
+RESOURCE_GROUP_NAME=$($TERRAFORM output -raw resource_group_name)
+FUNCTION_APP_NAME=$($TERRAFORM output -raw function_app_name)
 
 # Print the variables
 echo "Resource Group: $RESOURCE_GROUP_NAME"

@@ -118,6 +118,12 @@ for (( i=START; i<START+COUNT; i++ )); do
     eval "$test"
   fi
 
+  # Cleanup Terraform state for terraform tests
+  if [[ "$path" == *"/terraform" ]]; then
+    echo "Cleaning up Terraform state..."
+    rm -rf .terraform terraform.tfstate terraform.tfstate.backup .terraform.lock.hcl tfplan || true
+  fi
+
   popd > /dev/null
   echo "Completed: $path"
 
