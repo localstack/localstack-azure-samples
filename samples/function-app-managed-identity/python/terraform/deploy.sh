@@ -65,8 +65,8 @@ if [[ $? != 0 ]]; then
 fi
 
 # Get the output values
-RESOURCE_GROUP_NAME=$($TERRAFORM output -raw resource_group_name)
-FUNCTION_APP_NAME=$($TERRAFORM output -raw function_app_name)
+RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
+FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
 
 if [[ -z "$RESOURCE_GROUP_NAME" || -z "$FUNCTION_APP_NAME" ]]; then
 	echo "Resource Group Name or Function App Name is empty. Exiting."
