@@ -53,6 +53,7 @@ echo "[DEBUG] TERRAFORM command location: $(which $TERRAFORM 2>/dev/null || echo
 # Enable Terraform debug logging
 export TF_LOG=DEBUG
 export TF_LOG_PATH="$CURRENT_DIR/terraform-debug.log"
+echo "[DEBUG] Checking what tflocal does..."echo "[DEBUG] tflocal version: $($TERRAFORM version 2>&1 | head -1)"echo "[DEBUG] Contents of current directory before init:"ls -la . 2>&1 | head -20
 echo "[DEBUG] Terraform debug logging enabled: TF_LOG=DEBUG, TF_LOG_PATH=$TF_LOG_PATH"
 
 echo "Initializing Terraform..."

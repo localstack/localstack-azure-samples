@@ -17,11 +17,8 @@ provider "azurerm" {
   }
 
   # LocalStack Azure emulator configuration
-  subscription_id = "00000000-0000-0000-0000-000000000000"
-  tenant_id       = "00000000-0000-0000-0000-000000000000"
-  client_id       = "00000000-0000-0000-0000-000000000000"
-  client_secret   = "fake-secret"
-
-  use_cli = false
+  # Use Azure CLI authentication (which azlocal intercepts)
+  use_cli = true
   use_msi = false
+  use_oidc = false
 }
