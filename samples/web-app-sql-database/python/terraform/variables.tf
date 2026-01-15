@@ -275,13 +275,12 @@ variable "sku_name" {
 }
 
 variable "python_version" {
-  description = "(Optional) Specifies the version of Python to run. Possible values include 3.13, 3.12, 3.11, 3.10, 3.9, 3.8 and 3.7."
+  description = "(Optional) Specifies the version of Python to run. Possible values include 3.12, 3.11, 3.10, 3.9, 3.8 and 3.7."
   type        = string
-  default     = "3.13"
+  default     = "3.12"
 
   validation {
     condition = contains([
-      "3.13",
       "3.12",
       "3.11",
       "3.10",
