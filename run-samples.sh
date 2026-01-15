@@ -57,10 +57,17 @@ if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
 fi
 
 if command -v azlocal >/dev/null 2>&1; then
+  echo "[DEBUG] azlocal command found, attempting login..."
   azlocal login || true
+  echo "[DEBUG] Starting azlocal interception..."
   azlocal start_interception
+  echo "[DEBUG] Checking azlocal account status..."
+  azlocal account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] azlocal account show failed"
 else
+  echo "[DEBUG] azlocal not found, using standard az login with service principal..."
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
+  echo "[DEBUG] Checking az account status..."
+  az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
 fi
 
 

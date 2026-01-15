@@ -10,13 +10,34 @@ ZIPFILE="function_app.zip"
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Determine environment - check if azlocal is configured first
-ENVIRONMENT=$(azlocal account show --query environmentName --output tsv 2>/dev/null || echo "")
-
-if [[ -z "$ENVIRONMENT" ]]; then
-	# Try with regular az if azlocal failed
-	ENVIRONMENT=$(az account show --query environmentName --output tsv 2>/dev/null || echo "AzureCloud")
+# Determine environment with detailed logging
+echo "[DEBUG] Starting environment detection..."
+echo "[DEBUG] Checking for azlocal command..."
+if command -v azlocal >/dev/null 2>&1; then
+	echo "[DEBUG] azlocal command exists, attempting to query environment..."
+	ENVIRONMENT=$(azlocal account show --query environmentName --output tsv 2>&1)
+	AZLOCAL_EXIT_CODE=$?
+	echo "[DEBUG] azlocal exit code: $AZLOCAL_EXIT_CODE"
+	echo "[DEBUG] azlocal output: '$ENVIRONMENT'"
+else
+	echo "[DEBUG] azlocal command not found"
+	ENVIRONMENT=""
 fi
+
+if [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == *"ERROR"* || "$ENVIRONMENT" == *"error"* ]]; then
+	echo "[DEBUG] azlocal failed or returned empty, trying standard az..."
+	ENVIRONMENT=$(az account show --query environmentName --output tsv 2>&1)
+	AZ_EXIT_CODE=$?
+	echo "[DEBUG] az exit code: $AZ_EXIT_CODE"
+	echo "[DEBUG] az output: '$ENVIRONMENT'"
+
+	if [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == *"ERROR"* || "$ENVIRONMENT" == *"error"* ]]; then
+		echo "[DEBUG] Both azlocal and az failed, defaulting to AzureCloud"
+		ENVIRONMENT="AzureCloud"
+	fi
+fi
+
+echo "[DEBUG] Final detected environment: '$ENVIRONMENT'"
 
 # Run terraform init and apply
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
@@ -28,6 +49,8 @@ else
 	TERRAFORM="terraform"
 	AZ="az"
 fi
+
+echo "[DEBUG] Selected tools: TERRAFORM=$TERRAFORM, AZ=$AZ"
 
 echo "Initializing Terraform..."
 $TERRAFORM init -upgrade
