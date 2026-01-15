@@ -34,6 +34,21 @@ fi
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "Using tflocal and azlocal for LocalStack emulator environment."
 	TERRAFORM="tflocal"
+
+	# Log Azure auth environment variables before unsetting
+	echo "[DEBUG] Azure auth env vars before unsetting:"
+	echo "[DEBUG]   ARM_CLIENT_ID=${ARM_CLIENT_ID:-<not set>}"
+	echo "[DEBUG]   ARM_CLIENT_SECRET=${ARM_CLIENT_SECRET:+<set but hidden>}${ARM_CLIENT_SECRET:-<not set>}"
+	echo "[DEBUG]   ARM_TENANT_ID=${ARM_TENANT_ID:-<not set>}"
+	echo "[DEBUG]   ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID:-<not set>}"
+	echo "[DEBUG]   AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-<not set>}"
+	echo "[DEBUG]   AZURE_TENANT_ID=${AZURE_TENANT_ID:-<not set>}"
+
+	# Unset Azure auth environment variables to prevent interference from CI secrets
+	unset ARM_CLIENT_ID ARM_CLIENT_SECRET ARM_TENANT_ID ARM_SUBSCRIPTION_ID
+	unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID
+
+	echo "[DEBUG] Azure auth env vars after unsetting: all cleared"
 	AZ="azlocal"
 else
 	echo "Using standard terraform and az for AzureCloud environment."
@@ -42,6 +57,7 @@ else
 fi
 
 echo "[DEBUG] Cloud name: '$CLOUD_NAME', Environment: '$ENVIRONMENT', Tools: TERRAFORM=$TERRAFORM, AZ=$AZ"
+echo "[DEBUG] TERRAFORM command location: $(which $TERRAFORM 2>/dev/null || echo 'not found')"
 
 echo "Initializing Terraform..."
 $TERRAFORM init -upgrade

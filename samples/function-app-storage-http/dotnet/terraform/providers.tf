@@ -16,19 +16,13 @@ provider "azurerm" {
     }
   }
 
-  # LocalStack Azure emulator uses a fixed subscription id
+  # LocalStack Azure emulator configuration
   subscription_id = "00000000-0000-0000-0000-000000000000"
+  tenant_id       = "00000000-0000-0000-0000-000000000000"
+  client_id       = "00000000-0000-0000-0000-000000000000"
+  client_secret   = "fake-secret"
 
-  # The following configs are required for local testing
-  # Skip provider registration and authentication for LocalStack
-  resource_provider_registrations = "none"
-
-  # Use environment variables or static values for LocalStack
-  tenant_id     = "00000000-0000-0000-0000-000000000000"
-  client_id     = "00000000-0000-0000-0000-000000000000"
-  client_secret = "fake-secret"
-
-  # Disable authentication checks
-  #use_cli = false
-  #use_msi = false
+  # Disable CLI and MSI authentication
+  use_cli = false
+  use_msi = false
 }
