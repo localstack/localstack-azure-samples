@@ -44,10 +44,6 @@ if [[ $ENVIRONMENT == "LocalStack" ]]; then
 	echo "[DEBUG]   AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-<not set>}"
 	echo "[DEBUG]   AZURE_TENANT_ID=${AZURE_TENANT_ID:-<not set>}"
 
-	# Unset Azure auth environment variables to prevent interference from CI secrets
-	unset ARM_CLIENT_ID ARM_CLIENT_SECRET ARM_TENANT_ID ARM_SUBSCRIPTION_ID
-	unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID
-
 	echo "[DEBUG] Azure auth env vars after unsetting: all cleared"
 	AZ="azlocal"
 else
