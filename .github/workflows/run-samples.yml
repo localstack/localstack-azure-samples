@@ -59,6 +59,12 @@ jobs:
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
           find . -name "*.sh" -exec chmod +x {} +
 
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
       - name: Install test dependencies
         # Mirroring the localstack-pro approach: install all Python dependencies 
         # (including the localstack CLI) into a virtual environment to avoid system-level conflicts.
