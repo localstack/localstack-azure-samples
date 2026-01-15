@@ -9,6 +9,7 @@ set -euo pipefail
 # - Node.js & npm
 # - Azure CLI (az)
 # - LocalStack CLI
+# - Terraform CLI
 # - azlocal & terraform-local (pip install azlocal terraform-local)
 # - funclocal (pip install funclocal)
 # - Azure Functions Core Tools (func)
@@ -32,6 +33,7 @@ command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installe
 command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
 command -v funclocal >/dev/null 2>&1 || { echo >&2 "funclocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
 command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
+command -v terraform >/dev/null 2>&1 || { echo >&2 "terraform CLI is required but not installed. Aborting."; exit 1; }
 command -v func >/dev/null 2>&1 || { echo >&2 "Azure Functions Core Tools (func) is required but not installed. Aborting."; exit 1; }
 
 if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
@@ -72,8 +74,19 @@ SAMPLES=(
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
 )
 
+# 3a. Define Terraform Samples
+TERRAFORM_SAMPLES=(
+  "samples/function-app-managed-identity/python/terraform|bash deploy.sh|bash validate.sh"
+  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh|bash validate.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh|bash validate.sh"
+  "samples/web-app-managed-identity/python/terraform|bash deploy.sh|bash validate.sh"
+  "samples/web-app-sql-database/python/terraform|bash deploy.sh|bash validate.sh"
+)
+
 # 4. Calculate Shard
-TOTAL=${#SAMPLES[@]}
+# Combine both script-based and Terraform samples into one array
+ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}")
+TOTAL=${#ALL_SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
 
@@ -85,28 +98,29 @@ if [ "$SHARD" -eq "$SPLITS" ]; then
 fi
 
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
+echo "Total samples (scripts + terraform): $TOTAL"
 
 # 5. Run Samples
 for (( i=START; i<START+COUNT; i++ )); do
-  item="${SAMPLES[$i]}"
+  item="${ALL_SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
   echo "============================================================"
   echo "Testing Sample: $path"
   echo "============================================================"
-  
+
   pushd "$path" > /dev/null
-  
+
   echo "Deploying..."
   eval "$deploy"
-  
+
   if [ -n "$test" ]; then
     echo "Testing..."
     eval "$test"
   fi
-  
+
   popd > /dev/null
   echo "Completed: $path"
-  
+
   # Cleanup Docker resources after each test to free up disk space
   echo "Cleaning up Docker resources..."
   docker system prune -af --volumes || true
