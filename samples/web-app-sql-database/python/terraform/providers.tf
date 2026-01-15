@@ -22,7 +22,7 @@ provider "azurerm" {
   client_id       = "00000000-0000-0000-0000-000000000000"
   client_secret   = "fake-secret"
 
-  # Disable CLI and MSI authentication
-  use_cli = false
+  # Use Azure CLI (azlocal) for authentication
+  use_cli = true
   use_msi = false
 }
