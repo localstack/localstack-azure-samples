@@ -4,7 +4,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~>4.44.0"
+      version = "=4.14.0"
     }
   }
 }
@@ -17,10 +17,16 @@ provider "azurerm" {
   }
 
   # LocalStack Azure emulator configuration
-  # Use Azure CLI authentication (which azlocal intercepts)
+  # Uses fixed credentials that tflocal intercepts via HTTPS proxy
   subscription_id = "00000000-0000-0000-0000-000000000000"
+  tenant_id       = "00000000-0000-0000-0000-000000000000"
+  client_id       = "00000000-0000-0000-0000-000000000000"
+  client_secret   = "fake-secret"
 
-  use_cli  = true
-  use_msi  = false
-  use_oidc = false
+  # Skip provider registration - LocalStack doesn't support this API
+  skip_provider_registration = true
+
+  # Disable CLI/MSI authentication - use static credentials instead
+  use_cli = false
+  use_msi = false
 }
