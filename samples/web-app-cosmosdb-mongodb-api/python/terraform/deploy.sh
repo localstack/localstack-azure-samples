@@ -54,6 +54,11 @@ fi
 echo "[DEBUG] Cloud name: '$CLOUD_NAME', Environment: '$ENVIRONMENT', Tools: TERRAFORM=$TERRAFORM, AZ=$AZ"
 echo "[DEBUG] TERRAFORM command location: $(which $TERRAFORM 2>/dev/null || echo 'not found')"
 
+# Enable Terraform debug logging
+export TF_LOG=DEBUG
+export TF_LOG_PATH="$CURRENT_DIR/terraform-debug.log"
+echo "[DEBUG] Terraform debug logging enabled: TF_LOG=DEBUG, TF_LOG_PATH=$TF_LOG_PATH"
+
 echo "Initializing Terraform..."
 $TERRAFORM init -upgrade
 
@@ -66,6 +71,11 @@ $TERRAFORM plan -out=tfplan \
 
 if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."
+	echo "============================================================"
+	echo "Last 100 lines of Terraform debug log:"
+	echo "============================================================"
+	tail -100 "$TF_LOG_PATH" 2>/dev/null || echo "Debug log not found"
+	echo "============================================================"
 	exit 1
 fi
 
