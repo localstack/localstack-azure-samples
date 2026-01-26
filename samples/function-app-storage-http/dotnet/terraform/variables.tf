@@ -7,7 +7,7 @@ variable "resource_group_name" {
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "local"
+  default     = "funchttp"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2

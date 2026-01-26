@@ -1,7 +1,7 @@
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "local"
+  default     = "websql"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2
