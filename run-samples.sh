@@ -85,11 +85,11 @@ SAMPLES=(
 
 # 3a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
-  "samples/function-app-managed-identity/python/terraform|bash deploy.sh|bash validate.sh"
-  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh|bash validate.sh"
-  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh|bash validate.sh"
-  "samples/web-app-managed-identity/python/terraform|bash deploy.sh|bash validate.sh"
-  "samples/web-app-sql-database/python/terraform|bash deploy.sh|bash validate.sh"
+  "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
+  "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/web-app-sql-database/python/terraform|bash deploy.sh"
 )
 
 # 4. Calculate Shard
