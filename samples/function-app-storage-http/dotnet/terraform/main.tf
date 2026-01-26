@@ -1,5 +1,6 @@
 # Local Variables
 locals {
+  resource_group_name   = "${var.prefix}-rg"
   storage_account_name  = "${var.prefix}storage${var.suffix}"
   app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
   function_app_name     = "${var.prefix}-functionapp-${var.suffix}"
