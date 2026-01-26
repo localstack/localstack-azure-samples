@@ -115,3 +115,8 @@ $AZ functionapp deploy \
     --name "$FUNCTION_APP_NAME" \
     --src-path $ZIPFILE \
     --type zip 1> /dev/null
+
+# Clean up Terraform resources
+echo "Cleaning up Terraform resources..."
+cd "$CURRENT_DIR" || exit
+$TERRAFORM destroy -auto-approve

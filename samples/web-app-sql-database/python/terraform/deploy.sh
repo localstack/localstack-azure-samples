@@ -285,7 +285,11 @@ else
 fi
 
 # Remove the zip package of the web app
-# Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then
 	rm "$ZIPFILE"
 fi
+
+# Clean up Terraform resources
+echo "Cleaning up Terraform resources..."
+cd "$CURRENT_DIR" || exit
+$TERRAFORM destroy -auto-approve
