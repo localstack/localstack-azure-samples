@@ -1,7 +1,7 @@
 variable "resource_group_name" {
   description = "(Optional) Specifies the name of the resource group."
   type        = string
-  default     = "local-rg"
+  default     = "funchttp-rg"
 }
 
 variable "prefix" {
