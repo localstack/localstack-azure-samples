@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX='websql'
 SUFFIX='test'
 LOCATION='westeurope'
 ADMIN_USER='sqladmin'
@@ -60,17 +60,6 @@ export TF_LOG=DEBUG
 export TF_LOG_PATH="$CURRENT_DIR/terraform-debug.log"
 echo "[DEBUG] Checking what tflocal does..."echo "[DEBUG] tflocal version: $($TERRAFORM version 2>&1 | head -1)"echo "[DEBUG] Contents of current directory before init:"ls -la . 2>&1 | head -20
 echo "[DEBUG] Terraform debug logging enabled: TF_LOG=DEBUG, TF_LOG_PATH=$TF_LOG_PATH"
-
-# Clean up any existing Terraform state from previous runs
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Cleaning up any existing resources from previous runs..."
-	if [ -f ".terraform/terraform.tfstate" ] || [ -f "terraform.tfstate" ]; then
-		$TERRAFORM init -upgrade 2>/dev/null || true
-		$TERRAFORM destroy -auto-approve 2>/dev/null || true
-		rm -f terraform.tfstate* tfplan .terraform.lock.hcl 2>/dev/null || true
-		rm -rf .terraform 2>/dev/null || true
-	fi
-fi
 
 echo "Initializing Terraform..."
 $TERRAFORM init -upgrade
