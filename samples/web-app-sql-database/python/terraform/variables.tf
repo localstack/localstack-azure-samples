@@ -160,7 +160,7 @@ variable "license_type" {
   type        = string
   default     = null
   validation {
-    condition     = var.license_type == null || contains(["LicenseIncluded", "BasePrice"], var.license_type)
+    condition     = var.license_type == null || try(contains(["LicenseIncluded", "BasePrice"], var.license_type), false)
     error_message = "License type must be 'LicenseIncluded' or 'BasePrice'."
   }
 }

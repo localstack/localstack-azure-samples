@@ -117,6 +117,5 @@ if $AZ functionapp deploy \
     --type zip 1> /dev/null; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
 else
-	echo "Warning: Failed to deploy function app [$FUNCTION_APP_NAME]. This may be due to GitHub API rate limits."
-	echo "Infrastructure provisioning was successful. Deployment failure is non-critical for testing."
+	echo "Warning: Failed to deploy function app [$FUNCTION_APP_NAME].
 fi
