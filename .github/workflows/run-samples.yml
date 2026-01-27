@@ -23,8 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-        splits: [2]
+        shard: [1, 2, 3, 4]
+        splits: [4]
     runs-on: ubuntu-latest
     
     env:
