@@ -1,7 +1,7 @@
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "local"
+  default     = "webmi"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2
@@ -145,13 +145,12 @@ variable "sku_name" {
 }
 
 variable "python_version" {
-  description = "(Optional) Specifies the version of Python to run. Possible values include 3.13, 3.12, 3.11, 3.10, 3.9, 3.8 and 3.7."
+  description = "(Optional) Specifies the version of Python to run. Possible values include 3.12, 3.11, 3.10, 3.9, 3.8 and 3.7."
   type        = string
-  default     = "3.13"
+  default     = "3.12"
 
   validation {
     condition = contains([
-      "3.13",
       "3.12",
       "3.11",
       "3.10",
