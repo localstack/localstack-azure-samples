@@ -92,9 +92,19 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-sql-database/python/terraform|bash deploy.sh"
 )
 
+# 3b. Define Bicep Samples
+BICEP_SAMPLES=(
+  "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
+  "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
+  "samples/web-app-sql-database/python/bicep|bash deploy.sh"
+)
+
 # 4. Calculate Shard
-# Combine both script-based and Terraform samples into one array
-ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}")
+# Combine script-based, Terraform, and Bicep samples into one array
+#ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
+ALL_SAMPLES=("${BICEP_SAMPLES[@]}")
 TOTAL=${#ALL_SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
@@ -107,7 +117,7 @@ if [ "$SHARD" -eq "$SPLITS" ]; then
 fi
 
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
-echo "Total samples (scripts + terraform): $TOTAL"
+echo "Total samples (scripts + terraform + bicep): $TOTAL"
 
 # 5. Run Samples
 for (( i=START; i<START+COUNT; i++ )); do
@@ -131,6 +141,13 @@ for (( i=START; i<START+COUNT; i++ )); do
   if [[ "$path" == *"/terraform" ]]; then
     echo "Cleaning up Terraform state..."
     rm -rf .terraform terraform.tfstate terraform.tfstate.backup .terraform.lock.hcl tfplan || true
+  fi
+
+  # Cleanup Bicep artifacts for bicep tests
+  if [[ "$path" == *"/bicep" ]]; then
+    echo "Cleaning up Bicep artifacts..."
+    # Clean up zip files if any were created
+    rm -f *.zip || true
   fi
 
   popd > /dev/null
