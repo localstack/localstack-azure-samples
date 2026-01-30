@@ -119,13 +119,16 @@ if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	administratorLoginPassword=$ADMIN_PASSWORD \
 	sqlDatabaseUsername=$DATABASE_USER_NAME \
 	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
-	--query 'properties.outputs' -o json); then
+	--query 'properties.outputs' \
+	--output json); then
+	# Extract only the JSON portion (everything from first { to the end)
+	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
-	echo "$DEPLOYMENT_OUTPUTS" | jq .
-	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.appServicePlanName.value')
-	WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppName.value')
-	SQL_SERVER_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.sqlServerName.value')
-	SQL_DATABASE_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.sqlDatabaseName.value')
+	echo "$DEPLOYMENT_JSON" | jq .
+	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.appServicePlanName.value')
+	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value')
+	SQL_SERVER_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlServerName.value')
+	SQL_DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlDatabaseName.value')
 	echo "Deployment details:"
 	echo "appServicePlanName: $APP_SERVICE_PLAN_NAME"
 	echo "webAppName: $WEB_APP_NAME"
