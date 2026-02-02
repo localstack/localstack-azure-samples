@@ -103,8 +103,7 @@ BICEP_SAMPLES=(
 
 # 4. Calculate Shard
 # Combine script-based, Terraform, and Bicep samples into one array
-#ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
-ALL_SAMPLES=("${BICEP_SAMPLES[@]}")
+ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
 TOTAL=${#ALL_SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
@@ -174,10 +173,8 @@ for (( i=START; i<START+COUNT; i++ )); do
   echo "Completed: $path"
 
   # Cleanup Docker resources after each test to free up disk space
-  # IMPORTANT: Exclude LocalStack container from cleanup to maintain state
-  echo "Cleaning up Docker resources (excluding LocalStack)..."
-  docker ps -aq --filter "label!=com.docker.compose.project=localstack" | xargs -r docker rm -f 2>/dev/null || true
-  docker images -q --filter "dangling=true" | xargs -r docker rmi -f 2>/dev/null || true
+  echo "Cleaning up Docker resources..."
+  docker system prune -af --volumes || true
   echo ""
 done
 
