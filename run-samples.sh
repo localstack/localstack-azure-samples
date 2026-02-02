@@ -148,14 +148,36 @@ for (( i=START; i<START+COUNT; i++ )); do
     echo "Cleaning up Bicep artifacts..."
     # Clean up zip files if any were created
     rm -f *.zip || true
+
+    # Clean up Azure resources to prevent state pollution between tests
+    echo "Cleaning up Azure resources in LocalStack..."
+    if command -v azlocal >/dev/null 2>&1; then
+      echo "Deleting all resource groups..."
+      # List and delete all resource groups
+      RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
+      if [[ -n "$RG_LIST" ]]; then
+        echo "$RG_LIST" | while read -r rg; do
+          if [[ -n "$rg" ]]; then
+            echo "  - Deleting resource group: $rg"
+            azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+          fi
+        done
+        # Wait a bit for deletions to process
+        sleep 2
+      else
+        echo "  No resource groups to clean up"
+      fi
+    fi
   fi
 
   popd > /dev/null
   echo "Completed: $path"
 
   # Cleanup Docker resources after each test to free up disk space
-  echo "Cleaning up Docker resources..."
-  docker system prune -af --volumes || true
+  # IMPORTANT: Exclude LocalStack container from cleanup to maintain state
+  echo "Cleaning up Docker resources (excluding LocalStack)..."
+  docker ps -aq --filter "label!=com.docker.compose.project=localstack" | xargs -r docker rm -f 2>/dev/null || true
+  docker images -q --filter "dangling=true" | xargs -r docker rmi -f 2>/dev/null || true
   echo ""
 done
 
