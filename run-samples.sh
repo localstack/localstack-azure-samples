@@ -103,8 +103,7 @@ BICEP_SAMPLES=(
 
 # 4. Calculate Shard
 # Combine script-based, Terraform, and Bicep samples into one array
-#ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
-ALL_SAMPLES=("${BICEP_SAMPLES[@]}")
+ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
 TOTAL=${#ALL_SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
