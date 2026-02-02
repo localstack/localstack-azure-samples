@@ -107,89 +107,29 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-echo "DEBUG: Listing existing resource groups before deployment..."
-$AZ group list --query "[].name" -o table || true
-
-# Capture full deployment output for debugging
-DEPLOYMENT_RESULT=$($AZ deployment group create \
+if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
+	--only-show-errors \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters location=$LOCATION \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
 	managedIdentityType=$MANAGED_IDENTITY_TYPE \
-	-o json 2>&1) || true
-
-echo "DEBUG: Full deployment result:"
-echo "$DEPLOYMENT_RESULT" | jq . 2>/dev/null || echo "$DEPLOYMENT_RESULT"
-
-# Check if deployment succeeded
-PROVISIONING_STATE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.provisioningState // empty' 2>/dev/null)
-echo "DEBUG: Provisioning State: $PROVISIONING_STATE"
-
-if [[ "$PROVISIONING_STATE" == "Succeeded" ]]; then
-	echo "Bicep template [$TEMPLATE] deployed successfully."
-
-	# Extract outputs
-	DEPLOYMENT_OUTPUTS=$(echo "$DEPLOYMENT_RESULT" | jq '.properties.outputs // empty' 2>/dev/null)
-
-	if [[ -n "$DEPLOYMENT_OUTPUTS" ]] && echo "$DEPLOYMENT_OUTPUTS" | jq empty 2>/dev/null; then
-		echo "Outputs:"
-		echo "$DEPLOYMENT_OUTPUTS" | jq .
-		APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.appServicePlanName.value // empty')
-		WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppName.value // empty')
-		WEB_APP_URL=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppUrl.value // empty')
-		STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value // empty')
-		echo "Deployment details:"
-		echo "- appServicePlanName: $APP_SERVICE_PLAN_NAME"
-		echo "- webAppName: $WEB_APP_NAME"
-		echo "- webAppUrl: $WEB_APP_URL"
-		echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
-	else
-		echo "Warning: Could not parse deployment outputs. Attempting to retrieve resource names directly..."
-
-		WEB_APP_NAME=$($AZ webapp list \
-			--resource-group $RESOURCE_GROUP_NAME \
-			--query "[0].name" \
-			-o tsv 2>/dev/null || echo "")
-
-		STORAGE_ACCOUNT_NAME=$($AZ storage account list \
-			--resource-group $RESOURCE_GROUP_NAME \
-			--query "[0].name" \
-			-o tsv 2>/dev/null || echo "")
-
-		APP_SERVICE_PLAN_NAME=$($AZ appservice plan list \
-			--resource-group $RESOURCE_GROUP_NAME \
-			--query "[0].name" \
-			-o tsv 2>/dev/null || echo "")
-
-		echo "Retrieved resource names:"
-		echo "- appServicePlanName: $APP_SERVICE_PLAN_NAME"
-		echo "- webAppName: $WEB_APP_NAME"
-		echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
-	fi
+	--query 'properties.outputs' -o json); then
+	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
+	echo "$DEPLOYMENT_OUTPUTS" | jq .
+	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.appServicePlanName.value')
+	WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppName.value')
+	WEB_APP_URL=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppUrl.value')
+	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value')
+	echo "Deployment details:"
+	echo "- appServicePlanName: $APP_SERVICE_PLAN_NAME"
+	echo "- webAppName: $WEB_APP_NAME"
+	echo "- webAppUrl: $WEB_APP_URL"
+	echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
 else
-	echo "ERROR: Bicep template [$TEMPLATE] deployment failed!"
-	echo "Provisioning State: $PROVISIONING_STATE"
-	echo ""
-	echo "Full deployment error details:"
-	echo "$DEPLOYMENT_RESULT" | jq . 2>/dev/null || echo "$DEPLOYMENT_RESULT"
-	echo ""
-
-	# Try to extract specific error message
-	ERROR_MESSAGE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.error.message // .error.message // .message // empty' 2>/dev/null)
-	ERROR_CODE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.error.code // .error.code // .code // empty' 2>/dev/null)
-	if [[ -n "$ERROR_MESSAGE" ]]; then
-		echo "Error Code: $ERROR_CODE"
-		echo "Error Message: $ERROR_MESSAGE"
-	fi
-
-	# Check for resource-specific errors
-	echo ""
-	echo "DEBUG: Checking LocalStack logs..."
-	docker logs localstack-main --tail 50 2>&1 | grep -i "error\|exception\|fail" || true
-
+	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1
 fi
 

@@ -116,12 +116,9 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-echo "DEBUG: Listing existing resource groups before deployment..."
-$AZ group list --query "[].name" -o table || true
-
-# Capture full deployment output for debugging
-DEPLOYMENT_RESULT=$($AZ deployment group create \
+if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
+	--only-show-errors \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters location=$LOCATION \
@@ -131,54 +128,25 @@ DEPLOYMENT_RESULT=$($AZ deployment group create \
 	administratorLoginPassword=$ADMIN_PASSWORD \
 	sqlDatabaseUsername=$DATABASE_USER_NAME \
 	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
-	-o json 2>&1) || true
-
-echo "DEBUG: Full deployment result:"
-echo "$DEPLOYMENT_RESULT" | jq . 2>/dev/null || echo "$DEPLOYMENT_RESULT"
-
-# Check if deployment succeeded
-PROVISIONING_STATE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.provisioningState // empty' 2>/dev/null)
-echo "DEBUG: Provisioning State: $PROVISIONING_STATE"
-
-if [[ "$PROVISIONING_STATE" == "Succeeded" ]]; then
-	echo "Bicep template [$TEMPLATE] deployed successfully."
-	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_RESULT" | jq '.properties.outputs // empty' 2>/dev/null)
-	echo "Outputs:"
+	--query 'properties.outputs' \
+	--output json); then
+	# Extract only the JSON portion (everything from first { to the end)
+	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
+	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
 	echo "$DEPLOYMENT_JSON" | jq .
-	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.appServicePlanName.value // empty')
-	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value // empty')
-	SQL_SERVER_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlServerName.value // empty')
-	SQL_DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlDatabaseName.value // empty')
+	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.appServicePlanName.value')
+	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value')
+	SQL_SERVER_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlServerName.value')
+	SQL_DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlDatabaseName.value')
 	echo "Deployment details:"
 	echo "appServicePlanName: $APP_SERVICE_PLAN_NAME"
 	echo "webAppName: $WEB_APP_NAME"
+	echo "webAppUrl: $WEB_APP_URL"
 	echo "sqlServerName: $SQL_SERVER_NAME"
 	echo "sqlDatabaseName: $SQL_DATABASE_NAME"
 else
-	echo "ERROR: Bicep template [$TEMPLATE] deployment failed!"
-	echo "Provisioning State: $PROVISIONING_STATE"
-	echo ""
-	echo "Full deployment error details:"
-	echo "$DEPLOYMENT_RESULT" | jq . 2>/dev/null || echo "$DEPLOYMENT_RESULT"
-	echo ""
-
-	# Try to extract specific error message
-	ERROR_MESSAGE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.error.message // .error.message // .message // empty' 2>/dev/null)
-	ERROR_CODE=$(echo "$DEPLOYMENT_RESULT" | jq -r '.properties.error.code // .error.code // .code // empty' 2>/dev/null)
-	if [[ -n "$ERROR_MESSAGE" ]]; then
-		echo "Error Code: $ERROR_CODE"
-		echo "Error Message: $ERROR_MESSAGE"
-	fi
-
-	# Check for resource-specific errors in LocalStack logs
-	echo ""
-	echo "DEBUG: Checking LocalStack logs for SQL-related errors..."
-	docker logs localstack-main --tail 100 2>&1 | grep -i "error\|exception\|fail\|sql" || true
-
-	echo ""
-	echo "NOTE: SQL Database deployment is not fully supported in LocalStack Azure emulator yet."
-	echo "Skipping this test..."
-	exit 0
+	echo "Failed to deploy Bicep template [$TEMPLATE]"
+	exit 1
 fi
 
 if [[ -z "$WEB_APP_NAME" || -z "$SQL_SERVER_NAME" || -z "$SQL_DATABASE_NAME" ]]; then
