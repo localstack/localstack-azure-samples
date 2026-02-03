@@ -94,7 +94,7 @@ TERRAFORM_SAMPLES=(
 
 # 3b. Define Bicep Samples
 BICEP_SAMPLES=(
-  #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
+  "samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
   "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"

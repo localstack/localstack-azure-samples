@@ -87,9 +87,14 @@ jobs:
           docker builder prune -af
 
       - name: Pull LocalStack Azure Image
-        # Explicitly pull the image before starting. This mirrors the "Build Docker Image" 
+        # Explicitly pull the image before starting. This mirrors the "Build Docker Image"
         # step in localstack-pro and ensures the pull logic is separated from the start logic.
         run: docker pull ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+
+      - name: Check LocalStack Image Info
+        run: |
+          echo "Image creation date:"
+          docker inspect --format='{{.Created}}' ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
 
       - name: Start LocalStack
         # Run the emulator in detached mode using the virtual environment.
