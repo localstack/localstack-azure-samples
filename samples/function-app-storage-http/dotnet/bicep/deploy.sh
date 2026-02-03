@@ -3,7 +3,7 @@
 # Variables
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="bingo-rg"
+RESOURCE_GROUP_NAME="local-func-storage-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0

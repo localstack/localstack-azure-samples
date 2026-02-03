@@ -1,11 +1,14 @@
 #!/bin/bash
 
+# Enable verbose debugging
+set -x
+
 # Variables
 PREFIX='local'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="$PREFIX-rg"
+RESOURCE_GROUP_NAME="$PREFIX-webapp-sql-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -18,6 +21,12 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 DEPLOY_APP=1
+
+echo "=================================================="
+echo "DEBUG: Starting bicep deployment for web-app-sql-database"
+echo "DEBUG: Resource Group: $RESOURCE_GROUP_NAME"
+echo "DEBUG: Environment: $ENVIRONMENT"
+echo "=================================================="
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
