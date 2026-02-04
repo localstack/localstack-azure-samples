@@ -1,11 +1,14 @@
 #!/bin/bash
 
+# Enable verbose debugging
+set -x
+
 # Variables
 PREFIX='local'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="$PREFIX-rg"
+RESOURCE_GROUP_NAME="$PREFIX-webapp-mi-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -14,6 +17,13 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="webapp_app.zip"
 MANAGED_IDENTITY_TYPE="UserAssigned" # SystemAssigned or UserAssigned
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
+
+echo "=================================================="
+echo "DEBUG: Starting bicep deployment for web-app-managed-identity"
+echo "DEBUG: Resource Group: $RESOURCE_GROUP_NAME"
+echo "DEBUG: Environment: $ENVIRONMENT"
+echo "DEBUG: Managed Identity Type: $MANAGED_IDENTITY_TYPE"
+echo "=================================================="
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
