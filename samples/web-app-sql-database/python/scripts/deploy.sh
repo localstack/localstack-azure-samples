@@ -22,7 +22,7 @@ RUNTIME="python"
 RUNTIME_VERSION="3.13"
 DEPLOY_APP=1
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
-KEYVAULT_NAME="${PREFIX}-kv-${SUFFIX}"
+KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="SqlConnectionString"
 
 # Change the current directory to the script's directory
@@ -330,8 +330,6 @@ $AZ keyvault create \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
-	--enable-soft-delete true \
-	--retention-days 7 \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -391,10 +389,7 @@ $AZ webapp config appsettings set \
 	--settings \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
 	ENABLE_ORYX_BUILD='true' \
-	SQL_SERVER="$SQL_SERVER_FQDN" \
-	SQL_DATABASE="$SQL_DATABASE_NAME" \
-	SQL_USERNAME="$DATABASE_USER_NAME" \
-	SQL_PASSWORD="$DATABASE_USER_PASSWORD" \
+	SQL_CONNECTION_STRING="@Microsoft.KeyVault(SecretUri=${SECRET_URI})" \
 	LOGIN_NAME="$LOGIN_NAME" \
 	--only-show-errors 1>/dev/null
 
