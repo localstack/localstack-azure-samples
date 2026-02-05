@@ -324,12 +324,18 @@ PRINCIPAL_ID=$($AZ webapp identity show \
 	--query "principalId" \
 	--output tsv)
 
+if [ -z "$PRINCIPAL_ID" ]; then
+	echo "Failed to retrieve principalId for web app [$WEB_APP_NAME]"
+	exit 1
+fi
+
 # Create Key Vault
 echo "Creating Key Vault [$KEY_VAULT_NAME]..."
 $AZ keyvault create \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
+	--enable-rbac-authorization false \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
