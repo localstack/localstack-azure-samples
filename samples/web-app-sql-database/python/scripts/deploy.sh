@@ -23,7 +23,7 @@ RUNTIME_VERSION="3.13"
 DEPLOY_APP=1
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
-SECRET_NAME="SqlConnectionString"
+SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit

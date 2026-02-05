@@ -50,6 +50,6 @@ $AZ keyvault show \
 # Check Key Vault secret
 $AZ keyvault secret show \
 --vault-name local-kv-test \
---name sql-connection-string \
+--name local-secret-test \
 --query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
 --output table
