@@ -62,16 +62,43 @@ class SqlHelper:
     @classmethod
     def from_env(cls) -> 'SqlHelper':
         """
-        Create a SqlHelper instance using KEY_VAULT_NAME and SECRET_NAME environment variables.
-        The secret must contain a SQL connection string. Uses DefaultAzureCredential for authentication.
+        Create a SqlHelper instance from environment variables.
+
+        You can either pass the following set of variables, if you plan to use DefaultAzureCredential:
+            - AZURE_CLIENT_ID
+            - AZURE_CLIENT_SECRET
+            - AZURE_TENANT_ID
+
+        Instead, if you plan to use the connection string directly, you can set:
+            - SQL_SERVER
+            - SQL_DATABASE
+            - SQL_USERNAME
+            - SQL_PASSWORD
         """
         key_vault_name = os.environ.get("KEY_VAULT_NAME")
         secret_name = os.environ.get("SECRET_NAME")
         
-        if not key_vault_name or not secret_name:
-            raise ValueError("KEY_VAULT_NAME and SECRET_NAME environment variables are required")
+        if key_vault_name and secret_name:
+            return cls.from_key_vault(key_vault_name, secret_name)
         
-        return cls.from_key_vault(key_vault_name, secret_name)
+        client_id = os.environ.get("AZURE_CLIENT_ID")
+        client_secret = os.environ.get("AZURE_CLIENT_SECRET")
+        tenant_id = os.environ.get("AZURE_TENANT_ID")
+        server = os.environ.get("SQL_SERVER")
+        database = os.environ.get("SQL_DATABASE")
+        username = os.environ.get("SQL_USERNAME")
+        password = os.environ.get("SQL_PASSWORD")
+        
+        if not any([client_id, client_secret, tenant_id, server, database, username, password]):
+            raise ValueError("You properly need to define environment variables.")
+        
+        return cls(
+            server=server,
+            database=database,
+            username=username,
+            password=password,
+            use_azure_credential=all([client_id, client_secret, tenant_id])
+        )
     
     @classmethod
     def from_key_vault(cls, vault_name: str, secret_name: str) -> 'SqlHelper':
