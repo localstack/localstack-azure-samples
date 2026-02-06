@@ -378,16 +378,9 @@ else
 	exit 1
 fi
 
-# Get Secret URI
-SECRET_URI=$($AZ keyvault secret show \
-	--vault-name "$KEY_VAULT_NAME" \
-	--name "$SECRET_NAME" \
-	--query "id" \
-	--output tsv)
-
-echo "Secret URI: $SECRET_URI"
-
 # Set web app settings
+# Pass Key Vault name and secret name as app settings.
+# The Python SDK will retrieve the actual connection string value from Key Vault.
 echo "Setting web app settings for [$WEB_APP_NAME]..."
 $AZ webapp config appsettings set \
 	--name "$WEB_APP_NAME" \
@@ -395,7 +388,8 @@ $AZ webapp config appsettings set \
 	--settings \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
 	ENABLE_ORYX_BUILD='true' \
-	SQL_CONNECTION_STRING="@Microsoft.KeyVault(SecretUri=${SECRET_URI})" \
+	KEY_VAULT_NAME="$KEY_VAULT_NAME" \
+	SECRET_NAME="$SECRET_NAME" \
 	LOGIN_NAME="$LOGIN_NAME" \
 	--only-show-errors 1>/dev/null
 

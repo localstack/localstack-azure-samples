@@ -473,11 +473,10 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   properties: {
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     ENABLE_ORYX_BUILD: 'true'
-    SQL_SERVER: sqlServer.properties.fullyQualifiedDomainName
-    SQL_DATABASE: sqlDatabaseName
-    SQL_USERNAME: sqlDatabaseUsername
-    SQL_PASSWORD: sqlDatabasePassword
-    SQL_CONNECTION_STRING: '@Microsoft.KeyVault(SecretUri=${sqlConnectionStringSecret.properties.secretUri})'
+    //Pass Key Vault name and secret name as app settings.
+    //The Python SDK will retrieve the actual connection string value from Key Vault
+    KEY_VAULT_NAME: keyVaultName
+    SECRET_NAME: sqlConnectionStringSecretName
     LOGIN_NAME: username
   }
 }
