@@ -92,6 +92,8 @@ class SqlHelper:
         if not any([client_id, client_secret, tenant_id, server, database, username, password]):
             raise ValueError("You properly need to define environment variables.")
         
+        logger.info("Environment variables loaded successfully")
+        
         return cls(
             server=server,
             database=database,
