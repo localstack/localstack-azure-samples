@@ -24,6 +24,7 @@ DEPLOY_APP=1
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
+CERT_NAME="${PREFIX}-cert-${SUFFIX}"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -360,6 +361,7 @@ $AZ keyvault set-policy \
 	--name "$KEY_VAULT_NAME" \
 	--object-id "$PRINCIPAL_ID" \
 	--secret-permissions get \
+	--certificate-permissions get \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -387,6 +389,35 @@ else
 	exit 1
 fi
 
+# Create certificate in Key Vault
+echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
+$AZ keyvault certificate create \
+	--vault-name "$KEY_VAULT_NAME" \
+	--name "$CERT_NAME" \
+	--policy "$(az keyvault certificate get-default-policy)" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
+else
+	echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."
+	exit 1
+fi
+
+# Get Key Vault URI
+echo "Retrieving Key Vault URI..."
+KEYVAULT_URI=$($AZ keyvault show \
+	--name "$KEY_VAULT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "properties.vaultUri" \
+	--output tsv)
+
+if [ -z "$KEYVAULT_URI" ]; then
+	echo "Failed to retrieve Key Vault URI."
+	exit 1
+fi
+echo "Key Vault URI: [$KEYVAULT_URI]"
+
 # Set web app settings
 # Pass Key Vault name and secret name as app settings.
 # The Python SDK will retrieve the actual connection string value from Key Vault.
@@ -400,6 +431,8 @@ $AZ webapp config appsettings set \
 	KEY_VAULT_NAME="$KEY_VAULT_NAME" \
 	SECRET_NAME="$SECRET_NAME" \
 	LOGIN_NAME="$LOGIN_NAME" \
+	KEYVAULT_URI="$KEYVAULT_URI" \
+	CERT_NAME="$CERT_NAME" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -424,7 +457,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py activities.py database.py certificates.py static templates requirements.txt
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
@@ -440,6 +473,41 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to create web app [$WEB_APP_NAME]."
 	exit 1
+fi
+
+# Get web app URL
+WEB_APP_URL=$($AZ webapp show \
+    --name "$WEB_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --query "defaultHostName" \
+    --output tsv)
+
+# Wait for web app to be ready
+echo "Waiting for web app to be ready..."
+MAX_RETRIES=10
+for i in $(seq 1 $MAX_RETRIES); do
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$WEB_APP_URL" --insecure)
+    if [ "$HTTP_STATUS" -eq 200 ]; then
+        echo "Web app is responding with HTTP 200"
+        break
+    fi
+    echo "Attempt $i/$MAX_RETRIES - HTTP $HTTP_STATUS. Retrying in 5 seconds..."
+    sleep 5
+done
+
+if [ "$HTTP_STATUS" -ne 200 ]; then
+    echo "Web app failed to respond with HTTP 200 after $MAX_RETRIES attempts"
+    exit 1
+fi
+
+echo "Validating certificate from Key Vault..."
+CERT_NAME_RESPONSE=$(curl -s "https://$WEB_APP_URL/api/certificate/validate" --insecure | jq -r '.name')
+
+if [ "$CERT_NAME_RESPONSE" == "$CERT_NAME" ]; then
+    echo "Certificate [$CERT_NAME] validated successfully from web app."
+else
+    echo "Certificate validation failed. Expected [$CERT_NAME], got [$CERT_NAME_RESPONSE]."
+    exit 1
 fi
 
 # Remove the zip package of the web app

@@ -1,9 +1,11 @@
 """Flask application for managing vacation activities using Azure SQL Database."""
-import os
 import logging
+import os
 from typing import List, Tuple
-from flask import Flask, render_template, request, redirect, url_for
+
 from activities import ActivitiesHelper
+from certificates import get_certificate_info, get_ssl_context_from_keyvault
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
@@ -134,6 +136,26 @@ def update(activity_id: int):
 
     return redirect(url_for('index'))
 
+@app.route('/api/certificate/validate', methods=['GET'])
+def validate_certificate():
+    """
+    Downloads the certificate from Key Vault, loads it as X509,
+    and returns its properties to validate that Key Vault certificate
+    emulation works correctly.
+    """
+    vault_uri = os.environ.get('KEYVAULT_URI')
+    cert_name = os.environ.get('CERT_NAME', 'test-cert')
+
+    if not vault_uri:
+        return jsonify({"error": "KEYVAULT_URI not configured"}), 500
+
+    try:
+        info = get_certificate_info(vault_uri, cert_name)
+        return jsonify(info), 200
+    except Exception as e:
+        logger.error("Error validating certificate: %s", e)
+        return jsonify({"error": str(e)}), 500
+
 # Read debug environment variable
 debug = os.environ.get("DEBUG", "false").lower() == "true"
 
@@ -156,6 +178,11 @@ if activities_helper:
 
 # Run the Flask application
 if __name__ == '__main__':
-    app.run(debug=debug)
+    vault_uri = os.environ.get('KEYVAULT_URI')
+    cert_name = os.environ.get('CERT_NAME')
 
-    
+    if vault_uri and cert_name:
+        ssl_ctx = get_ssl_context_from_keyvault(vault_uri, cert_name)
+        app.run(host='0.0.0.0', port=443, ssl_context=ssl_ctx)
+    else:
+        app.run(debug=debug)
