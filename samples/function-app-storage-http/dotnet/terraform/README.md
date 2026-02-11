@@ -17,7 +17,7 @@ Before deploying this solution, ensure you have the following tools installed:
 
 ### Installing azlocal CLI
 
-The deployment script uses the `azlocal` CLI instead of the standard Azure CLI to work with LocalStack. Install it using:
+The [deploy.sh](deploy.sh) script uses the `azlocal` CLI instead of the standard Azure CLI to work with LocalStack. Install it using:
 
 ```bash
 pip install azlocal
@@ -27,7 +27,7 @@ For more information, see [Get started with the az tool on LocalStack](https://a
 
 ## Architecture Overview
 
-This Terraform deployment creates the following Azure resources:
+The [main.tf](main.tf) Terraform module creates the following Azure resources:
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all gaming system resources
 2. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob containers, queues, and tables for the gaming system
@@ -36,231 +36,18 @@ This Terraform deployment creates the following Azure resources:
 
 The system implements a complete gaming scoreboard with multiple Azure Functions that handle HTTP requests, process blob uploads, manage queue messages, and maintain game statistics.
 
-## Terraform Modules
+## Provisioning Scripts
 
-Below is a summary of the key Terraform modules included in this deployment:
+See [deploy.sh](deploy.sh) for the complete deployment automation. The script performs:
 
-- **`main.tf`**: Defines all Azure resources and their configuration.
-- **`variables.tf`**: Declares input variables and validation rules.
-- **`outputs.tf`**: Specifies output values after deployment.
-- **`providers.tf`**: Configures the Terraform provider for Azure.
-
-Below you can read the declarative code in HashiCorp Configuration Language (HCL):
-
-```terraform
-# Local Variables
-locals {
-  storage_account_name  = "${var.prefix}storage${var.suffix}"
-  app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
-  function_app_name     = "${var.prefix}-functionapp-${var.suffix}"
-}
-
-# Create a resource group
-resource "azurerm_resource_group" "example" {
-  location = var.location
-  name     = var.resource_group_name
-  tags     = var.tags
-}
-
-# Create a storage account
-resource "azurerm_storage_account" "example" {
-  name                     = local.storage_account_name
-  resource_group_name      = azurerm_resource_group.example.name
-  location                 = azurerm_resource_group.example.location
-  account_replication_type = var.account_replication_type
-  account_kind             = var.account_kind
-  account_tier             = var.account_tier
-  tags                     = var.tags
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
-}
-
-# Create a service plan
-resource "azurerm_service_plan" "example" {
-  name                   = local.app_service_plan_name
-  resource_group_name    = azurerm_resource_group.example.name
-  location               = azurerm_resource_group.example.location
-  sku_name               = var.sku_name
-  os_type                = var.os_type
-  zone_balancing_enabled = var.zone_balancing_enabled
-  tags                   = var.tags
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
-}
-
-# Create a function app
-resource "azurerm_linux_function_app" "example" {
-  name                          = local.function_app_name
-  resource_group_name           = azurerm_resource_group.example.name
-  location                      = azurerm_resource_group.example.location
-  service_plan_id               = azurerm_service_plan.example.id
-  storage_account_name          = azurerm_storage_account.example.name
-  storage_account_access_key    = azurerm_storage_account.example.primary_access_key
-  https_only                    = var.https_only
-  public_network_access_enabled = var.public_network_access_enabled
-  tags                          = var.tags
-  functions_extension_version   = "~4"
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  site_config {
-    minimum_tls_version = var.minimum_tls_version
-    application_stack {
-      dotnet_version              = var.dotnet_version
-      use_dotnet_isolated_runtime = true
-    }
-  }
-
-  app_settings = {
-    FUNCTIONS_WORKER_RUNTIME                  = var.runtime_name
-    SCM_DO_BUILD_DURING_DEPLOYMENT            = "true"
-    AzureWebJobsStorage                       = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
-    WEBSITE_STORAGE_ACCOUNT_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
-    WEBSITE_CONTENTAZUREFILECONNECTIONSTRING  = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
-    STORAGE_ACCOUNT_CONNECTION_STRING         = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
-    INPUT_STORAGE_CONTAINER_NAME              = var.input_container_name
-    OUTPUT_STORAGE_CONTAINER_NAME             = var.output_container_name
-    INPUT_QUEUE_NAME                          = var.input_queue_name
-    OUTPUT_QUEUE_NAME                         = var.output_queue_name
-    TRIGGER_QUEUE_NAME                        = var.trigger_queue_name
-    INPUT_TABLE_NAME                          = var.input_table_name
-    OUTPUT_TABLE_NAME                         = var.output_table_name
-    PLAYER_NAMES                              = var.player_names
-    TIMER_SCHEDULE                            = var.timer_schedule
-  }
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
-}
-
-# Create an app source control configuration
-resource "azurerm_app_service_source_control" "example" {
-  count    = var.repo_url == "" ? 0 : 1
-  app_id   = azurerm_linux_function_app.example.id
-  repo_url = var.repo_url
-  branch   = "main"
-}
-```
-
-## Deployment Script
-
-You can use the `deploy.sh` script to automate the deployment of all Azure resources and the .NET Azure Functions application in a single step, streamlining setup and reducing manual configuration.
-
-```bash
-#!/bin/bash
-
-# Variables
-PREFIX='user' #system or user
-SUFFIX='test'
-LOCATION='westeurope'
-CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZIPFILE="function_app.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Change the current directory to the script's directory
-cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using tflocal and azlocal for LocalStack emulator environment and ."
-	TERRAFORM="tflocal"
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	TERRAFORM="terraform"
-	AZ="az"
-fi
-
-echo "Initializing Terraform..."
-$TERRAFORM init -upgrade
-
-# Run terraform plan and check for errors
-echo "Planning Terraform deployment..."
-$TERRAFORM plan -out=tfplan \
-	-var "prefix=$PREFIX" \
-	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION"
-
-if [[ $? != 0 ]]; then
-	echo "Terraform plan failed. Exiting."
-	exit 1
-fi
-
-# Apply the Terraform configuration
-echo "Applying Terraform configuration..."
-$TERRAFORM apply -auto-approve tfplan
-
-if [[ $? != 0 ]]; then
-	echo "Terraform apply failed. Exiting."
-	exit 1
-fi
-
-# Get the output values
-RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
-FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
-
-# Print the variables
-echo "Resource Group: $RESOURCE_GROUP_NAME"
-echo "Function App: $FUNCTION_APP_NAME"
-
-# CD into the function app directory
-cd ../src/sample || exit
-
-# Clean and build the project in Release configuration
-dotnet clean
-dotnet build -c Release
-
-# Publish the project to a publish directory
-dotnet publish -c Release -o publish
-
-# Create deployment zip from the published output
-cd publish || exit
-zip -r ../$ZIPFILE .
-cd .. || exit
-
-# Deploy the function app using the zip file
-echo "Deploying function app [$FUNCTION_APP_NAME]..."
-$AZ functionapp deploy \
-    --resource-group "$RESOURCE_GROUP_NAME" \
-    --name "$FUNCTION_APP_NAME" \
-    --src-path $ZIPFILE \
-    --type zip 1> /dev/null
-```
-
-> **Note**  
-> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. Likewise, the `tflocal` is a local replacement for the standard `terraform` CLI, allowing you to run Terraform commands against LocalStack's Azure emulation environment. For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
-
-The `deploy.sh` script executes the following steps:
-
-- Cleans up any previous Terraform state and plan files to ensure a fresh deployment.
-- Initializes the Terraform working directory and downloads required plugins.
-- Creates and validates a Terraform execution plan for the Azure infrastructure.
-- Applies the Terraform plan to provision all necessary Azure resources.
-- Extracts resource names and outputs from the Terraform deployment.
-- Builds and publishes the .NET Azure Functions application.
-- Packages the published application into a zip file for deployment.
-- Deploys the zip package to the Azure Function App using the LocalStack Azure CLI.
-
-> **Note**  
-> Azure CLI commands supports `--verbose` argument to print execution details and the `--debug` flag to show low-level REST calls for debugging. For more information, see [Get started with Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli)
-
+- Detects environment (LocalStack vs Azure Cloud) and uses appropriate CLI (`tflocal`/`azlocal` or `terraform`/`az`)
+- Initializes Terraform and downloads required providers
+- Creates and validates Terraform execution plan with custom variables
+- Applies Terraform configuration to provision Azure resources
+- Extracts output values (resource group name, function app name)
+- Builds and publishes the .NET application in Release configuration
+- Creates deployment zip package from published output
+- Deploys the zip to Azure Function App using Azure CLI
 
 ## Deployment
 
