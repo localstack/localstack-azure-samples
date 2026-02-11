@@ -322,6 +322,8 @@ param username string = 'paolo'
 var sqlServerName = '${prefix}-sqlserver-${suffix}'
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
+var keyVaultName = '${prefix}-kv-${suffix}'
+var sqlConnectionStringSecretName = 'sql-connection-string'
 var identity = {
     type: 'SystemAssigned'
   }
@@ -429,16 +431,52 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' = {
   }
 }
 
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  tags: tags
+  properties: {
+    tenantId: subscription().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    accessPolicies: [
+      {
+        tenantId: subscription().tenantId
+        objectId: webApp.identity.principalId
+        permissions: {
+          secrets: [
+            'get'
+            'list'
+          ]
+        }
+      }
+    ]
+    enableRbacAuthorization: false
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
+  }
+}
+
+resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: keyVault
+  name: sqlConnectionStringSecretName
+  properties: {
+    value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${sqlDatabaseName};User ID=${sqlDatabaseUsername};Password=${sqlDatabasePassword};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
+  }
+}
+
 resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   parent: webApp
   name: 'appsettings'
   properties: {
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     ENABLE_ORYX_BUILD: 'true'
-    SQL_SERVER: sqlServer.properties.fullyQualifiedDomainName
-    SQL_DATABASE: sqlDatabaseName
-    SQL_USERNAME: sqlDatabaseUsername
-    SQL_PASSWORD: sqlDatabasePassword
+    //Pass Key Vault name and secret name as app settings.
+    //The Python SDK will retrieve the actual connection string value from Key Vault
+    KEY_VAULT_NAME: keyVaultName
+    SECRET_NAME: sqlConnectionStringSecretName
     LOGIN_NAME: username
   }
 }
@@ -459,3 +497,6 @@ output webAppUrl string = webApp.properties.defaultHostName
 output sqlServerName string = sqlServer.name
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output sqlDatabaseName string = sqlDatabase.name
+output keyVaultName string = keyVault.name
+output keyVaultUrl string = keyVault.properties.vaultUri
+output sqlConnectionStringSecretUri string = sqlConnectionStringSecret.properties.secretUri
