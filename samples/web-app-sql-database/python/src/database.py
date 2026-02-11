@@ -3,13 +3,15 @@ Azure SQL Database Helper Class
 Supports both traditional ODBC connections and passwordless Azure AD authentication
 """
 
+import logging
 import os
 import struct
-import pyodbc
-import logging
-from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
+from typing import Any, Dict, List, Optional
+
+import pyodbc
 from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -73,6 +75,12 @@ class SqlHelper:
             - SQL_USERNAME
             - SQL_PASSWORD
         """
+        key_vault_name = os.environ.get("KEY_VAULT_NAME")
+        secret_name = os.environ.get("SECRET_NAME")
+        
+        if key_vault_name and secret_name:
+            return cls.from_key_vault(key_vault_name, secret_name)
+        
         client_id = os.environ.get("AZURE_CLIENT_ID")
         client_secret = os.environ.get("AZURE_CLIENT_SECRET")
         tenant_id = os.environ.get("AZURE_TENANT_ID")
@@ -80,12 +88,12 @@ class SqlHelper:
         database = os.environ.get("SQL_DATABASE")
         username = os.environ.get("SQL_USERNAME")
         password = os.environ.get("SQL_PASSWORD")
-
+        
         if not any([client_id, client_secret, tenant_id, server, database, username, password]):
             raise ValueError("You properly need to define environment variables.")
-
+        
         logger.info("Environment variables loaded successfully")
-
+        
         return cls(
             server=server,
             database=database,
@@ -93,6 +101,63 @@ class SqlHelper:
             password=password,
             use_azure_credential=all([client_id, client_secret, tenant_id])
         )
+    
+    @classmethod
+    def from_key_vault(cls, vault_name: str, secret_name: str) -> 'SqlHelper':
+        """
+        Create a SqlHelper instance by reading the connection string from Azure Key Vault.
+        
+        """
+        vault_url = f"https://{vault_name}.vault.azure.net"
+        credential = DefaultAzureCredential(exclude_interactive_browser_credential=False)
+        client = SecretClient(vault_url=vault_url, credential=credential)
+        
+        logger.info(f"Retrieving secret [{secret_name}] from Key Vault [{vault_name}]...")
+        secret = client.get_secret(secret_name)
+        
+        if not secret.value:
+            raise ValueError(f"Secret [{secret_name}] in Key Vault [{vault_name}] has no value")
+        
+        logger.info(f"Secret [{secret_name}] retrieved successfully from Key Vault [{vault_name}]")
+        return cls.from_connection_string(secret.value)
+    
+    @classmethod
+    def from_connection_string(cls, connection_string: str) -> 'SqlHelper':
+        """
+        Create a SqlHelper instance from a connection string.
+        
+        This is useful when the connection string is stored in an environment variable
+        (e.g., resolved by Azure App Service from Key Vault via @Microsoft.KeyVault(SecretUri=...)).
+        
+        """
+        parts = {}
+        for part in connection_string.split(';'):
+            if '=' in part:
+                key, value = part.split('=', 1)
+                parts[key.strip()] = value.strip()
+            
+        server = parts.get('Server', '').replace('tcp:', '').replace(',1433', '')
+        database = parts.get('Database')
+        username = parts.get('User ID')
+        password = parts.get('Password')
+            
+        if not all([server, database, username, password]):
+            raise ValueError(
+                f"Could not parse all required parameters from connection string. "
+                f"Found - Server: {bool(server)}, Database: {bool(database)}, "
+                f"Username: {bool(username)}, Password: {bool(password)}"
+            )
+            
+        logger.info("Connection string parsed successfully")
+        logger.info(f"Server: {server}, Database: {database}, Username: {username}")
+            
+        return cls(
+            server=server,
+            database=database,
+            username=username,
+            password=password,
+            use_azure_credential=False
+            )
 
     def _build_connection_string(self) -> str:
         """Build the ODBC connection string."""

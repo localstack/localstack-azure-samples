@@ -40,3 +40,16 @@ $AZ sql db show \
 --server local-sqlserver-test \
 --resource-group local-rg \
 --output table
+
+# Check Azure Key Vault
+$AZ keyvault show \
+--name local-kv-test \
+--resource-group local-rg \
+--output table
+
+# Check Key Vault secret
+$AZ keyvault secret show \
+--vault-name local-kv-test \
+--name local-secret-test \
+--query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
+--output table
