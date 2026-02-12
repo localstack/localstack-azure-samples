@@ -1,4 +1,4 @@
-# Azure Web App with Azure SQL Database
+# Azure Web App with Azure SQL Database and Azure Key Vault
 
 This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in an `activities` table within the `sampledb` database on an [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/) instance.
 
