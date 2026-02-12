@@ -1,10 +1,3 @@
-# =============================================================================
-# FILE: .github/workflows/dispatch-ci.yml
-# REPO: localstack-samples/localstack-azure-samples (FREE org)
-#
-# Purpose: On every PR or manual trigger, dispatch a CI run to the paid org
-#          where advanced runners are available.
-# =============================================================================
 name: Dispatch CI
 
 on:
