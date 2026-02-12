@@ -1,0 +1,31 @@
+name: Dispatch CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger CI in paid org
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAID_ORG_PAT }}
+          repository: localstack/azure-samples-ci
+          event-type: run-ci
+          client-payload: >-
+            {
+              "sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+              "ref": "${{ github.head_ref || github.ref_name }}",
+              "pr_number": "${{ github.event.pull_request.number || '' }}",
+              "repo": "${{ github.repository }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
