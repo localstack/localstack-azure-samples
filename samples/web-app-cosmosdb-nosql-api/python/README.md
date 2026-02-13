@@ -18,7 +18,6 @@ The following diagram illustrates the architecture of the solution:
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Python 3.11+](https://www.python.org/downloads/)
 - [Flask](https://flask.palletsprojects.com/)
-- [pymongo](https://pymongo.readthedocs.io/en/stable/)
 
 ## Deployment
 
@@ -270,7 +269,7 @@ You can utilize [CosmosDB Data Explorer] to explore and manage your CosmosDB dat
 ## References
 
 - [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
-- [Azure CosmosDB for MongoDB API](https://learn.microsoft.com/en-us/azure/cosmos-db/)
+- [Azure CosmosDB Documentation](https://learn.microsoft.com/en-us/azure/cosmos-db/)
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
 - [LocalStack for Azure](https://azure.localstack.cloud/)
