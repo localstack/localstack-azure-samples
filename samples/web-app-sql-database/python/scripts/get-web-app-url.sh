@@ -65,28 +65,6 @@ get_docker_container_port_mapping() {
 	echo "$host_port"
 }
 
-wait_for_http_response() {
-	local url="$1"
-	local description="$2"
-	local max_retries="${3:-5}"
-	local retry_interval="${4:-5}"
-
-	echo "Waiting for [$description] to respond at [$url]..."
-
-	for i in $(seq 1 $max_retries); do
-		http_status=$(curl -s -o /dev/null -w "%{http_code}" "$url" --max-time 5)
-		if [ "$http_status" -eq 200 ]; then
-			echo "[$description] is responding with HTTP 200"
-			return 0
-		fi
-		echo "Attempt $i/$max_retries - HTTP $http_status. Retrying in ${retry_interval}s..."
-		sleep $retry_interval
-	done
-
-	echo "Error: [$description] failed to respond with HTTP 200 after $max_retries attempts" >&2
-	return 1
-}
-
 call_web_app() {
 	# Get the web app name
 	echo "Getting web app name..."
@@ -204,7 +182,7 @@ call_web_app() {
 	fi
 
 	echo "Validating certificate from Key Vault..."
-	KV_RESPONSE=$(curl -sk "https://$container_ip:8443/api/certificate/validate")
+	KV_RESPONSE=$(curl -sk "https://$container_ip:8443/api/certificate")
 	KV_THUMBPRINT=$(echo "$KV_RESPONSE" | jq -r '.thumbprint')
 	KV_NAME=$(echo "$KV_RESPONSE" | jq -r '.name')
 	KV_SUBJECT=$(echo "$KV_RESPONSE" | jq -r '.subject')

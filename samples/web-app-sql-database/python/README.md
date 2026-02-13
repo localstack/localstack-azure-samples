@@ -1,6 +1,6 @@
 # Azure Web App with Azure SQL Database and Azure Key Vault
 
-This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in an `activities` table within the `sampledb` database on an [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/) instance. The connection string of the SQL database is stored as a secret in [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview).
+This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in an `activities` table within the `sampledb` database on an [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/) instance. The connection string of the SQL database is stored as a secret in [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview). The application also retrieves its certificate from Key Vault to serve traffic over HTTPS. 
 
 
 ## Architecture
@@ -12,7 +12,7 @@ The following diagram illustrates the architecture of the solution:
 - **Azure Web App**: Hosts the Python Flask application
 - **Azure App Service Plan**: Provides compute resources for the web app
 - **Azure SQL Database**: Stores activity data in a relational table
-- **Azure Key Vault**: Stores the database connection string
+- **Azure Key Vault**: Stores the database connection string and the certificate used to secure HTTPS traffic
 
 ## Prerequisites
 
@@ -48,7 +48,7 @@ The application integrates with Azure Key Vault for managing secrets and certifi
 
 Secrets: The SQL connection string is stored as a secret in Key Vault. At runtime, the app retrieves it using the Azure Key Vault Secrets SDK. This is configured via the KEY_VAULT_NAME and SECRET_NAME environment variables.
 
-Certificates: A self-signed certificate is created in Key Vault during deployment. The app exposes a GET /api/certificate/validate endpoint that retrieves the certificate using the Azure Key Vault Certificates SDK and returns its name, confirming the integration works. This is configured via the KEYVAULT_URI and CERT_NAME environment variables.
+Certificates: A self-signed certificate is created in Key Vault during deployment. The app exposes a GET /api/certificate endpoint that retrieves the certificate using the Azure Key Vault Certificates SDK and returns its name, confirming the integration works. This is configured via the KEYVAULT_URI and CERT_NAME environment variables.
 
 ## Deployment
 

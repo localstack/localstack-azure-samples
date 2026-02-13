@@ -136,7 +136,7 @@ def update(activity_id: int):
 
     return redirect(url_for('index'))
 
-@app.route('/api/certificate/validate', methods=['GET'])
+@app.route('/api/certificate', methods=['GET'])
 def validate_certificate():
     """
     Downloads the certificate from Key Vault, loads it as X509,
@@ -144,9 +144,9 @@ def validate_certificate():
     emulation works correctly.
     """
     vault_uri = os.environ.get('KEYVAULT_URI')
-    cert_name = os.environ.get('CERT_NAME', 'test-cert')
+    cert_name = os.environ.get('CERT_NAME')
 
-    if not vault_uri:
+    if not vault_uri or not cert_name:
         return jsonify({"error": "KEYVAULT_URI not configured"}), 500
 
     try:
