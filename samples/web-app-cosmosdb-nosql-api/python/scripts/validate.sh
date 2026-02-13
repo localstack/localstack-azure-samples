@@ -45,6 +45,6 @@ $AZ cosmosdb show \
 # $AZ cosmosdb collection show \
 # --name activities \
 # --database-name sampledb \
-# --account-name local-mongodb-test \
+# --account-name local-webapp-nosql-test \
 # --resource-group local-rg \
 # --output table
