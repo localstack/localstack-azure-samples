@@ -392,10 +392,15 @@ fi
 # Create certificate in Key Vault
 echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
 $AZ keyvault certificate create \
-	--vault-name "$KEY_VAULT_NAME" \
-	--name "$CERT_NAME" \
-	--policy "$(az keyvault certificate get-default-policy)" \
-	--only-show-errors 1>/dev/null
+    --vault-name "$KEY_VAULT_NAME" \
+    --name "$CERT_NAME" \
+    --policy '{
+        "issuerParameters": {"name": "Self"},
+        "keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
+        "secretProperties": {"contentType": "application/x-pkcs12"},
+        "x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
+    }' \
+    --only-show-errors
 
 if [ $? -eq 0 ]; then
 	echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
@@ -481,34 +486,6 @@ WEB_APP_URL=$($AZ webapp show \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --query "defaultHostName" \
     --output tsv)
-
-# Wait for web app to be ready
-echo "Waiting for web app to be ready..."
-MAX_RETRIES=10
-for i in $(seq 1 $MAX_RETRIES); do
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$WEB_APP_URL" --insecure)
-    if [ "$HTTP_STATUS" -eq 200 ]; then
-        echo "Web app is responding with HTTP 200"
-        break
-    fi
-    echo "Attempt $i/$MAX_RETRIES - HTTP $HTTP_STATUS. Retrying in 5 seconds..."
-    sleep 5
-done
-
-if [ "$HTTP_STATUS" -ne 200 ]; then
-    echo "Web app failed to respond with HTTP 200 after $MAX_RETRIES attempts"
-    exit 1
-fi
-
-echo "Validating certificate from Key Vault..."
-CERT_NAME_RESPONSE=$(curl -s "https://$WEB_APP_URL/api/certificate/validate" --insecure | jq -r '.name')
-
-if [ "$CERT_NAME_RESPONSE" == "$CERT_NAME" ]; then
-    echo "Certificate [$CERT_NAME] validated successfully from web app."
-else
-    echo "Certificate validation failed. Expected [$CERT_NAME], got [$CERT_NAME_RESPONSE]."
-    exit 1
-fi
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then

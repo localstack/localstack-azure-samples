@@ -183,6 +183,6 @@ if __name__ == '__main__':
 
     if vault_uri and cert_name:
         ssl_ctx = get_ssl_context_from_keyvault(vault_uri, cert_name)
-        app.run(host='0.0.0.0', port=443, ssl_context=ssl_ctx)
+        app.run(host='0.0.0.0', port=8443, ssl_context=ssl_ctx)
     else:
         app.run(debug=debug)

@@ -1,5 +1,6 @@
 """Certificate helper module for Azure Key Vault integration."""
 import base64
+import hashlib
 import logging
 import os
 import ssl
@@ -81,6 +82,17 @@ def get_certificate_info(vault_url: str, cert_name: str) -> dict:
     cert_client = CertificateClient(vault_url=vault_url, credential=credential)
     cert = cert_client.get_certificate(cert_name)
 
+    x509_cert_bytes = cert.cer
+    if x509_cert_bytes is None:
+        raise ValueError(f"Certificate '{cert_name}' has no public bytes (cer is None)")
+
+    if cert.policy is None:
+        raise ValueError(f"Certificate '{cert_name}' has no policy")
+
+    thumbprint = hashlib.sha1(x509_cert_bytes).hexdigest()
+
     return {
-        "name": cert.name
+        "name": cert.name,
+        "subject": cert.policy.subject,
+        "thumbprint": thumbprint,
     }
