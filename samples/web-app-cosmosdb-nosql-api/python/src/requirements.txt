@@ -1,0 +1,7 @@
+Flask==3.1.0
+azure-mgmt-cosmosdb==9.8.0
+azure-cosmos==4.7.0
+pymongo==4.15.3
+gunicorn==20.1.0
+python-dotenv==1.1.1
+setuptools==79.0.1
