@@ -2,7 +2,6 @@ import os
 import datetime
 import logging
 import hashlib
-from typing import List, Tuple
 from flask import Flask, render_template, request, redirect, url_for
 from cosmosdb_client import CosmosDbClient
 
@@ -42,11 +41,11 @@ def get_cosmos():
     return cosmos_client
 
 def create_document(activity: str) -> dict:
+    get_cosmos().ensure_initialized()
+    
     timestamp = datetime.datetime.now().isoformat()
     id_string = f"{username}_{activity}_{timestamp}"
     document_id = hashlib.md5(id_string.encode()).hexdigest()
-
-    get_cosmos().ensure_initialized()
 
     return {
         "id": document_id,
@@ -57,7 +56,6 @@ def create_document(activity: str) -> dict:
 
 def read_documents(username: str):
     get_cosmos().ensure_initialized()
-
     get_activities().clear()
 
     try:
