@@ -262,7 +262,7 @@ call_web_app
 
 ## CosmosDB Tooling
 
-You can utilize [CosmosDB Data Explorer] to explore and manage your CosmosDB databases and collections. Ensure you connect using `http://localhost:port` connection string, where `port` corresponds to the port published by the CosmosDB container on the host and mapped to the internal CosmosDB port `1234`.
+You can utilize [CosmosDB Data Explorer] to explore and manage your CosmosDB databases and containers. Ensure you connect using `http://localhost:port` connection string, where `port` corresponds to the port published by the CosmosDB container on the host and mapped to the internal CosmosDB port `1234`.
 
 ![CosmosDB Data Explorer](./images/nosql-api-data-explorer.png)
 
