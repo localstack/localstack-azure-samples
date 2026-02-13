@@ -1,6 +1,6 @@
-# Azure Web App with Azure CosmosDB for MongoDB
+# Azure Web App with Azure CosmosDB for NoSQL API
 
-This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in the `activities` collection of the `sampledb` MongoDB database on an [Azure CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction) account.
+This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in the `activities` container of the `sampledb` NoSQL database on an [Azure CosmosDB for NoSQL](https://learn.microsoft.com/en-us/azure/cosmos-db/distributed-nosql) account.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ The following diagram illustrates the architecture of the solution:
 
 - **Azure Web App**: Hosts the Python Flask application
 - **Azure App Service Plan**: Provides compute resources for the web app
-- **Azure CosmosDB for MongoDB**: Stores activity data in a MongoDB collection
+- **Azure CosmosDB for NoSQL API**: Stores activity data in a CosmosDB container
 
 ## Prerequisites
 
@@ -19,8 +19,6 @@ The following diagram illustrates the architecture of the solution:
 - [Python 3.11+](https://www.python.org/downloads/)
 - [Flask](https://flask.palletsprojects.com/)
 - [pymongo](https://pymongo.readthedocs.io/en/stable/)
-- [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
-- [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 
 ## Deployment
 
@@ -37,13 +35,9 @@ export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
 IMAGE_NAME=localstack/localstack-azure-alpha localstack start
    ```
 
-Deploy the application to LocalStack for Azure using one of these methods:
+Deploy the application to LocalStack for Azure using:
 
 - [Azure CLI Deployment](./scripts/README.md)
-- [Bicep Deployment](./bicep/README.md)
-- [Terraform Deployment](./terraform/README.md)
-
-All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
 
 > **Note**  
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process involves downloading and building Docker images. This is a one-time operation—subsequent deployments will be significantly faster. Depending on your internet connection and system resources, this initial setup may take several minutes.
@@ -54,7 +48,7 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 2. Open a web browser and navigate to `http://localhost:<published-port>`.
 3. If the deployment was successful, you will see the following user interface for adding and removing activities:
 
-![Architecture Diagram](./images/vacation-planner.png)
+![Architecture Diagram](./images/architecture.png)
 
 You can use the `call-web-app.sh` Bash script below to call the web app. The script demonstrates three methods for calling web apps:
 
@@ -267,70 +261,16 @@ call_web_app() {
 call_web_app
 ```
 
-## MongoDB Tooling
+## CosmosDB Tooling
 
-You can utilize [MongoDB Compass](https://www.mongodb.com/try/download/compass) to explore and manage your MongoDB databases and collections. Ensure you connect using `mongodb://localhost:port` connection string, where `port` corresponds to the port published by the MongoDB container on the host and mapped to the internal MongoDB port `27017`.
+You can utilize [CosmosDB Data Explorer] to explore and manage your CosmosDB databases and collections. Ensure you connect using `http://localhost:port` connection string, where `port` corresponds to the port published by the CosmosDB container on the host and mapped to the internal CosmosDB port `1234`.
 
-![MongoDB Compass](./images/mongodb-compass.png)
-
-Alternatively, you can use the [MongoDB Shell](https://www.mongodb.com/docs/mongodb-shell/) to interact with and administer your MongoDB instance, as shown in the following table:
-
-```bash
-~$ mongosh mongodb://localhost:32770
-Current Mongosh Log ID: 6914588406320f60899dc29c
-Connecting to:          mongodb://localhost:32770/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+2.5.9
-Using MongoDB:          8.0.15
-Using Mongosh:          2.5.9
-
-For mongosh info see: https://www.mongodb.com/docs/mongodb-shell/
-
-------
-   The server generated these startup warnings when booting
-   2025-11-12T09:28:07.726+00:00: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine. See http://dochub.mongodb.org/core/prodnotes-filesystem
-   2025-11-12T09:28:07.892+00:00: Access control is not enabled for the database. Read and write access to data and configuration is unrestricted
-   2025-11-12T09:28:07.892+00:00: For customers running the current memory allocator, we suggest changing the contents of the following sysfsFile
-   2025-11-12T09:28:07.892+00:00: We suggest setting the contents of sysfsFile to 0.
-   2025-11-12T09:28:07.892+00:00: vm.max_map_count is too low
-   2025-11-12T09:28:07.892+00:00: We suggest setting swappiness to 0 or 1, as swapping can cause performance problems.
-------
-
-test> show dbs
-admin     100.00 KiB
-config    108.00 KiB
-local      40.00 KiB
-sampledb  180.00 KiB
-test> use sampledb
-switched to db sampledb
-sampledb> show collections
-activities
-sampledb> db.activities.find().pretty()
-[
-  {
-    _id: '39ab62c2aaa0015ed5309876053e4146',
-    username: 'Paolo',
-    activity: 'Go to Paris',
-    timestamp: '2025-11-12T09:31:43.338268'
-  },
-  {
-    _id: '4fb8f53442d3ebe9167245f9555bac51',
-    username: 'Paolo',
-    activity: 'Go to Madrid',
-    timestamp: '2025-11-12T09:31:50.109456'
-  },
-  {
-    _id: '84646160cb1db21a7083b4c5b6e2d9d0',
-    username: 'Paolo',
-    activity: 'Go to Rome',
-    timestamp: '2025-11-12T09:32:21.781936'
-  }
-]
-```
+![CosmosDB Data Explorer](./images/nosql-api-data-explorer.png)
 
 ## References
 
 - [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
-- [Azure CosmosDB for MongoDB API](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction)
+- [Azure CosmosDB for MongoDB API](https://learn.microsoft.com/en-us/azure/cosmos-db/)
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
-- [Quickstart: CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/quickstart?tabs=azure-portal)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
 - [LocalStack for Azure](https://azure.localstack.cloud/)
