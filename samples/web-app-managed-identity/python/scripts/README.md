@@ -16,7 +16,7 @@ Before deploying this solution, ensure you have the following tools installed:
 
 ### Installing azlocal CLI
 
-The deployment script uses the `azlocal` CLI to work with LocalStack. Install it using:
+The [deploy.sh](deploy.sh) Bash script uses the `azlocal` CLI to work with LocalStack. Install it using:
 
 ```bash
 pip install azlocal
@@ -26,7 +26,7 @@ For more information, see [Get started with the az tool on LocalStack](https://a
 
 ## Architecture Overview
 
-This CLI deployment creates the following Azure resources using direct Azure CLI commands:
+The [deploy.sh](deploy.sh) Bash script creates the following Azure resources using Azure CLI commands:
 
 1. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob storage for persisting vacation activity data. The web application stores each activity as a JSON blob file in the `activities` container.
 2. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Defines the compute resources (CPU, memory, and scaling options) that host the web application.
@@ -37,385 +37,33 @@ This CLI deployment creates the following Azure resources using direct Azure CLI
 
 The web app allows users to plan and manage vacation activities, storing all activity data as blob files in the `activities` containers in the [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview). For more information, see [Azure Web App with Managed Identity](../README.md).
 
-## Deployment Script 
+## Provisioning Scripts 
 
 ## Automation Scripts
 
 This sample provides two bash scripts to streamline the deployment process by automating the provisioning of Azure resources and the sample application:
 
-- `user-assigned.sh`: Configures the Azure Web App to authenticate with Azure Storage using a *user-assigned managed identity*
-- `system-assigned.sh`: Configures the Azure Web App to authenticate with Azure Storage using a *system-assigned managed identity*
+- [user-assigned.sh](user-assigned.sh): Configures the Azure Web App with a *user-assigned managed identity*
+- [system-assigned.sh](system-assigned.sh): Configures the Azure Web App with a *system-assigned managed identity*
 
-These scripts eliminate manual configuration steps and enable one-command deployment of the entire infrastructure. For brevity, we only report the code of the `user-assigned.sh` script in this article.
+See the script files for complete implementation. The scripts perform the following operations:
 
-```bash
-#!/bin/bash
+- Detect environment (LocalStack or Azure Cloud) and select appropriate CLI
+- Create resource group if it doesn't exist
+- Provision storage account and retrieve access keys and endpoints
+- Create blob container for activity data
+- Create App Service Plan with Linux runtime
+- Create user-assigned managed identity (user-assigned script only)
+- Retrieve identity client ID, principal ID, and resource ID
+- Create web app with specified Python runtime
+- Assign managed identity to web app
+- Configure Storage Blob Data Contributor role assignment with retry logic
+- Set web app configuration settings (storage URL, container name, client ID)
+- Package application code into zip file
+- Deploy zip package to Azure Web App
+- Clean up temporary artifacts
 
-# Variables
-PREFIX='local'
-SUFFIX='test'
-LOCATION='westeurope'
-STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
-APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
-APP_SERVICE_PLAN_SKU="B1"
-MANAGED_IDENTITY_NAME="${PREFIX}-identity-${SUFFIX}"
-WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
-RESOURCE_GROUP_NAME="${PREFIX}-web-app-rg"
-RUNTIME="python"
-RUNTIME_VERSION="3.13"
-CONTAINER_NAME='activities'
-ZIPFILE="webapp_app.zip"
-SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
-SUBSCRIPTION_ID=$(az account show --query id --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RETRY_COUNT=3
-SLEEP=5
-
-# Change the current directory to the script's directory
-cd "$CURRENT_DIR" || exit
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
-# Create a resource group
-echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
-	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
-
-	# Create the resource group
-	$AZ group create \
-		--name $RESOURCE_GROUP_NAME \
-		--location "$LOCATION" \
-		--only-show-errors 1>/dev/null
-
-	if [[ $? == 0 ]]; then
-		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
-	else
-		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
-		exit
-	fi
-else
-	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
-fi
-
-# Create a storage account
-echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ storage account show \
-	--name $STORAGE_ACCOUNT_NAME \
-	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
-	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ storage account create \
-		--name $STORAGE_ACCOUNT_NAME \
-		--location "$LOCATION" \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--sku Standard_LRS 1>/dev/null
-
-	if [ $? -eq 0 ]; then
-		echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
-	else
-		echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group."
-		exit 1
-	fi
-else
-	echo "Storage account [$STORAGE_ACCOUNT_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
-fi
-
-# Get the storage account key
-echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
-	--account-name $STORAGE_ACCOUNT_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--query "[0].value" \
-	--output tsv)
-
-if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-	echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
-else
-	echo "Failed to retrieve storage account key."
-	exit 1
-fi
-
-# Get the storage account resource ID
-STORAGE_ACCOUNT_RESOURCE_ID=$($AZ storage account show \
-	--name $STORAGE_ACCOUNT_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--query "id" \
-	--output tsv \
-	--only-show-errors)
-
-if [ -n "$STORAGE_ACCOUNT_RESOURCE_ID" ]; then
-	echo "Storage account resource ID retrieved successfully: $STORAGE_ACCOUNT_RESOURCE_ID"
-else
-	echo "Failed to retrieve storage account resource ID."
-	exit 1
-fi
-
-# Get the storage account blob primary endpoint
-AZURE_STORAGE_ACCOUNT_URL=$($AZ storage account show \
-	--name $STORAGE_ACCOUNT_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--query "primaryEndpoints.blob" \
-	--output tsv \
-	--only-show-errors)
-
-if [ -n "$AZURE_STORAGE_ACCOUNT_URL" ]; then
-	echo "Storage account blob primary endpoint retrieved successfully: $AZURE_STORAGE_ACCOUNT_URL"
-else
-	echo "Failed to retrieve storage account blob primary endpoint."
-	exit 1
-fi
-
-# Create blob container
-echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
-$AZ storage container create \
-	--name $CONTAINER_NAME \
-	--account-name $STORAGE_ACCOUNT_NAME \
-	--account-key "$STORAGE_ACCOUNT_KEY" \
-	--public-access blob 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
-else
-	echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
-	exit 1
-fi
-
-# Check if the App Service Plan already exists
-echo "Checking if App Service Plan [$APP_SERVICE_PLAN_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ appservice plan show \
-	--name $APP_SERVICE_PLAN_NAME \
-	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No App Service Plan [$APP_SERVICE_PLAN_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
-	# Create App Service Plan
-	echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-	$AZ appservice plan create \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$APP_SERVICE_PLAN_NAME" \
-		--location "$LOCATION" \
-		--sku "$APP_SERVICE_PLAN_SKU" \
-		--is-linux \
-		--only-show-errors 1>/dev/null
-
-	if [ $? -eq 0 ]; then
-		echo "App Service Plan [$APP_SERVICE_PLAN_NAME] created successfully."
-	else
-		echo "Failed to create App Service Plan [$APP_SERVICE_PLAN_NAME]."
-		exit 1
-	fi
-else
-	echo "App Service Plan [$APP_SERVICE_PLAN_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
-fi
-
-# Check if the user-assigned managed identity already exists
-echo "Checking if [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-
-$AZ identity show \
-	--name"$MANAGED_IDENTITY_NAME" \
-	--resource-group $"$RESOURCE_GROUP_NAME" &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group"
-	echo "Creating [$MANAGED_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group..."
-
-	# Create the user-assigned managed identity
-	$AZ identity create \
-		--name "$MANAGED_IDENTITY_NAME" \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--location "$LOCATION" \
-		--subscription "$SUBSCRIPTION_ID" 1>/dev/null
-
-	if [[ $? == 0 ]]; then
-		echo "[$MANAGED_IDENTITY_NAME] user-assigned managed identity successfully created in the [$RESOURCE_GROUP_NAME] resource group"
-	else
-		echo "Failed to create [$MANAGED_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group"
-		exit 1
-	fi
-else
-	echo "[$MANAGED_IDENTITY_NAME] user-assigned managed identity already exists in the [$RESOURCE_GROUP_NAME] resource group"
-fi
-
-# Retrieve the clientId of the user-assigned managed identity
-echo "Retrieving clientId for [$MANAGED_IDENTITY_NAME] managed identity..."
-CLIENT_ID=$($AZ identity show \
-	--name "$MANAGED_IDENTITY_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query clientId \
-	--output tsv)
-
-if [[ -n $CLIENT_ID ]]; then
-	echo "[$CLIENT_ID] clientId  for the [$MANAGED_IDENTITY_NAME] managed identity successfully retrieved"
-else
-	echo "Failed to retrieve clientId for the [$MANAGED_IDENTITY_NAME] managed identity"
-	exit 1
-fi
-
-# Retrieve the principalId of the user-assigned managed identity
-echo "Retrieving principalId for [$MANAGED_IDENTITY_NAME] managed identity..."
-PRINCIPAL_ID=$($AZ identity show \
-	--name "$MANAGED_IDENTITY_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query principalId \
-	--output tsv)
-
-if [[ -n $PRINCIPAL_ID ]]; then
-	echo "[$PRINCIPAL_ID] principalId  for the [$MANAGED_IDENTITY_NAME] managed identity successfully retrieved"
-else
-	echo "Failed to retrieve principalId for the [$MANAGED_IDENTITY_NAME] managed identity"
-	exit 1
-fi
-
-# Retrieve the resource id of the user-assigned managed identity
-echo "Retrieving resource id for the [$MANAGED_IDENTITY_NAME] managed identity..."
-IDENTITY_ID=$($AZ identity show \
-	--name "$MANAGED_IDENTITY_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query id \
-	--output tsv)
-
-if [[ -n $IDENTITY_ID ]]; then
-	echo "Resource id for the [$MANAGED_IDENTITY_NAME] managed identity successfully retrieved"
-else
-	echo "Failed to retrieve the resource id for the [$MANAGED_IDENTITY_NAME] managed identity"
-	exit 1
-fi
-
-# Check if the web app already exists
-echo "Checking if web app [$WEB_APP_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ webapp show \
-	--name $WEB_APP_NAME \
-	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No web app [$WEB_APP_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
-	# Create the web app
-	echo "Creating web app [$WEB_APP_NAME]..."
-	$AZ webapp create \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--plan "$APP_SERVICE_PLAN_NAME" \
-		--name "$WEB_APP_NAME" \
-		--runtime "$RUNTIME:$RUNTIME_VERSION" \
-		--assign-identity "${IDENTITY_ID}" \
-		--only-show-errors 1>/dev/null
-
-	if [ $? -eq 0 ]; then
-		echo "Web app [$WEB_APP_NAME] created successfully."
-	else
-		echo "Failed to create web app [$WEB_APP_NAME]."
-		exit 1
-	fi
-else
-	echo "Web app [$WEB_APP_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
-fi
-
-# Assign the Storage Blob Data Contributor role to the managed identity with the storage account as scope
-ROLE="Storage Blob Data Contributor"
-echo "Checking if the managed identity with principal ID [$PRINCIPAL_ID] has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$($AZ role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$STORAGE_ACCOUNT_RESOURCE_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == $ROLE ]]; then
-	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
-else
-	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		$AZ role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$STORAGE_ACCOUNT_RESOURCE_ID" 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
-		exit
-	fi
-fi
-
-# Set web app settings
-echo "Setting web app settings for [$WEB_APP_NAME]..."
-$AZ webapp config appsettings set \
-	--name $WEB_APP_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--settings \
-	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
-	ENABLE_ORYX_BUILD='true' \
-	AZURE_CLIENT_ID="$CLIENT_ID" \
-	AZURE_STORAGE_ACCOUNT_URL="$AZURE_STORAGE_ACCOUNT_URL" \
-	CONTAINER_NAME="$CONTAINER_NAME" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Web app settings for [$WEB_APP_NAME] set successfully."
-else
-	echo "Failed to set web app settings for [$WEB_APP_NAME]."
-	exit 1
-fi
-
-# CD into the web app directory
-cd ../src || exit
-
-# Remove any existing zip package of the web app
-if [ -f "$ZIPFILE" ]; then
-	rm "$ZIPFILE"
-fi
-
-# Create the zip package of the web app
-echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py requirements.txt static templates
-
-# Deploy the web app
-echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
-else
-	echo "Failed to create web app [$WEB_APP_NAME]."
-	exit 1
-fi
-
-# Remove the zip package of the web app
-if [ -f "$ZIPFILE" ]; then
-	rm "$ZIPFILE"
-fi
-```
+These scripts eliminate manual configuration steps and enable one-command deployment of the entire infrastructure.
 
 > [!NOTE]
 > You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop_interception`.
