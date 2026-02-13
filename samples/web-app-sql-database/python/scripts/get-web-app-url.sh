@@ -209,7 +209,9 @@ call_web_app() {
 	KV_NAME=$(echo "$KV_RESPONSE" | jq -r '.name')
 	KV_SUBJECT=$(echo "$KV_RESPONSE" | jq -r '.subject')
 
-	SSL_THUMBPRINT=$(echo | openssl s_client -connect "$container_ip:8443" 2>/dev/null \
+	SSL_CERT=$(echo | openssl s_client -connect "$container_ip:8443" 2>/dev/null | openssl x509)
+
+	SSL_THUMBPRINT=$(echo "$SSL_CERT" \
 		| openssl x509 -fingerprint -noout -sha1 \
 		| sed 's/.*=//;s/://g' \
 		| tr '[:upper:]' '[:lower:]')
@@ -220,7 +222,7 @@ call_web_app() {
 		echo "Certificate mismatch! KV: $KV_THUMBPRINT, SSL: $SSL_THUMBPRINT"
 		exit 1
 	fi
-	
+
 	SSL_SUBJECT=$(echo "$SSL_CERT" \
 		| openssl x509 -noout -subject \
 		| sed 's/subject=//')

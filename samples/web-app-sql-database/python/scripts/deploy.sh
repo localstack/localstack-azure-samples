@@ -143,15 +143,14 @@ if [ -z "$SQL_SERVER_FQDN" ]; then
 	echo "Failed to retrieve the fullyQualifiedDomainName of the SQL server"
 	exit 1
 fi
-SQL_SERVER_FQDN_INTERNAL="$SQL_SERVER_FQDN"
 
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	MSSQL_HOST_PORT=$(docker ps --filter "ancestor=mcr.microsoft.com/mssql/server:2022-latest" --format "{{.Ports}}" | grep -oP '0\.0\.0\.0:\K[0-9]+(?=->1433)' | head -1)
-	if [ -n "$MSSQL_HOST_PORT" ]; then
-		SQL_SERVER_FQDN="127.0.0.1,$MSSQL_HOST_PORT"
-		echo "Using local SQL Server at [$SQL_SERVER_FQDN]"
-	fi
-fi
+#if [[ $ENVIRONMENT == "LocalStack" ]]; then
+#	MSSQL_HOST_PORT=$(docker ps --filter "ancestor=mcr.microsoft.com/mssql/server:2022-latest" --format "{{.Ports}}" | grep -oP '0\.0\.0\.0:\K[0-9]+(?=->1433)' | head -1)
+#	if [ -n "$MSSQL_HOST_PORT" ]; then
+#		SQL_SERVER_FQDN_WITH_PORT="127.0.0.1,$MSSQL_HOST_PORT"
+#		echo "Using local SQL Server at [$SQL_SERVER_FQDN_WITH_PORT]"
+#	fi
+#fi
 
 # Create server-level login
 echo "Creating login [$DATABASE_USER_NAME] at server level..."
@@ -372,7 +371,7 @@ else
 fi
 
 # Build connection string
-SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN_INTERNAL},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
+SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
 
 # Create secret
 echo "Creating secret [$SECRET_NAME] in Key Vault..."
