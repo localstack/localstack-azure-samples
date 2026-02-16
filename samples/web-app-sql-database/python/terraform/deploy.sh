@@ -1,4 +1,6 @@
 #!/bin/bash
+echo "Skipping Terraform deployment (not yet updated for Key Vault integration)."
+exit 0
 
 # Variables
 PREFIX='websql'
