@@ -9,6 +9,7 @@ set -euo pipefail
 # - Node.js & npm
 # - Azure CLI (az)
 # - LocalStack CLI
+# - Terraform CLI
 # - azlocal & terraform-local (pip install azlocal terraform-local)
 # - funclocal (pip install funclocal)
 # - Azure Functions Core Tools (func)
@@ -32,6 +33,7 @@ command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installe
 command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
 command -v funclocal >/dev/null 2>&1 || { echo >&2 "funclocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
 command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
+command -v terraform >/dev/null 2>&1 || { echo >&2 "terraform CLI is required but not installed. Aborting."; exit 1; }
 command -v func >/dev/null 2>&1 || { echo >&2 "Azure Functions Core Tools (func) is required but not installed. Aborting."; exit 1; }
 
 if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
@@ -55,10 +57,19 @@ if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
 fi
 
 if command -v azlocal >/dev/null 2>&1; then
+  echo "[DEBUG] azlocal command found, attempting login..."
   azlocal login || true
+  echo "[DEBUG] Starting azlocal interception..."
   azlocal start_interception
+  echo "[DEBUG] Setting default subscription..."
+  azlocal account set --subscription "00000000-0000-0000-0000-000000000000" || true
+  echo "[DEBUG] Checking azlocal account status..."
+  azlocal account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] azlocal account show failed"
 else
+  echo "[DEBUG] azlocal not found, using standard az login with service principal..."
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
+  echo "[DEBUG] Checking az account status..."
+  az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
 fi
 
 
@@ -72,8 +83,28 @@ SAMPLES=(
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
 )
 
+# 3a. Define Terraform Samples
+TERRAFORM_SAMPLES=(
+  "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
+  "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/web-app-sql-database/python/terraform|bash deploy.sh"
+)
+
+# 3b. Define Bicep Samples
+BICEP_SAMPLES=(
+  #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
+  "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
+  "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
+)
+
 # 4. Calculate Shard
-TOTAL=${#SAMPLES[@]}
+# Combine script-based, Terraform, and Bicep samples into one array
+ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
+TOTAL=${#ALL_SAMPLES[@]}
 SHARD=${1:-1}
 SPLITS=${2:-1}
 
@@ -85,28 +116,62 @@ if [ "$SHARD" -eq "$SPLITS" ]; then
 fi
 
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
+echo "Total samples (scripts + terraform + bicep): $TOTAL"
 
 # 5. Run Samples
 for (( i=START; i<START+COUNT; i++ )); do
-  item="${SAMPLES[$i]}"
+  item="${ALL_SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
   echo "============================================================"
   echo "Testing Sample: $path"
   echo "============================================================"
-  
+
   pushd "$path" > /dev/null
-  
+
   echo "Deploying..."
   eval "$deploy"
-  
+
   if [ -n "$test" ]; then
     echo "Testing..."
     eval "$test"
   fi
-  
+
+  # Cleanup Terraform state for terraform tests
+  if [[ "$path" == *"/terraform" ]]; then
+    echo "Cleaning up Terraform state..."
+    rm -rf .terraform terraform.tfstate terraform.tfstate.backup .terraform.lock.hcl tfplan || true
+  fi
+
+  # Cleanup Bicep artifacts for bicep tests
+  if [[ "$path" == *"/bicep" ]]; then
+    echo "Cleaning up Bicep artifacts..."
+    # Clean up zip files if any were created
+    rm -f *.zip || true
+
+    # Clean up Azure resources to prevent state pollution between tests
+    echo "Cleaning up Azure resources in LocalStack..."
+    if command -v azlocal >/dev/null 2>&1; then
+      echo "Deleting all resource groups..."
+      # List and delete all resource groups
+      RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
+      if [[ -n "$RG_LIST" ]]; then
+        echo "$RG_LIST" | while read -r rg; do
+          if [[ -n "$rg" ]]; then
+            echo "  - Deleting resource group: $rg"
+            azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+          fi
+        done
+        # Wait a bit for deletions to process
+        sleep 2
+      else
+        echo "  No resource groups to clean up"
+      fi
+    fi
+  fi
+
   popd > /dev/null
   echo "Completed: $path"
-  
+
   # Cleanup Docker resources after each test to free up disk space
   echo "Cleaning up Docker resources..."
   docker system prune -af --volumes || true

@@ -180,6 +180,37 @@ call_web_app() {
 	else
 		echo "Failed to retrieve host port"
 	fi
+
+	echo "Validating certificate from Key Vault..."
+	KV_RESPONSE=$(curl -sk "https://$container_ip:8443/api/certificate")
+	KV_THUMBPRINT=$(echo "$KV_RESPONSE" | jq -r '.thumbprint')
+	KV_NAME=$(echo "$KV_RESPONSE" | jq -r '.name')
+	KV_SUBJECT=$(echo "$KV_RESPONSE" | jq -r '.subject')
+
+	SSL_CERT=$(echo | openssl s_client -connect "$container_ip:8443" 2>/dev/null | openssl x509)
+
+	SSL_THUMBPRINT=$(echo "$SSL_CERT" \
+		| openssl x509 -fingerprint -noout -sha1 \
+		| sed 's/.*=//;s/://g' \
+		| tr '[:upper:]' '[:lower:]')
+
+	if [ "$KV_THUMBPRINT" == "$SSL_THUMBPRINT" ]; then
+		echo "Certificate [$KV_NAME] validated: SSL cert matches Key Vault cert."
+	else
+		echo "Certificate mismatch! KV: $KV_THUMBPRINT, SSL: $SSL_THUMBPRINT"
+		exit 1
+	fi
+
+	SSL_SUBJECT=$(echo "$SSL_CERT" \
+		| openssl x509 -noout -subject \
+		| sed 's/subject=//')
+
+	if echo "$SSL_SUBJECT" | grep -q "$KV_SUBJECT"; then
+		echo "Certificate subject [$KV_SUBJECT] matches SSL certificate."
+	else
+		echo "Certificate subject mismatch! KV: $KV_SUBJECT, SSL: $SSL_SUBJECT"
+		exit 1
+	fi
 }
 
 call_web_app

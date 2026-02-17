@@ -6,6 +6,7 @@ name: Samples CI
 # 1. Parallel Testing: Splits the sample suite into shards to reduce execution time.
 # 2. Standardized Tooling: Uses a Makefile for environment setup and test orchestration.
 # 3. Cloud Emulation: Configures the Azure CLI to target the LocalStack emulator.
+# 4. IaC Coverage: Tests bash scripts, Terraform deployments, and Bicep deployments.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -23,8 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-        splits: [2]
+        shard: [1, 2, 3, 4]
+        splits: [4]
     runs-on: ubuntu-latest
     
     env:
@@ -58,6 +59,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
           find . -name "*.sh" -exec chmod +x {} +
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
 
       - name: Install test dependencies
         # Mirroring the localstack-pro approach: install all Python dependencies 
@@ -116,6 +123,7 @@ jobs:
 
       - name: Run Test Scripts
         # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
+        # This includes bash scripts, Terraform deployments, and Bicep deployments.
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
