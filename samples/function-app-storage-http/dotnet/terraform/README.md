@@ -49,38 +49,61 @@ See [deploy.sh](deploy.sh) for the complete deployment automation. The script pe
 - Creates deployment zip package from published output
 - Deploys the zip to Azure Function App using Azure CLI
 
+## Configuration
+
+When using LocalStack for Azure, configure the `metadata_host` and `subscription_id` settings in the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) to ensure proper connectivity:
+
+
+```hcl
+provider "azurerm" {
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
+
+  # Set the hostname of the Azure Metadata Service (for example management.azure.com) 
+  # used to obtain the Cloud Environment when using LocalStack's Azure emulator. 
+  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints. 
+  metadata_host="localhost.localstack.cloud:4566"
+
+  # Set the subscription ID to a dummy value when using LocalStack's Azure emulator.
+  subscription_id = "00000000-0000-0000-0000-000000000000"
+}
+```
+
 ## Deployment
 
-1. You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
+You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure-alpha). To pull the Azure Docker image, execute the following command:
 
-   ```bash
-   docker pull localstack/localstack-azure-alpha
-   ```
+```bash
+docker pull localstack/localstack-azure-alpha
+```
 
-2. Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
-   ```bash
-   export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure-alpha localstack start
-   ```
+```bash
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+```
 
-3. Navigate to the scripts directory
+Navigate to the `terraform` folder:
 
-   ```bash
-   cd samples/function-app-and-storage/dotnet/terraform
-   ```
+```bash
+cd samples/function-app-managed-identity/python/terraform
+```
 
-4. Make the script executable:
+Make the script executable:
 
-   ```bash
-   chmod +x deploy.sh
-   ```
+```bash
+chmod +x deploy.sh
+```
 
-5. Run the deployment script:
+Run the deployment script:
 
-   ```bash
-   ./deploy.sh
-   ```
+```bash
+./deploy.sh
+```
 
 ## Validation
 
