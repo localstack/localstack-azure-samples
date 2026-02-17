@@ -47,7 +47,7 @@ Deploy the application to LocalStack for Azure using:
 2. Open a web browser and navigate to `http://localhost:<published-port>`.
 3. If the deployment was successful, you will see the following user interface for adding and removing activities:
 
-![Architecture Diagram](./images/architecture.png)
+![Architecture Diagram](./images/vacation-planner.png)
 
 You can use the `call-web-app.sh` Bash script below to call the web app. The script demonstrates three methods for calling web apps:
 
@@ -262,7 +262,7 @@ call_web_app
 
 ## CosmosDB Tooling
 
-You can utilize [CosmosDB Data Explorer] to explore and manage your CosmosDB databases and containers. Ensure you connect using `http://localhost:port` connection string, where `port` corresponds to the port published by the CosmosDB container on the host and mapped to the internal CosmosDB port `1234`.
+You can utilize **CosmosDB Data Explorer** to explore and manage your CosmosDB databases and containers. Ensure you connect using `http://localhost:port` connection string, where `port` corresponds to the port published by the CosmosDB container on the host and mapped to the internal CosmosDB port `1234`.
 
 ![CosmosDB Data Explorer](./images/nosql-api-data-explorer.png)
 
