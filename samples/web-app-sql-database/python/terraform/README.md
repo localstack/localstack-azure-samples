@@ -44,11 +44,25 @@ The system implements a Vacation Planner web application that stores and retriev
 
 ## Configuration
 
-Before deploying the Terraform modules, update the `terraform.tfvars` file with your specific values:
+When using LocalStack for Azure, configure the `metadata_host` and `subscription_id` settings in the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) to ensure proper connectivity:
+
 
 ```hcl
-location            = "westeurope"
-python_version      = "3.13"
+provider "azurerm" {
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
+
+  # Set the hostname of the Azure Metadata Service (for example management.azure.com) 
+  # used to obtain the Cloud Environment when using LocalStack's Azure emulator. 
+  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints. 
+  metadata_host="localhost.localstack.cloud:4566"
+
+  # Set the subscription ID to a dummy value when using LocalStack's Azure emulator.
+  subscription_id = "00000000-0000-0000-0000-000000000000"
+}
 ```
 
 ## Deployment
