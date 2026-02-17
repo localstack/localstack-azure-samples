@@ -1,0 +1,98 @@
+.action-col {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+.action-col .sea-btn {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+body {
+    background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%);
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+}
+
+.sea-title {
+    color: #0e6ba8;
+}
+.sea-form input[type="text"] {
+    border: 2px solid #0e6ba8;
+    border-radius: 6px;
+    font-size: 1em;
+    color: #0e6ba8;
+}
+.sea-form input[type="text"]:focus {
+    border: 2px solid #0e6ba8;
+    box-shadow: none;
+    outline: none;
+}
+.sea-btn {
+    background: #fff;
+    color: #0e6ba8;
+    border: 2px solid #0e6ba8;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    transition: background 0.2s, color 0.2s;
+    width: 120px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0;
+}
+.sea-btn:hover {
+    background: #0e6ba8;
+    color: #fff;
+}
+.sea-form {
+    display: flex;
+    gap: 0;
+    justify-content: flex-end;
+    margin-bottom: 24px;
+}
+.sea-form .form-control {
+    margin-right: 10px;
+}
+.sea-table th, .sea-table td {
+    border-bottom: 2px solid #0e6ba8 !important;
+    color: #0e6ba8;
+}
+.sea-table th {
+    background: #e3f6fd;
+}
+
+/* Remove left padding for Action column to align header and button */
+.action-col {
+    padding-left: 0 !important;
+}
+.sea-table .btn-danger {
+    border: 2px solid #0e6ba8;
+    background: #fff;
+    color: #0e6ba8;
+}
+.sea-table .btn-danger:hover {
+    background: #0e6ba8;
+    color: #fff;
+}
+.sea-table .text-muted {
+    color: #7bb7e0 !important;
+}
+.container {
+    max-width: 600px;
+    margin: 40px auto;
+    background: rgba(255,255,255,0.95);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    padding: 32px 24px 24px 24px;
+    text-align: center;
+}
+.banner {
+    width: 100%;
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
