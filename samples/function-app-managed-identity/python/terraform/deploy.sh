@@ -1,68 +1,32 @@
 #!/bin/bash
 
 # Variables
-PREFIX='funcmi'
+PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 MANAGED_IDENTITY_TYPE='UserAssigned' # SystemAssigned or UserAssigned
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Determine environment
-if command -v az >/dev/null 2>&1; then
-	CLOUD_NAME=$(az cloud show --query name --output tsv 2>&1 || echo "")
-
-	if [[ "$CLOUD_NAME" == "LocalStack" ]]; then
-		ENVIRONMENT="LocalStack"
-	elif [[ "$CLOUD_NAME" == "AzureCloud" ]]; then
-		ENVIRONMENT="AzureCloud"
-	else
-		ENVIRONMENT="AzureCloud"
-	fi
-else
-	ENVIRONMENT="AzureCloud"
-fi
-
 # Run terraform init and apply
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using tflocal and azlocal for LocalStack emulator environment."
-	TERRAFORM="tflocal"
-
-	# Log Azure auth environment variables before unsetting
-	echo "[DEBUG] Azure auth env vars before unsetting:"
-	echo "[DEBUG]   ARM_CLIENT_ID=${ARM_CLIENT_ID:-<not set>}"
-	echo "[DEBUG]   ARM_CLIENT_SECRET=${ARM_CLIENT_SECRET:+<set but hidden>}${ARM_CLIENT_SECRET:-<not set>}"
-	echo "[DEBUG]   ARM_TENANT_ID=${ARM_TENANT_ID:-<not set>}"
-	echo "[DEBUG]   ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID:-<not set>}"
-	echo "[DEBUG]   AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-<not set>}"
-	echo "[DEBUG]   AZURE_TENANT_ID=${AZURE_TENANT_ID:-<not set>}"
-
-	echo "[DEBUG] Azure auth env vars after unsetting: all cleared"
+	echo "Using azlocal for LocalStack emulator environment."
 	AZ="azlocal"
 else
 	echo "Using standard terraform and az for AzureCloud environment."
-	TERRAFORM="terraform"
 	AZ="az"
 fi
 
-echo "[DEBUG] Cloud name: '$CLOUD_NAME', Environment: '$ENVIRONMENT', Tools: TERRAFORM=$TERRAFORM, AZ=$AZ"
-echo "[DEBUG] TERRAFORM command location: $(which $TERRAFORM 2>/dev/null || echo 'not found')"
-
-# Enable Terraform debug logging
-export TF_LOG=DEBUG
-export TF_LOG_PATH="$CURRENT_DIR/terraform-debug.log"
-echo "[DEBUG] Checking what tflocal does..."echo "[DEBUG] tflocal version: $($TERRAFORM version 2>&1 | head -1)"echo "[DEBUG] Contents of current directory before init:"ls -la . 2>&1 | head -20
-echo "[DEBUG] Terraform debug logging enabled: TF_LOG=DEBUG, TF_LOG_PATH=$TF_LOG_PATH"
-
 echo "Initializing Terraform..."
-$TERRAFORM init -upgrade
+terraform init -upgrade
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-$TERRAFORM plan -out=tfplan \
+terraform plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
 	-var "location=$LOCATION" \
@@ -70,17 +34,12 @@ $TERRAFORM plan -out=tfplan \
 
 if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."
-	echo "============================================================"
-	echo "Last 100 lines of Terraform debug log:"
-	echo "============================================================"
-	tail -100 "$TF_LOG_PATH" 2>/dev/null || echo "Debug log not found"
-	echo "============================================================"
 	exit 1
 fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
-$TERRAFORM apply -auto-approve tfplan
+terraform apply -auto-approve tfplan
 
 if [[ $? != 0 ]]; then
 	echo "Terraform apply failed. Exiting."
