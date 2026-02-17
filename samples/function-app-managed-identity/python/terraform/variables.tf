@@ -1,7 +1,7 @@
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "local"
+  default     = "funcmi"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2
@@ -177,11 +177,10 @@ variable "runtime_name" {
 variable "python_version" {
   description = "(Optional) Specifies the Python version for the Azure Functions App."
   type        = string
-  default     = "3.13"
+  default     = "3.12"
 
   validation {
     condition = contains([
-      "3.13",
       "3.12",
       "3.11",
       "3.10",
