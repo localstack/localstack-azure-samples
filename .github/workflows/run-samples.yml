@@ -48,7 +48,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0'
+          dotnet-version: '10.0'
 
       - name: Install System Dependencies
         # Essential tools for script execution, app packaging, and database connectivity.
