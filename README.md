@@ -29,7 +29,8 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Function App and Storage](./samples/function-app-storage-http/dotnet/README.md) | Azure Functions App using Blob, Queue, and Table Storage |
 | [Function App and Front Door](./samples/function-app-front-door/python/README.md) | Azure Functions App exposed via Front Door |
 | [Function App and Managed Identities](./samples/function-app-managed-identity/python/README.md) | Azure Function App using Managed Identities | 
-| [Web App and CosmosDB ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
+| [Web App and CosmosDB for MongoDB API ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
+| [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) | Azure Web App using CosmosDB for NoSQL API | 
 | [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities | 
 | [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database | 
  
