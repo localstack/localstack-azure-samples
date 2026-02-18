@@ -26,7 +26,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
         splits: [4]
-    runs-on: ubuntu-latest
+    runs-on: github-ubuntu2204-amd64-4
     
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
