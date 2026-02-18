@@ -129,7 +129,7 @@ jobs:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
 
       - name: Docker state snapshot
-        # Capture the full Docker state on failure to diagnose missing web app containers.
+        # Capture the full Docker state on failure
         if: failure()
         run: |
           echo "=== All Docker containers (running + stopped) ==="
@@ -149,17 +149,3 @@ jobs:
         if: always()
         run: make logs
 
-      - name: Get LocalStack Logs (webapp filtered)
-        # Filtered view of LocalStack logs to surface web app container creation issues.
-        if: failure()
-        run: |
-          LS_CONTAINER=$(docker ps --format "{{.Names}}" | grep -i "localstack" | head -1)
-          if [ -n "$LS_CONTAINER" ]; then
-            echo "=== LocalStack logs filtered for web app / container issues ==="
-            docker logs "$LS_CONTAINER" 2>&1 | grep -iE "(ls-local-webapp|webapp.*deploy|container.*create|container.*start|pip.*install|requirements\.txt|cryptography|certificates|import.*error|module.*not.*found|build.*fail|gunicorn|flask|startup.*command|oryx|ModuleNotFoundError|Traceback)" | tail -200 || echo "(no matching lines)"
-            echo ""
-            echo "=== LocalStack logs filtered for ERROR/EXCEPTION ==="
-            docker logs "$LS_CONTAINER" 2>&1 | grep -iE "(ERROR|EXCEPTION|FATAL|CRITICAL)" | tail -100 || echo "(no errors found)"
-          else
-            echo "No LocalStack container found"
-          fi

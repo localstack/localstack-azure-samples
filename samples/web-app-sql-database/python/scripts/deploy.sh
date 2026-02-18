@@ -479,48 +479,6 @@ else
 	exit 1
 fi
 
-# ============================================================
-# DEBUG: Post-deployment diagnostics
-# ============================================================
-echo "=== DEBUG: Post-deployment container state ==="
-
-echo "--- All running Docker containers ---"
-docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>&1
-
-echo "--- All Docker containers (including stopped/exited) ---"
-docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>&1
-
-echo "--- Docker images ---"
-docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" 2>&1
-
-# Find the LocalStack main container and show relevant logs
-LS_CONTAINER=$(docker ps --format "{{.Names}}" | grep -i "localstack" | head -1)
-if [ -n "$LS_CONTAINER" ]; then
-	echo "--- LocalStack container [$LS_CONTAINER] logs (last 100 lines, filtered for webapp/container/deploy) ---"
-	docker logs "$LS_CONTAINER" --tail 100 2>&1 | grep -iE "(webapp|container|deploy|error|exception|pip|install|cryptography|certificates|failed|build)" || echo "(no matching log lines found)"
-
-	echo "--- LocalStack container [$LS_CONTAINER] logs (last 50 lines, unfiltered) ---"
-	docker logs "$LS_CONTAINER" --tail 50 2>&1
-else
-	echo "WARNING: No LocalStack container found"
-fi
-
-# Check for any recently exited containers
-EXITED_CONTAINERS=$(docker ps -a --filter "status=exited" --format "{{.Names}}\t{{.Image}}\t{{.Status}}" 2>&1)
-if [ -n "$EXITED_CONTAINERS" ]; then
-	echo "--- Recently exited containers ---"
-	echo "$EXITED_CONTAINERS"
-	# Show logs from any exited container that might be the web app
-	docker ps -a --filter "status=exited" --format "{{.Names}}" | while read -r c; do
-		echo "--- Logs from exited container [$c] (last 30 lines) ---"
-		docker logs "$c" --tail 30 2>&1
-	done
-else
-	echo "--- No exited containers found ---"
-fi
-
-echo "=== END DEBUG: Post-deployment diagnostics ==="
-
 # Get web app URL
 WEB_APP_URL=$($AZ webapp show \
     --name "$WEB_APP_NAME" \
