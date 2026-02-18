@@ -105,12 +105,49 @@ call_web_app() {
 
 	# Get the Docker container name (with retries, as the container may take time to start after deployment)
 	echo "Finding container name with prefix [ls-$web_app_name]..."
-	MAX_RETRIES=30
+	MAX_RETRIES=18
 	RETRY_INTERVAL=10
 	container_name=""
 	for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
 		container_name=$(get_docker_container_name_by_prefix "ls-$web_app_name") && break
 		container_name=""
+
+		# Print full diagnostics on first, every 6th, and last attempt
+		if [ "$attempt" -eq 1 ] || [ "$((attempt % 6))" -eq 0 ] || [ "$attempt" -eq "$MAX_RETRIES" ]; then
+			echo "=== DEBUG (attempt $attempt/$MAX_RETRIES): Container diagnostics ==="
+
+			echo "--- All running containers ---"
+			docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" 2>&1
+
+			echo "--- All containers (including stopped/exited) ---"
+			docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" 2>&1
+
+			echo "--- Docker images ---"
+			docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" 2>&1
+
+			# Check LocalStack logs for web app container creation errors
+			LS_CONTAINER=$(docker ps --format "{{.Names}}" | grep -i "localstack" | head -1)
+			if [ -n "$LS_CONTAINER" ]; then
+				echo "--- LocalStack logs (last 50 lines, filtered for webapp/container/error) ---"
+				docker logs "$LS_CONTAINER" --tail 200 2>&1 | grep -iE "(ls-${web_app_name}|webapp.*container|container.*webapp|pip.*install|requirements|cryptography|certificates|import.*error|module.*not.*found|build.*fail|error.*build|startup|gunicorn|flask)" | tail -50 || echo "(no matching log lines)"
+
+				echo "--- LocalStack logs (last 30 lines, unfiltered) ---"
+				docker logs "$LS_CONTAINER" --tail 30 2>&1
+			fi
+
+			# Show logs from any exited containers
+			EXITED=$(docker ps -a --filter "status=exited" --format "{{.Names}}" 2>/dev/null)
+			if [ -n "$EXITED" ]; then
+				echo "--- Exited container logs ---"
+				echo "$EXITED" | while read -r c; do
+					echo "  [$c] logs (last 20 lines):"
+					docker logs "$c" --tail 20 2>&1 | sed 's/^/    /'
+				done
+			fi
+
+			echo "=== END DEBUG ==="
+		fi
+
 		if [ "$attempt" -lt "$MAX_RETRIES" ]; then
 			echo "Attempt $attempt/$MAX_RETRIES: Container not found yet. Waiting ${RETRY_INTERVAL}s..."
 			sleep "$RETRY_INTERVAL"
