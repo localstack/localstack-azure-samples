@@ -103,14 +103,24 @@ call_web_app() {
 		exit 1
 	fi
 
-	# Get the Docker container name
+	# Get the Docker container name (with retries, as the container may take time to start after deployment)
 	echo "Finding container name with prefix [ls-$web_app_name]..."
-	container_name=$(get_docker_container_name_by_prefix "ls-$web_app_name")
+	MAX_RETRIES=30
+	RETRY_INTERVAL=10
+	container_name=""
+	for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+		container_name=$(get_docker_container_name_by_prefix "ls-$web_app_name") && break
+		container_name=""
+		if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+			echo "Attempt $attempt/$MAX_RETRIES: Container not found yet. Waiting ${RETRY_INTERVAL}s..."
+			sleep "$RETRY_INTERVAL"
+		fi
+	done
 
-	if [ $? -eq 0 ] && [ -n "$container_name" ]; then
+	if [ -n "$container_name" ]; then
 		echo "Container [$container_name] found successfully"
 	else
-		echo "Failed to get container name"
+		echo "Failed to get container name after $MAX_RETRIES attempts"
 		exit 1
 	fi
 
