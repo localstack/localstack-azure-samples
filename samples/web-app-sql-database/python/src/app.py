@@ -52,7 +52,7 @@ def read_activities_from_db(username: str | None = None) -> List[Tuple[str, str]
             activity_list = activities_helper.read_activities(username)
             for activity in activity_list:
                 result.append((activity["id"], activity["activity"]))
-    except (ConnectionError, ValueError, KeyError) as e:
+    except Exception as e:
         logger.error("Error reading activities: %s", e)
     return result
 
@@ -88,7 +88,7 @@ def index():
                         # Append the activity to the in-memory list
                         activities.append((inserted_activity["id"], inserted_activity["activity"]))
                         logger.info(f"Activity created: {inserted_activity['id']}")
-            except (ConnectionError, ValueError) as e:
+            except Exception as e:
                 logger.error("Error creating/updating activity: %s", e)
 
         return redirect(url_for('index'))
@@ -117,7 +117,7 @@ def delete(activity_id: int):
                 logger.info(f"Activity deleted: {db_activity_id}")
             else:
                 logger.warning(f"No activity found with ID: {db_activity_id}")
-    except (ConnectionError, ValueError) as e:
+    except Exception as e:
         logger.error("Error deleting activity: %s", e)
 
     return redirect(url_for('index'))
