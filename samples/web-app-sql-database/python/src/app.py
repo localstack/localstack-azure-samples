@@ -53,9 +53,7 @@ def read_activities_from_db(username: str | None = None) -> List[Tuple[str, str]
             for activity in activity_list:
                 result.append((activity["id"], activity["activity"]))
     except (ConnectionError, ValueError, KeyError) as e:
-        logger.error("Expected error reading activities: %s", e)
-    except Exception as e:
-        logger.error("Unexpected system error reading activities: %s", e)
+        logger.error("Error reading activities: %s", e)
     return result
 
 @app.route('/', methods=['GET', 'POST'])
@@ -91,9 +89,7 @@ def index():
                         activities.append((inserted_activity["id"], inserted_activity["activity"]))
                         logger.info(f"Activity created: {inserted_activity['id']}")
             except (ConnectionError, ValueError) as e:
-                logger.error("Expected error creating/updating activity: %s", e)
-            except Exception as e:
-                logger.error("Unexpected system error creating/updating activity: %s", e)
+                logger.error("Error creating/updating activity: %s", e)
 
         return redirect(url_for('index'))
 
@@ -122,9 +118,7 @@ def delete(activity_id: int):
             else:
                 logger.warning(f"No activity found with ID: {db_activity_id}")
     except (ConnectionError, ValueError) as e:
-        logger.error("Expected error deleting activity: %s", e)
-    except Exception as e:
-        logger.error("Unexpected system error deleting activity: %s", e)
+        logger.error("Error deleting activity: %s", e)
 
     return redirect(url_for('index'))
 
@@ -138,9 +132,7 @@ def update(activity_id: int):
             # Redirect to index with edit parameters
             return redirect(url_for('index', edit_id=db_activity_id, edit_activity=activity_text))
     except (ConnectionError, ValueError) as e:
-        logger.error("Expected error preparing activity for update: %s", e)
-    except Exception as e:
-        logger.error("Unexpected system error preparing activity for update: %s", e)
+        logger.error("Error preparing activity for update: %s", e)
 
     return redirect(url_for('index'))
 
