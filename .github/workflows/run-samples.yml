@@ -128,24 +128,7 @@ jobs:
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
 
-      - name: Docker state snapshot
-        # Capture the full Docker state on failure
-        if: failure()
-        run: |
-          echo "=== All Docker containers (running + stopped) ==="
-          docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>&1
-          echo ""
-          echo "=== Docker images ==="
-          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.ID}}" 2>&1
-          echo ""
-          echo "=== Exited container logs ==="
-          for c in $(docker ps -a --filter "status=exited" --format "{{.Names}}" 2>/dev/null); do
-            echo "--- [$c] (last 50 lines) ---"
-            docker logs "$c" --tail 50 2>&1
-          done
-
       - name: Get LocalStack Logs
         # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
         if: always()
         run: make logs
-
