@@ -32,7 +32,7 @@ command -v localstack >/dev/null 2>&1 || { echo >&2 "localstack CLI is required 
 command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installed. Aborting."; exit 1; }
 command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
 command -v funclocal >/dev/null 2>&1 || { echo >&2 "funclocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
-command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
+#command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
 command -v terraform >/dev/null 2>&1 || { echo >&2 "terraform CLI is required but not installed. Aborting."; exit 1; }
 command -v func >/dev/null 2>&1 || { echo >&2 "Azure Functions Core Tools (func) is required but not installed. Aborting."; exit 1; }
 
@@ -145,32 +145,28 @@ for (( i=START; i<START+COUNT; i++ )); do
   # Cleanup Bicep artifacts for bicep tests
   if [[ "$path" == *"/bicep" ]]; then
     echo "Cleaning up Bicep artifacts..."
-    # Clean up zip files if any were created
     rm -f *.zip || true
-
-    # Clean up Azure resources to prevent state pollution between tests
-    echo "Cleaning up Azure resources in LocalStack..."
-    if command -v azlocal >/dev/null 2>&1; then
-      echo "Deleting all resource groups..."
-      # List and delete all resource groups
-      RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
-      if [[ -n "$RG_LIST" ]]; then
-        echo "$RG_LIST" | while read -r rg; do
-          if [[ -n "$rg" ]]; then
-            echo "  - Deleting resource group: $rg"
-            azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
-          fi
-        done
-        # Wait a bit for deletions to process
-        sleep 2
-      else
-        echo "  No resource groups to clean up"
-      fi
-    fi
   fi
 
   popd > /dev/null
   echo "Completed: $path"
+
+  # Clean up Azure resources to prevent state pollution between tests
+  echo "Cleaning up Azure resources in LocalStack..."
+  if command -v azlocal >/dev/null 2>&1; then
+    RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
+    if [[ -n "$RG_LIST" ]]; then
+      echo "$RG_LIST" | while read -r rg; do
+        if [[ -n "$rg" ]]; then
+          echo "  - Deleting resource group: $rg"
+          azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+        fi
+      done
+      sleep 2
+    else
+      echo "  No resource groups to clean up"
+    fi
+  fi
 
   # Cleanup Docker resources after each test to free up disk space
   echo "Cleaning up Docker resources..."
