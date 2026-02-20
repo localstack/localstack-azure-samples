@@ -161,7 +161,7 @@ for (( i=START; i<START+COUNT; i++ )); do
           echo "  - Deleting resource group: $rg"
           azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
         fi
-      doneclear
+      done
       sleep 2
     else
       echo "  No resource groups to clean up"
