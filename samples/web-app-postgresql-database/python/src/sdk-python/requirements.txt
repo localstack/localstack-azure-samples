@@ -1,0 +1,5 @@
+azure-identity
+azure-mgmt-postgresqlflexibleservers>=2.0.0
+azure-mgmt-resource
+requests
+psycopg2-binary>=2.9
