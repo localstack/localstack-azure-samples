@@ -117,8 +117,14 @@ else
 	exit 1
 fi
 
-# Construct the storage connection string for LocalStack
-STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+# Retrieve the storage connection string from the CLI so it uses the correct
+# endpoints for the current environment (LocalStack or Azure).
+echo "Getting storage connection string for [$STORAGE_ACCOUNT_NAME]..."
+STORAGE_CONNECTION_STRING=$($AZ storage account show-connection-string \
+	--name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query connectionString \
+	--output tsv)
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."

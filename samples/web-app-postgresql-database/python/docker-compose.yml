@@ -1,0 +1,73 @@
+# PostgreSQL Flexible Server — Sample Application
+#
+# Brings up three application containers after infrastructure is provisioned:
+#   1. notes-app   — Flask GUI with full-text search (port 5001)
+#   2. sdk-python  — Python Azure SDK management demo
+#   3. sdk-dotnet  — C# Azure SDK management demo
+#
+# Infrastructure (server, databases, firewall rules) must be provisioned BEFORE
+# running docker-compose. Use the deploy scripts in scripts/, bicep/, or terraform/
+# which handle provisioning and then launch these containers with the correct
+# environment variables.
+#
+# Environment variables are injected by the deploy scripts via export.
+
+services:
+  notes-app:
+    build: ./src/notes-app
+    container_name: pgflex-notes-app
+    ports:
+      - "${FLASK_PORT:-5001}:5001"
+    environment:
+      - PG_HOST=${PG_HOST}
+      - PG_PORT=${PG_PORT:-5432}
+      - PG_USER=${PG_USER:-pgadmin}
+      - PG_PASSWORD=${PG_PASSWORD:-P@ssw0rd12345!}
+      - PG_DATABASE=${PG_DATABASE:-sampledb}
+      - PORT=5001
+    restart: "no"
+
+  sdk-python:
+    build: ./src/sdk-python
+    container_name: pgflex-sdk-python
+    depends_on:
+      - notes-app
+    environment:
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-fake-secret}
+      - RESOURCE_GROUP=${RESOURCE_GROUP}
+      - SERVER_NAME=${SERVER_NAME}
+      - LOCALSTACK_HOST=${LOCALSTACK_HOST:-host.docker.internal:4566}
+      - NOTES_APP_URL=http://notes-app:5001
+      - PG_HOST=${PG_HOST}
+      - PG_PORT=${PG_PORT:-5432}
+      - PG_USER=${PG_USER:-pgadmin}
+      - PG_PASSWORD=${PG_PASSWORD:-P@ssw0rd12345!}
+      - PG_DATABASE=${PG_DATABASE:-sampledb}
+      # Trust LocalStack's self-signed cert
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    restart: unless-stopped
+
+  sdk-dotnet:
+    build: ./src/sdk-dotnet
+    container_name: pgflex-sdk-dotnet
+    depends_on:
+      - notes-app
+    environment:
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-fake-secret}
+      - RESOURCE_GROUP=${RESOURCE_GROUP}
+      - SERVER_NAME=${SERVER_NAME}
+      - LOCALSTACK_HOST=${LOCALSTACK_HOST:-host.docker.internal:4566}
+      - NOTES_APP_URL=http://notes-app:5001
+      - PG_HOST=${PG_HOST}
+      - PG_PORT=${PG_PORT:-5432}
+      - PG_USER=${PG_USER:-pgadmin}
+      - PG_PASSWORD=${PG_PASSWORD:-P@ssw0rd12345!}
+      - PG_DATABASE=${PG_DATABASE:-sampledb}
+    restart: unless-stopped
