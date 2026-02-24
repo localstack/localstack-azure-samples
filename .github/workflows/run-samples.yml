@@ -26,6 +26,7 @@ env:
   DEFAULT_RUN_MODE: changed
 
 jobs:
+  # Lightweight job that builds the dynamic test matrix for the main test jobs
   setup:
     name: "Build Test Matrix"
     runs-on: ubuntu-latest
@@ -36,18 +37,19 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history needed for git diff in "changed" mode
 
       - name: Build dynamic matrix
         id: build-matrix
         run: |
-          # Determine run mode and base SHA, then delegate to the build-matrix script
+          # Pick run mode: manual dispatch uses the dropdown, PRs use the env default
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             RUN_MODE="${{ github.event.inputs.run_mode }}"
           else
             RUN_MODE="${{ env.DEFAULT_RUN_MODE }}"
           fi
 
+          # In "changed" mode, determine the base commit to diff against
           BASE_SHA=""
           if [[ "$RUN_MODE" == "changed" ]]; then
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -60,10 +62,11 @@ jobs:
           chmod +x .github/scripts/build-matrix.sh
           .github/scripts/build-matrix.sh "$RUN_MODE" "$BASE_SHA"
 
+  # Each test runs in its own job — one matrix entry per test from the setup job
   scripts:
     name: "Test: ${{ matrix.name }}"
     needs: setup
-    if: needs.setup.outputs.has_tests == 'true'
+    if: needs.setup.outputs.has_tests == 'true'  # Skip entirely when no tests match
     environment: AZURE
     strategy:
       fail-fast: false

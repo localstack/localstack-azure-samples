@@ -60,6 +60,8 @@ ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
 TOTAL=${#ALL_SAMPLES[@]}
 
 # 2. Handle --list flag: output JSON metadata for CI matrix generation (no tools required)
+#    Each entry has: shard (1-based index), splits (total count), name, and watch_folders.
+#    CI uses watch_folders to detect which tests are affected by changed files.
 if [[ "${1:-}" == "--list" ]]; then
   echo "["
   for (( i=0; i<TOTAL; i++ )); do
@@ -126,13 +128,15 @@ else
   az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
 fi
 
-# 6. Calculate Shard
+# 6. Calculate Shard — determines which slice of ALL_SAMPLES to run.
+#    When SPLITS=TOTAL, each shard runs exactly 1 test (COUNT=1).
 SHARD=${1:-1}
 SPLITS=${2:-1}
 
 COUNT=$(( TOTAL / SPLITS ))
 START=$(( (SHARD - 1) * COUNT ))
 
+# Last shard picks up any remainder from integer division
 if [ "$SHARD" -eq "$SPLITS" ]; then
   COUNT=$(( TOTAL - START ))
 fi
@@ -140,7 +144,7 @@ fi
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
 echo "Total samples (scripts + terraform + bicep): $TOTAL"
 
-# 7. Run Samples
+# 7. Run Samples — deploy each test, then run its validation if defined
 for (( i=START; i<START+COUNT; i++ )); do
   item="${ALL_SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
