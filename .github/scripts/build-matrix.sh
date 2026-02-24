@@ -7,6 +7,7 @@ set -euo pipefail
 RUN_MODE="${1:-all}"
 BASE_SHA="${2:-}"
 
+chmod +x ./run-samples.sh
 TEST_META=$(./run-samples.sh --list)
 TOTAL=$(echo "$TEST_META" | jq length)
 echo "Run mode: $RUN_MODE | Total tests: $TOTAL"
