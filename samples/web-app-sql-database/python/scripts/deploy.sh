@@ -37,7 +37,7 @@ else
 	echo "Using standard az for AzureCloud environment."
 	AZ="az"
 fi
-#test comment
+
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 $AZ group create \

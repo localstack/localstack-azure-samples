@@ -25,7 +25,6 @@ else
 	echo "Using standard az for AzureCloud environment."
 	AZ="az"
 fi
-#test comment
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
