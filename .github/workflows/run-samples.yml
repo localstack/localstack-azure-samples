@@ -19,11 +19,11 @@ on:
         options:
           - all
           - changed
-        default: all
+        default: changed
 
 # Default run mode for pull_request events (change to 'changed' to only run affected tests)
 env:
-  DEFAULT_RUN_MODE: all
+  DEFAULT_RUN_MODE: changed
 
 jobs:
   setup:
