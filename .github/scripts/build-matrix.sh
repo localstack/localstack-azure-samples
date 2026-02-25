@@ -9,7 +9,6 @@ RUN_MODE="${1:-all}"
 BASE_SHA="${2:-}"
 
 # Get JSON metadata for all tests from run-samples.sh --list
-chmod +x ./run-samples.sh
 TEST_META=$(./run-samples.sh --list)
 TOTAL=$(echo "$TEST_META" | jq length)
 echo "Run mode: $RUN_MODE | Total tests: $TOTAL"
