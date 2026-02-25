@@ -1,12 +1,7 @@
 name: Samples CI
 
-# Theory of Operation:
-# This workflow automates the testing of Azure sample applications against the LocalStack Azure emulator.
-# It follows the best practices from the localstack-pro repository:
-# 1. Parallel Testing: Splits the sample suite into shards to reduce execution time.
-# 2. Standardized Tooling: Uses a Makefile for environment setup and test orchestration.
-# 3. Cloud Emulation: Configures the Azure CLI to target the LocalStack emulator.
-# 4. IaC Coverage: Tests bash scripts, Terraform deployments, and Bicep deployments.
+# Tests Azure samples against the LocalStack emulator.
+# Each test runs in its own job. Set DEFAULT_RUN_MODE to 'changed' to only run affected tests.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -16,18 +11,68 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      run_mode:
+        description: "Test mode: 'all' runs every test, 'changed' runs only tests with modified files"
+        required: false
+        type: choice
+        options:
+          - all
+          - changed
+        default: changed
+
+# Default run mode for pull_request events (change to 'changed' to only run affected tests)
+env:
+  DEFAULT_RUN_MODE: changed
 
 jobs:
+  # Lightweight job that builds the dynamic test matrix for the main test jobs
+  setup:
+    name: "Build Test Matrix"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+      has_tests: ${{ steps.build-matrix.outputs.has_tests }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for git diff in "changed" mode
+
+      - name: Build dynamic matrix
+        id: build-matrix
+        run: |
+          # Pick run mode: manual dispatch uses the dropdown, PRs use the env default
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            RUN_MODE="${{ github.event.inputs.run_mode }}"
+          else
+            RUN_MODE="${{ env.DEFAULT_RUN_MODE }}"
+          fi
+
+          # In "changed" mode, determine the base commit to diff against
+          BASE_SHA=""
+          if [[ "$RUN_MODE" == "changed" ]]; then
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            else
+              BASE_SHA=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
+            fi
+          fi
+
+          chmod +x .github/scripts/build-matrix.sh
+          .github/scripts/build-matrix.sh "$RUN_MODE" "$BASE_SHA"
+
+  # Each test runs in its own job — one matrix entry per test from the setup job
   scripts:
-    name: "Run Test Scripts (amd64) — Part ${{ matrix.shard }} of ${{ matrix.splits }}"
+    name: "Test: ${{ matrix.name }}"
+    needs: setup
+    if: needs.setup.outputs.has_tests == 'true'  # Skip entirely when no tests match
     environment: AZURE
     strategy:
       fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-        splits: [4]
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: github-ubuntu2204-amd64-4
-    
+
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
@@ -67,7 +112,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Install test dependencies
-        # Mirroring the localstack-pro approach: install all Python dependencies 
+        # Mirroring the localstack-pro approach: install all Python dependencies
         # (including the localstack CLI) into a virtual environment to avoid system-level conflicts.
         run: make install
 
@@ -80,14 +125,14 @@ jobs:
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
 
       - name: Free up disk space
-        # Azure emulator images are large. Pruning unused Docker objects ensures enough 
+        # Azure emulator images are large. Pruning unused Docker objects ensures enough
         # disk space is available on the GitHub runner for image pulls and sidecar containers.
         run: |
           docker system prune -af --volumes
           docker builder prune -af
 
       - name: Pull LocalStack Azure Image
-        # Explicitly pull the image before starting. This mirrors the "Build Docker Image" 
+        # Explicitly pull the image before starting. This mirrors the "Build Docker Image"
         # step in localstack-pro and ensures the pull logic is separated from the start logic.
         run: docker pull ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
 
@@ -112,7 +157,7 @@ jobs:
         run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Install MSSQL ODBC and Tools
-        # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to 
+        # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to
         # initialize and verify the database schema in the local emulator.
         run: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -121,9 +166,9 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
           echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
 
-      - name: Run Test Scripts
-        # Executes the sharded test suite. Each shard runs a subset of samples in parallel.
-        # This includes bash scripts, Terraform deployments, and Bicep deployments.
+      - name: "Run: ${{ matrix.name }}"
+        # Each job runs exactly one test. SPLITS equals the total test count, and SHARD
+        # is the 1-based index of this specific test, so run-samples.sh executes only it.
         run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
