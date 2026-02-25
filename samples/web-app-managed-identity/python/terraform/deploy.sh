@@ -23,6 +23,7 @@ fi
 
 echo "Initializing Terraform..."
 terraform init -upgrade
+#test
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
