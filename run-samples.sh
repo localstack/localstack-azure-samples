@@ -19,15 +19,71 @@ set -euo pipefail
 
 # 0. Load environment variables from .env file if it exists
 if [ -f .env ]; then
-  echo "Loading environment variables from .env file..."
-  # Use a subshell to avoid exporting everything if not needed, 
+  echo "Loading environment variables from .env file..." >&2
+  # Use a subshell to avoid exporting everything if not needed,
   # but here we actually want them in the environment.
   set -a
   source .env
   set +a
 fi
 
-# 1. Check for required tools
+# 1. Define Samples (placed before tool checks so --list works without dependencies)
+SAMPLES=(
+  "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
+  "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
+  "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
+  "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
+  "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
+)
+
+# 1a. Define Terraform Samples
+TERRAFORM_SAMPLES=(
+  "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
+  "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
+  "samples/web-app-sql-database/python/terraform|bash deploy.sh"
+)
+
+# 1b. Define Bicep Samples
+BICEP_SAMPLES=(
+  #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
+  "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
+  "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
+  "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
+  "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
+)
+
+# Combine script-based, Terraform, and Bicep samples into one array
+ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
+TOTAL=${#ALL_SAMPLES[@]}
+
+# 2. Handle --list flag: output JSON metadata for CI matrix generation (no tools required)
+#    Each entry has: shard (1-based index), splits (total count), name, and watch_folders.
+#    CI uses watch_folders to detect which tests are affected by changed files.
+if [[ "${1:-}" == "--list" ]]; then
+  echo "["
+  for (( i=0; i<TOTAL; i++ )); do
+    IFS='|' read -r path _ _ <<< "${ALL_SAMPLES[$i]}"
+
+    if [[ "$path" == */terraform || "$path" == */bicep ]]; then
+      watch=("$path" "$(dirname "$path")/src")
+      name="${path#samples/}"
+    else
+      watch=("$path/scripts" "$path/src")
+      name="${path#samples/}/scripts"
+    fi
+
+    printf '  {"shard":%d,"splits":%d,"name":"%s","watch_folders":["%s","%s"]}' \
+      $((i+1)) "$TOTAL" "$name" "${watch[0]}" "${watch[1]}"
+    (( i < TOTAL-1 )) && echo "," || echo ""
+  done
+  echo "]"
+  exit 0
+fi
+
+# 3. Check for required tools
 command -v localstack >/dev/null 2>&1 || { echo >&2 "localstack CLI is required but not installed. Aborting."; exit 1; }
 command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installed. Aborting."; exit 1; }
 command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
@@ -41,7 +97,7 @@ if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
   exit 1
 fi
 
-# 1. Start LocalStack
+# 4. Start LocalStack
 if ! localstack status | grep -q "running"; then
   echo "Starting LocalStack Azure emulator..."
   IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
@@ -50,7 +106,7 @@ else
   echo "LocalStack is already running."
 fi
 
-# 2. Configure Azure CLI for LocalStack
+# 5. Configure Azure CLI for LocalStack
 echo "Configuring Azure CLI for LocalStack..."
 if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
   mkdir -p "$AZURE_CONFIG_DIR"
@@ -72,45 +128,15 @@ else
   az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
 fi
 
-
-# 3. Define Samples
-SAMPLES=(
-  "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
-  "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
-  "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
-  "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
-  "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
-  "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
-)
-
-# 3a. Define Terraform Samples
-TERRAFORM_SAMPLES=(
-  "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
-  "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
-  "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
-  "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
-  "samples/web-app-sql-database/python/terraform|bash deploy.sh"
-)
-
-# 3b. Define Bicep Samples
-BICEP_SAMPLES=(
-  #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
-  "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
-  "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
-  "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
-  "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
-)
-
-# 4. Calculate Shard
-# Combine script-based, Terraform, and Bicep samples into one array
-ALL_SAMPLES=("${SAMPLES[@]}" "${TERRAFORM_SAMPLES[@]}" "${BICEP_SAMPLES[@]}")
-TOTAL=${#ALL_SAMPLES[@]}
+# 6. Calculate Shard — determines which slice of ALL_SAMPLES to run.
+#    When SPLITS=TOTAL, each shard runs exactly 1 test (COUNT=1).
 SHARD=${1:-1}
 SPLITS=${2:-1}
 
 COUNT=$(( TOTAL / SPLITS ))
 START=$(( (SHARD - 1) * COUNT ))
 
+# Last shard picks up any remainder from integer division
 if [ "$SHARD" -eq "$SPLITS" ]; then
   COUNT=$(( TOTAL - START ))
 fi
@@ -118,7 +144,7 @@ fi
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
 echo "Total samples (scripts + terraform + bicep): $TOTAL"
 
-# 5. Run Samples
+# 7. Run Samples — deploy each test, then run its validation if defined
 for (( i=START; i<START+COUNT; i++ )); do
   item="${ALL_SAMPLES[$i]}"
   IFS='|' read -r path deploy test <<< "$item"
