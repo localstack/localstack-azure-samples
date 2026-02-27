@@ -139,8 +139,8 @@ jobs:
         # Run the emulator in detached mode using the virtual environment.
         run: |
           source .venv/bin/activate
-          localstack start -d
-          localstack wait -t 120
+          python -m localstack_cli.cli.main start -d
+          python -m localstack_cli.cli.main wait -t 120
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
