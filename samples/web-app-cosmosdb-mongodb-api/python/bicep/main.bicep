@@ -1,3 +1,6 @@
+//********************************************
+// Parameters
+//********************************************
 @description('Specifies the prefix for the name of the Azure resources.')
 @minLength(2)
 param prefix string = take(uniqueString(resourceGroup().id), 4)
@@ -120,8 +123,6 @@ param httpsOnly bool = false
 
 @description('Specifies the minimum TLS version for the Azure Web App.')
 @allowed([
-  '1.0'
-  '1.1'
   '1.2'
   '1.3'
 ])
@@ -136,12 +137,6 @@ param publicNetworkAccess string = 'Enabled'
 
 @description('Specifies the optional Git Repo URL.')
 param repoUrl string = ' '
-
-@description('Specifies the tags to be applied to the resources.')
-param tags object = {
-  environment: 'test'
-  iac: 'bicep'
-}
 
 @description('Specifies the primary replica region for the Cosmos DB account.')
 param primaryRegion string = 'westeurope'
@@ -206,161 +201,205 @@ param mongoDbIndexKeys array = ['_id','username', 'activity', 'timestamp']
 @description('Specifies the username for the application.')
 param username string = 'paolo'
 
+@description('Specifies the name of the virtual network.')
+param virtualNetworkName string = ''
+
+@description('Specifies the address prefixes of the virtual network.')
+param virtualNetworkAddressPrefixes string = '10.0.0.0/8'
+
+@description('Specifies the name of the subnet used by the Web App for the regional virtual network integration.')
+param webAppSubnetName string = 'app-subnet'
+
+@description('Specifies the address prefix of the subnet used by the Web App for the regional virtual network integration.')
+param webAppSubnetAddressPrefix string = '10.0.0.0/24'
+
+@description('Specifies the name of the network security group associated to the subnet hosting the Web App.')
+param webAppSubnetNsgName string = ''
+
+@description('Specifies the name of the subnet which contains the private endpoint to the Azure CosmosDB for MongoDB API account.')
+param peSubnetName string = 'pe-subnet'
+
+@description('Specifies the address prefix of the subnet which contains the private endpoint to the Azure CosmosDB for MongoDB API account.')
+param peSubnetAddressPrefix string = '10.0.1.0/24'
+
+@description('Specifies the name of the network security group associated to the subnet hosting the private endpoint to the Azure CosmosDB for MongoDB API account.')
+param peSubnetNsgName string = ''
+
+@description('Specifies the length of the Public IP Prefix.')
+@minValue(28)
+@maxValue(32)
+param natGatewayPublicIpPrefixLength int = 31
+
+@description('Specifies the name of the Azure NAT Gateway.')
+param natGatewayName string = ''
+
+@description('Specifies a list of availability zones denoting the zone in which Nat Gateway should be deployed.')
+param natGatewayZones array = []
+
+@description('Specifies the idle timeout in minutes for the Azure NAT Gateway.')
+param natGatewayIdleTimeoutMins int = 30
+
+@description('Specifies the name of the private endpoint to the Azure CosmosDB for MongoDB API account.')
+param cosmosDbPrivateEndpointName string = ''
+
+@description('Specifies the name of the Azure Log Analytics resource.')
+param logAnalyticsName string = ''
+
+@description('Specifies the service tier of the workspace: Free, Standalone, PerNode, Per-GB.')
+@allowed([
+  'Free'
+  'Standalone'
+  'PerNode'
+  'PerGB2018'
+])
+param logAnalyticsSku string = 'PerNode'
+
+@description('Specifies the workspace data retention in days. -1 means Unlimited retention for the Unlimited Sku. 730 days is the maximum allowed for all other Skus.')
+param logAnalyticsRetentionInDays int = 60
+
+@description('Specifies the tags to be applied to the resources.')
+param tags object = {
+  environment: 'test'
+  iac: 'bicep'
+}
+
+//********************************************
+// Variables
+//********************************************
 var webAppName = '${prefix}-webapp-${suffix}'
-var appServicePlanPortalName = '${prefix}-app-service-plan-${suffix}'
+var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var accountName = '${prefix}-mongodb-${suffix}'
-var consistencyPolicy = {
-  Eventual: {
-    defaultConsistencyLevel: 'Eventual'
+
+//********************************************
+// Modules and Resources
+//********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    // properties
+    name: empty(logAnalyticsName) ? toLower('${prefix}-log-analytics-${suffix}') : logAnalyticsName
+    location: location
+    tags: tags
+    sku: logAnalyticsSku
+    retentionInDays: logAnalyticsRetentionInDays
   }
-  ConsistentPrefix: {
-    defaultConsistencyLevel: 'ConsistentPrefix'
-  }
-  Session: {
-    defaultConsistencyLevel: 'Session'
-  }
-  BoundedStaleness: {
-    defaultConsistencyLevel: 'BoundedStaleness'
+}
+
+module mongoDb 'modules/mongo-db.bicep' = {
+  name: 'mongoDb'
+  params: {
+    name: accountName
+    location: location
+    primaryRegion: primaryRegion
+    secondaryRegion: secondaryRegion
+    defaultConsistencyLevel: defaultConsistencyLevel
+    serverVersion: serverVersion
     maxStalenessPrefix: maxStalenessPrefix
     maxIntervalInSeconds: maxIntervalInSeconds
-  }
-  Strong: {
-    defaultConsistencyLevel: 'Strong'
+    databaseName: databaseName
+    sharedThroughput: sharedThroughput
+    collectionName: collectionName
+    dedicatedThroughput: dedicatedThroughput
+    mongoDbIndexKeys: mongoDbIndexKeys
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
-var locations = [
-  {
-    locationName: primaryRegion
-    failoverPriority: 0
-    isZoneRedundant: false
-  }
-  {
-    locationName: secondaryRegion
-    failoverPriority: 1
-    isZoneRedundant: false
-  }
-]
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanPortalName
-  location: location
-  tags: tags
-  kind: appServicePlanKind
-  sku: {
-    tier: skuTier
-    name: skuName
+module network 'modules/virtual-network.bicep' = {
+  name: 'network'
+  params: {
+    virtualNetworkName: empty(virtualNetworkName) ? toLower('${prefix}-vnet-${suffix}') : virtualNetworkName
+    virtualNetworkAddressPrefixes: virtualNetworkAddressPrefixes
+    webAppSubnetName: webAppSubnetName
+    webAppSubnetAddressPrefix: webAppSubnetAddressPrefix
+    webAppSubnetNsgName: empty(webAppSubnetNsgName) ? toLower('${prefix}-webapp-subnet-nsg-${suffix}') : webAppSubnetNsgName
+    peSubnetName: peSubnetName
+    peSubnetAddressPrefix: peSubnetAddressPrefix
+    peSubnetNsgName: empty(peSubnetNsgName) ? toLower('${prefix}-pe-subnet-nsg-${suffix}') : peSubnetNsgName
+    natGatewayName: empty(natGatewayName) ? toLower('${prefix}-nat-gateway-${suffix}') : natGatewayName
+    natGatewayZones: natGatewayZones
+    natGatewayPublicIpPrefixName: toLower('${prefix}-nat-gateway-pip-prefix-${suffix}')
+    natGatewayPublicIpPrefixLength: natGatewayPublicIpPrefixLength
+    natGatewayIdleTimeoutMins: natGatewayIdleTimeoutMins
+    delegationServiceName: skuTier == 'FlexConsumption' ? 'Microsoft.App/environments' : 'Microsoft.Web/serverfarms'
+    workspaceId: workspace.outputs.id
+    location: location
+    tags: tags
   }
-  properties: {
+}
+
+module privateDnsZone 'modules/private-dns-zone.bicep' = {
+  name: 'privateDnsZone'
+  params: {
+    name: 'privatelink.mongo.cosmos.azure.com'
+    vnetId: network.outputs.virtualNetworkId
+    tags: tags
+  }
+}
+
+module privateEndpoints 'modules/private-endpoint.bicep' = {
+  name: 'privateEndpoints'
+  params: {
+    name: empty(cosmosDbPrivateEndpointName)
+      ? toLower('${prefix}-mongodb-pe-${suffix}')
+      : cosmosDbPrivateEndpointName
+    privateLinkServiceId: mongoDb.outputs.id
+    privateDnsZoneId: privateDnsZone.outputs.id
+    vnetId: network.outputs.virtualNetworkId
+    subnetId: network.outputs.peSubnetId
+    groupIds: [
+      'mongodb'
+    ]
+    location: location
+    tags: tags
+  }
+}
+
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuName: skuName
+    skuTier: skuTier
+    kind: appServicePlanKind
     reserved: reserved
     zoneRedundant: zoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource webApp 'Microsoft.Web/sites@2024-11-01' = {
+module webApp 'modules/web-app.bicep' = {
   name: webAppName
-  location: location
-  tags: tags
-  kind: webAppKind
-  properties: {
+  params: {
+    name: webAppName
+    location: location
+    kind: webAppKind
     httpsOnly: httpsOnly
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      minTlsVersion: minTlsVersion
-      publicNetworkAccess: publicNetworkAccess
-    }
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-}
-
-resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
-  parent: webApp
-  name: 'appsettings'
-  properties: {
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    ENABLE_ORYX_BUILD: 'true'
-    COSMOSDB_CONNECTION_STRING: account.listConnectionStrings().connectionStrings[0].connectionString
-    COSMOSDB_DATABASE_NAME: databaseName
-    COSMOSDB_COLLECTION_NAME: collectionName
-    LOGIN_NAME: username
-  }
-  dependsOn: [
-    collection
-  ]
-}
-
-resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
-  name: 'web'
-  parent: webApp
-  properties: {
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
+    minTlsVersion: minTlsVersion
+    publicNetworkAccess: publicNetworkAccess
     repoUrl: repoUrl
-    branch: 'master'
-    isManualIntegration: true
+    virtualNetworkName: network.outputs.virtualNetworkName
+    subnetName: network.outputs.webAppSubnetName
+    hostingPlanName: appServicePlan.outputs.name
+    accountName: mongoDb.outputs.name
+    databaseName: mongoDb.outputs.databaseName
+    collectionName: mongoDb.outputs.collectionName
+    username: username
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource account 'Microsoft.DocumentDB/databaseAccounts@2025-04-15' = {
-  name: toLower(accountName)
-  location: location
-  kind: 'MongoDB'
-  properties: {
-    consistencyPolicy: consistencyPolicy[defaultConsistencyLevel]
-    locations: locations
-    databaseAccountOfferType: 'Standard'
-    enableAutomaticFailover: true
-    apiProperties: {
-      serverVersion: serverVersion
-    }
-    capabilities: [
-      {
-        name: 'DisableRateLimitingResponses'
-      }
-    ]
-  }
-}
-
-resource database 'Microsoft.DocumentDB/databaseAccounts/mongodbDatabases@2025-04-15' = {
-  parent: account
-  name: databaseName
-  properties: {
-    resource: {
-      id: databaseName
-    }
-    options: {
-      throughput: sharedThroughput
-    }
-  }
-}
-
-resource collection 'Microsoft.DocumentDB/databaseAccounts/mongodbDatabases/collections@2025-04-15' = {
-  parent: database
-  name: collectionName
-  properties: {
-    resource: {
-      id: collectionName
-      shardKey: {
-        username: 'Hash'
-      }
-      // Use a for loop to dynamically create the 'indexes' array based on the 'mongoDbIndexKeys' parameter
-      indexes: [for key in mongoDbIndexKeys: {
-        key: {
-          keys: [
-            key
-          ]
-        }
-      }]
-    }
-    options: {
-      throughput: dedicatedThroughput
-    }
-  }
-}
-
-output webAppName string = webAppName
-output accountName string = accountName
-output databaseName string = databaseName
+//********************************************
+// Outputs
+//********************************************
+output webAppName string = webApp.outputs.name
+output accountName string = mongoDb.outputs.name
+output databaseName string = mongoDb.outputs.databaseName
 output collectionName string = collectionName
-output documentEndpoint string = account.properties.documentEndpoint
+output documentEndpoint string = mongoDb.outputs.documentEndpoint
