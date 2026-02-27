@@ -27,16 +27,25 @@ For more information, see [Get started with the az tool on LocalStack](https://a
 
 ## Architecture Overview
 
-The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli) for all the Azure resources, while the [main.bicep](main.bicep) Bicep module creates the following Azure resources:
+The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli) for all the Azure resources, while the Bicep modules create the following Azure resources:
 
-1. [Azure CosmosDB Account (MongoDB API)](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction): A globally distributed database account configured for MongoDB workloads, with multi-region failover.
-2. [MongoDB Database](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `sampledb` database for storing application data.
-3. [MongoDB Collection](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `activities` collection within `sampledb` for storing vacation activity records.
-4. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
-5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to CosmosDB for MongoDB.
-6. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
+1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): A logical container scoping all resources in this sample.
+2. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview): Hosts two subnets:
+	- *app-subnet*: Dedicated to [regional VNet integration](https://learn.microsoft.com/azure/azure-functions/functions-networking-options?tabs=azure-portal#outbound-networking-features) with the Function App.
+	- *pe-subnet*: Used for hosting Azure Private Endpoints.
+3. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone): Handles DNS resolution for the CosmosDB for MongoDB Private Endpoint within the virtual network.
+4. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): Secures network access to the CosmosDB for MongoDB account via a private IP within the VNet.
+5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Provides deterministic outbound connectivity for the Web App. Included for completeness; the sample app does not call any external services.
+6. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): Enforces inbound and outbound traffic rules across the virtual network's subnets.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution.
+8. [Azure Cosmos DB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction): A globally distributed database account optimized for MongoDB workloads, with multi-region failover enabled.
+9. [MongoDB Database](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `sampledb` database that holds all application data.
+10. [MongoDB Collection](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `activities` collection within `sampledb`, used to store vacation activity records.
+11. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
+12. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask single-page application (*Vacation Planner*), connected to CosmosDB for MongoDB via VNet integration.
+13. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
 
-The web app allows users to plan and manage vacation activities, storing all activity data in a MongoDB collection. 
+The web app enables users to plan and manage vacation activities, with all data persisted in a CosmosDB-backed MongoDB collection. For more information on the sample application, see [Azure Web App with Azure CosmosDB for MongoDB](../README.md). 
 
 ## Configuration
 
@@ -104,12 +113,27 @@ Run the deployment script:
 
 ## Validation
 
-After deployment, you can use the `validate.sh` script to verify that all resources were created and configured correctly:
+Once the deployment completes, run the [validate.sh](../scripts/validate.sh) script to confirm that all resources were provisioned and configured as expected:
 
 ```bash
 #!/bin/bash
 
 # Variables
+PREFIX='local'
+SUFFIX='test'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+WEBAPP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
+PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
+NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
+VIRTUAL_NETWORK_NAME="${PREFIX}-vnet-${SUFFIX}"
+PRIVATE_DNS_ZONE_NAME="privatelink.mongo.cosmos.azure.com"
+PRIVATE_ENDPOINT_NAME="${PREFIX}-mongodb-pe-${SUFFIX}"
+APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
+WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
+COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
+MONGODB_DATABASE_NAME="sampledb"
+COLLECTION_NAME="activities"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Choose the appropriate CLI based on the environment
@@ -122,41 +146,121 @@ else
 fi
 
 # Check resource group
+echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
 $AZ group show \
---name local-rg \
---output table
+	--name "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
 
-# List resources
-$AZ resource list \
---resource-group local-rg \
---output table
+# Check App Service Plan
+echo -e "\n[$APP_SERVICE_PLAN_NAME] app service plan:\n"
+$AZ appservice plan show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--output table \
+	--only-show-errors
 
 # Check Azure Web App
+echo -e "\n[$WEBAPP_NAME] web app:\n"
 $AZ webapp show \
---name local-webapp-test \
---resource-group local-rg \
---output table
+	--name "$WEBAPP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
 
 # Check Azure CosmosDB account
+echo -e "\n[$COSMOSDB_ACCOUNT_NAME] cosmosdb account:\n"
 $AZ cosmosdb show \
---name local-mongodb-test \
---resource-group local-rg \
---output table
+	--name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,DocumentEndpoint:documentEndpoint}' \
+	--output table \
+	--only-show-errors
 
 # Check MongoDB database
+echo -e "\n[$MONGODB_DATABASE_NAME] mongodb database:\n"
 $AZ cosmosdb mongodb database show \
---name sampledb \
---account-name local-mongodb-test \
---resource-group local-rg \
---output table
+	--name "$MONGODB_DATABASE_NAME" \
+	--account-name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,ResourceGroup:resourceGroup}' \
+	--output table \
+	--only-show-errors
 
 # Check MongoDB collection
+echo -e "\n[$COLLECTION_NAME] mongodb collection:\n"
 $AZ cosmosdb mongodb collection show \
---name activities \
---database-name sampledb \
---account-name local-mongodb-test \
---resource-group local-rg \
---output table
+	--name "$COLLECTION_NAME" \
+	--database-name "$MONGODB_DATABASE_NAME" \
+	--account-name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Log Analytics Workspace
+echo -e "\n[$LOG_ANALYTICS_NAME] log analytics workspace:\n"
+$AZ monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup}' \
+	--output table \
+	--only-show-errors
+
+# Check NAT Gateway
+echo -e "\n[$NAT_GATEWAY_NAME] nat gateway:\n"
+$AZ network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Virtual Network
+echo -e "\n[$VIRTUAL_NETWORK_NAME] virtual network:\n"
+$AZ network vnet show \
+	--name "$VIRTUAL_NETWORK_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Private DNS Zone
+echo -e "\n[$PRIVATE_DNS_ZONE_NAME] private dns zone:\n"
+$AZ network private-dns zone show \
+	--name "$PRIVATE_DNS_ZONE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,ResourceGroup:resourceGroup,RecordSets:recordSets,VirtualNetworkLinks:virtualNetworkLinks}' \
+	--output table \
+	--only-show-errors
+
+# Check Private Endpoint
+echo -e "\n[$PRIVATE_ENDPOINT_NAME] private endpoint:\n"
+$AZ network private-endpoint show \
+	--name "$PRIVATE_ENDPOINT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Web App Subnet NSG
+echo -e "\n[$WEBAPP_SUBNET_NSG_NAME] network security group:\n"
+$AZ network nsg show \
+	--name "$WEBAPP_SUBNET_NSG_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Private Endpoint Subnet NSG
+echo -e "\n[$PE_SUBNET_NSG_NAME] network security group:\n"
+$AZ network nsg show \
+	--name "$PE_SUBNET_NSG_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# List resources
+echo -e "\n[$RESOURCE_GROUP_NAME] all resources:\n"
+$AZ resource list \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
 ```
 
 ## Cleanup
