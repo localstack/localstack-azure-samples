@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX='bicep'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="${PREFIX}-webapp-cosmos-rg"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -103,13 +103,15 @@ if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
 	--query 'properties.outputs' -o json); then
+	# Extract only the JSON portion (everything from first { to the end)
+	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
-	echo "$DEPLOYMENT_OUTPUTS" | jq .
-	WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppName.value')
-	ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.accountName.value')
-	DATABASE_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.databaseName.value')
-	COLLECTION_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.collectionName.value')
-	DOCUMENT_ENDPOINT=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.documentEndpoint.value')
+	echo "$DEPLOYMENT_JSON" | jq .
+	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value')
+	ACCOUNT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.accountName.value')
+	DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.databaseName.value')
+	COLLECTION_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.collectionName.value')
+	DOCUMENT_ENDPOINT=$(echo "$DEPLOYMENT_JSON" | jq -r '.documentEndpoint.value')
 	echo "Deployment details:"
 	echo "Web App Name: $WEB_APP_NAME"
 	echo "Database Account Name: $ACCOUNT_NAME"
@@ -158,3 +160,7 @@ $AZ webapp deploy \
 if [ -f "$ZIPFILE" ]; then
 	rm "$ZIPFILE"
 fi
+
+# Print the list of resources in the resource group
+echo "Listing resources in resource group [$RESOURCE_GROUP_NAME]..."
+az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table 

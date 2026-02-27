@@ -1,7 +1,7 @@
 variable "prefix" {
   description = "(Optional) Specifies the prefix for the name of the Azure resources."
   type        = string
-  default     = "webdb"
+  default     = "local"
 
   validation {
     condition     = var.prefix == null || length(var.prefix) >= 2
@@ -23,7 +23,7 @@ variable "suffix" {
 variable "location" {
   description = "(Required) Specifies the location for all resources."
   type        = string
-  default     = null
+  default     = "westeurope"
 }
 
 variable "primary_region" {
@@ -56,6 +56,12 @@ variable "mongodb_server_version" {
     ], var.mongodb_server_version)
     error_message = "The mongodb_server_version must be one of the supported versions: 3.2, 3.6, 4.0, 4.2, 5.0, 6.0, 7.0, 8.0."
   }
+}
+
+variable "database_throughput" {
+  description = "(Optional) Specifies the throughput for the MongoDB database."
+  type        = number
+  default     = 400
 }
 
 variable "consistency_level" {
@@ -242,4 +248,70 @@ variable "tags" {
     environment = "test"
     iac         = "terraform"
   }
+}
+
+variable "vnet_name" {
+  description = "Specifies the name of the virtual network."
+  default     = "VNet"
+  type        = string
+}
+
+variable "vnet_address_space" {
+  description = "Specifies the address space of the virtual network."
+  default     = ["10.0.0.0/8"]
+  type        = list(string)
+}
+
+variable "webapp_subnet_name" {
+  description = "Specifies the name of the web app subnet."
+  default     = "app-subnet"
+  type        = string
+}
+
+variable "webapp_subnet_address_prefix" {
+  description = "Specifies the address prefix of the web app subnet."
+  default     = ["10.0.0.0/24"]
+  type        = list(string)
+}
+
+variable "pe_subnet_name" {
+  description = "Specifies the name of the subnet that contains the private endpoints."
+  default     = "pe-subnet"
+  type        = string
+}
+
+variable "pe_subnet_address_prefix" {
+  description = "Specifies the address prefix of the subnet that contains the private endpoints."
+  default     = ["10.0.1.0/24"]
+  type        = list(string)
+}
+
+variable "nat_gateway_name" {
+  description = "(Required) Specifies the name of the NAT Gateway"
+  type        = string
+  default     = "NatGateway"
+}
+
+variable "nat_gateway_sku_name" {
+  description = "(Optional) The SKU which should be used. At this time the only supported value is Standard. Defaults to Standard"
+  type        = string
+  default     = "Standard"
+}
+
+variable "nat_gateway_idle_timeout_in_minutes" {
+  description = "(Optional) The idle timeout which should be used in minutes. Defaults to 4."
+  type        = number
+  default     = 4
+}
+
+variable "nat_gateway_zones" {
+  description = " (Optional) A list of Availability Zones in which this NAT Gateway should be located. Changing this forces a new NAT Gateway to be created."
+  type        = list(string)
+  default     = ["1"]
+}
+
+variable "website_port" {
+  description = "(Optional) Specifies the port on which the Web App will listen. Defaults to 8000."
+  type        = number
+  default     = 8000
 }

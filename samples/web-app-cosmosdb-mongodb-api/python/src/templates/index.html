@@ -8,13 +8,14 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body style="background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%); min-height: 100vh;">
-    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:480px;">
+    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:600px;">
         <img src="{{ url_for('static', filename='summer_banner.jpg') }}" alt="Summer Banner" class="img-fluid rounded mb-3 w-100" style="max-height:180px; object-fit:cover;">
         <h1 class="display-9 fw-bold sea-title mb-4">Vacation Planner</h1>
-        <form method="post" class="sea-form mb-4" style="max-width: 520px; margin: 0 auto;">
+        <form method="post" class="sea-form mb-4" style="max-width: 600px; margin: 0 auto;">
             <div style="display: flex; width: 100%;">
-                <input type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." required>
-                <button type="submit" class="sea-btn">Add</button>
+                <input type="hidden" name="row_id" value="{{ edit_id or '' }}">
+                <input id="activityInput" type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." value="{{ edit_activity or '' }}" required autofocus>
+                <button type="submit" class="sea-btn">{{ 'Update' if edit_id else 'Add' }}</button>
             </div>
         </form>
         <div class="table-responsive" style="width: 100%;">
@@ -22,14 +23,17 @@
                 <thead>
                     <tr>
                         <th class="text-start">Activity</th>
-                        <th class="text-start align-middle action-col" style="width: 90px;">Action</th>
+                        <th class="text-start align-middle action-col" style="width: 200px;" colspan="2">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for activity in activities %}
                     <tr>
                         <td class="text-start">{{ activity[1] }}</td>
-                        <td class="text-start align-middle action-col" style="width: 90px;">
+                        <td class="text-start align-middle action-col" style="width: 100px;">
+                            <a href="{{ url_for('update', activity_id=loop.index0) }}" class="sea-btn d-inline-block text-center text-decoration-none" style="width: 90px; line-height: 38px;">Edit</a>
+                        </td>
+                        <td class="text-start align-middle action-col" style="width: 100px;">
                             <form method="post" action="{{ url_for('delete', activity_id=loop.index0) }}" class="d-inline">
                                 <input type="hidden" name="row_id" value="{{ activity[0] }}">
                                 <button type="submit" class="sea-btn" style="width: 90px;">Delete</button>
@@ -38,12 +42,28 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="2" class="text-center text-muted fst-italic">No vacation plans yet!</td>
+                        <td colspan="3" class="text-center text-muted fst-italic">No vacation plans yet!</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
+    <script>
+        // Ensure focus behavior across browsers and place cursor at the end when editing
+        (function () {
+            const input = document.getElementById('activityInput');
+            if (!input) return;
+            // If value exists (editing), place caret at the end and select for quick overwrite
+            if (input.value && input.value.length > 0) {
+                input.focus();
+                // Move caret to end; selection optional for convenience
+                const len = input.value.length;
+                input.setSelectionRange(len, len);
+            } else {
+                input.focus();
+            }
+        })();
+    </script>
 </body>
 </html>

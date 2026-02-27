@@ -1,10 +1,8 @@
 terraform {
-  required_version = ">=1.0"
-
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "=4.14.0"
+      version = "=4.60.0"
     }
   }
 }
@@ -16,9 +14,9 @@ provider "azurerm" {
     }
   }
 
-  # Set the hostname of the Azure Metadata Service (for example management.azure.com) 
-  # used to obtain the Cloud Environment when using LocalStack's Azure emulator. 
-  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints. 
+  # Set the hostname of the Azure Metadata Service (for example management.azure.com)
+  # used to obtain the Cloud Environment when using LocalStack's Azure emulator.
+  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints.
   metadata_host="localhost.localstack.cloud:4566"
 
   # Set the subscription ID to a dummy value when using LocalStack's Azure emulator.
