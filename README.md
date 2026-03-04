@@ -33,6 +33,7 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) | Azure Web App using CosmosDB for NoSQL API | 
 | [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities | 
 | [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database | 
+| [ServiceBus ](./samples/servicebus/README.md) | Azure ServiceBus used by a Spring Boot application | 
  
 ## Sample Structure
 
