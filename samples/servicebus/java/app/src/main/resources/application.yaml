@@ -1,0 +1,9 @@
+spring:
+  cloud:
+    azure:
+      profile:
+        cloud-type: OTHER
+        environment:
+          management-endpoint: "http://localhost:4566"
+      servicebus:
+        connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}

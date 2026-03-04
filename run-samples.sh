@@ -29,6 +29,7 @@ fi
 
 # 1. Define Samples (placed before tool checks so --list works without dependencies)
 SAMPLES=(
+  "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
