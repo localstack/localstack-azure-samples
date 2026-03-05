@@ -155,7 +155,7 @@ finish() {
   [[ -f "$ZIP_A" ]] && rm -f "$ZIP_A"
   [[ -f "$ZIP_B" ]] && rm -f "$ZIP_B"
   if [[ "$INTERCEPTION_STARTED" == "true" ]] && command -v azlocal >/dev/null 2>&1; then
-    azlocal stop_interception >/dev/null 2>&1 || true
+    azlocal stop-interception >/dev/null 2>&1 || true
   fi
   if [[ "$AZURE_CONFIG_DIR_CREATED" == "true" && -n "${AZURE_CONFIG_DIR:-}" && -d "$AZURE_CONFIG_DIR" ]]; then
     rm -rf "$AZURE_CONFIG_DIR"
@@ -176,7 +176,7 @@ if [[ "$USE_LOCALSTACK" == "true" ]]; then
     echo "Error: --use-localstack specified but 'azlocal' not found in PATH." >&2
     exit 1
   fi
-  if azlocal start_interception; then
+  if azlocal start-interception; then
     INTERCEPTION_STARTED="true"; echo "LocalStack interception started."
   else
     echo "Error: azlocal failed to start interception. Ensure LocalStack is running." >&2

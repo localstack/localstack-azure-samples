@@ -13,7 +13,7 @@ SERVICEBUS_QUEUE_NAME="myqueue"
 cd "$CURRENT_DIR" || exit
 
 # Redirect AZ calls to LocalStack
-azlocal start_interception
+azlocal start-interception
 
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
@@ -45,6 +45,6 @@ az group delete \
     --name $RESOURCE_GROUP_NAME \
     --yes
 
-azlocal stop_interception
+azlocal stop-interception
 
 
