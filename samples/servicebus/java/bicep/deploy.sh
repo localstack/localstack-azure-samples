@@ -6,12 +6,12 @@ SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
+SERVICEBUS_QUEUE_NAME="myqueue" # Queue name is hardcoded in the application properties
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZIPFILE="planner_website.zip"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
@@ -62,6 +62,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--parameters location=$LOCATION \
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
+			queueName=$SERVICEBUS_QUEUE_NAME \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -80,6 +81,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--parameters location=$LOCATION \
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
+			queueName=$SERVICEBUS_QUEUE_NAME \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -102,65 +104,47 @@ if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	--parameters location=$LOCATION \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
-	--query 'properties.outputs' -o json); then
+	queueName=$SERVICEBUS_QUEUE_NAME \
+	--output json \
+	--query 'properties.outputs'); then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
 	echo "$DEPLOYMENT_JSON" | jq .
-	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value')
-	ACCOUNT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.accountName.value')
-	DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.databaseName.value')
-	COLLECTION_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.collectionName.value')
-	DOCUMENT_ENDPOINT=$(echo "$DEPLOYMENT_JSON" | jq -r '.documentEndpoint.value')
+	SERVICEBUS_NAMESPACE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.name.value')
 	echo "Deployment details:"
-	echo "Web App Name: $WEB_APP_NAME"
-	echo "Database Account Name: $ACCOUNT_NAME"
-	echo "Database Name: $DATABASE_NAME"
-	echo "Collection Name: $COLLECTION_NAME"
-	echo "Document Endpoint: $DOCUMENT_ENDPOINT"
+	echo "Service Bus Namespace Name: $SERVICEBUS_NAMESPACE_NAME"
 else
 	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1
 fi
 
-if [[ -z "$WEB_APP_NAME" || -z "$ACCOUNT_NAME" ]]; then
-	echo "Web App Name or Cosmos DB Account Name is empty. Exiting."
+if [[ -z "$SERVICEBUS_NAMESPACE_NAME" ]]; then
+	echo "Service Bus Namespace Name is empty. Exiting."
 	exit 1
 fi
 
-# Print the application settings of the web app
-echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
-$AZ webapp config appsettings list \
+# Retrieve the connection string for the Service Bus namespace
+echo "Retrieving connection string for [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace..."
+AZURE_SERVICEBUS_CONNECTION_STRING=$($AZ servicebus namespace authorization-rule keys list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME"
+	--namespace-name "$SERVICEBUS_NAMESPACE_NAME" \
+	--name RootManageSharedAccessKey \
+	--query primaryConnectionString \
+	--output tsv)
 
-# Change current directory to source folder
-cd "../src" || exit
-
-# Remove any existing zip package of the web app
-if [ -f "$ZIPFILE" ]; then
-	rm "$ZIPFILE"
+if [[ $? -eq 0 ]] && [[ -n "$AZURE_SERVICEBUS_CONNECTION_STRING" ]]; then
+	export AZURE_SERVICEBUS_CONNECTION_STRING
+	echo "Connection string retrieved successfully."
+else
+	echo "Failed to retrieve connection string."
+	exit 1
 fi
 
-# Create the zip package of the web app
-echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
+# Start the Java application
+echo "Starting Java application..."
+cd "$CURRENT_DIR/../app" && mvn clean spring-boot:run
 
-# Deploy the web app
-# Deploy the web app
-echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
-
-# Remove the zip package of the web app
-if [ -f "$ZIPFILE" ]; then
-	rm "$ZIPFILE"
-fi
-
-# Print the list of resources in the resource group
-echo "Listing resources in resource group [$RESOURCE_GROUP_NAME]..."
-az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table 
+# Optionally tear down all resources (uncomment to enable)
+# echo "Deleting resource group [$RESOURCE_GROUP_NAME]..."
+# $AZ group delete --name "$RESOURCE_GROUP_NAME" --yes

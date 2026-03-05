@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='ciao'
+PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
