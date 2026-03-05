@@ -66,7 +66,7 @@ See the script files for complete implementation. The scripts perform the follow
 These scripts eliminate manual configuration steps and enable one-command deployment of the entire infrastructure.
 
 > [!NOTE]
-> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop_interception`.
+> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start-interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `azlocal stop-interception`.
 
 ## Deployment
 

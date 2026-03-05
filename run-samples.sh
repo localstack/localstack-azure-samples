@@ -117,7 +117,7 @@ if command -v azlocal >/dev/null 2>&1; then
   echo "[DEBUG] azlocal command found, attempting login..."
   azlocal login || true
   echo "[DEBUG] Starting azlocal interception..."
-  azlocal start_interception
+  azlocal start-interception
   echo "[DEBUG] Setting default subscription..."
   azlocal account set --subscription "00000000-0000-0000-0000-000000000000" || true
   echo "[DEBUG] Checking azlocal account status..."
