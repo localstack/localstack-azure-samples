@@ -35,6 +35,7 @@ SAMPLES=(
   "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
+  "samples/aci-vacation-planner/python|bash scripts/deploy.sh|bash scripts/validate.sh"
 )
 
 # 1a. Define Terraform Samples
