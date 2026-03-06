@@ -40,6 +40,7 @@ SAMPLES=(
 
 # 1a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
+  "samples/servicebus/java/terraform|bash deploy.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
   "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
@@ -49,6 +50,7 @@ TERRAFORM_SAMPLES=(
 
 # 1b. Define Bicep Samples
 BICEP_SAMPLES=(
+  "samples/servicebus/java/bicep|bash deploy.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
