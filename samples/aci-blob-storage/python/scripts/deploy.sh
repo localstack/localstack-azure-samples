@@ -29,11 +29,9 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$CURRENT_DIR" || exit
 
 # Choose the appropriate CLI based on the environment
-# When start_interception is active, 'az' already routes to LocalStack,
-# so we use 'az' directly to avoid double-wrapping.
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using az with LocalStack interception active."
-	AZ="az"
+	echo "Using azlocal for LocalStack emulator environment."
+	AZ="azlocal"
 else
 	echo "Using standard az for AzureCloud environment."
 	AZ="az"
@@ -120,16 +118,20 @@ else
 	exit 1
 fi
 
-# For LocalStack, convert https:// to http:// to avoid SSL certificate issues
-# with self-signed certs on data-plane endpoints
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	BLOB_ENDPOINT="${BLOB_ENDPOINT/https:\/\//http:\/\/}"
-	echo "Converted blob endpoint to HTTP: $BLOB_ENDPOINT"
-fi
-
-# Build connection string
+# Build the connection string using the original blob endpoint (resolvable from the host).
 STORAGE_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${BLOB_ENDPOINT}"
 echo "Connection string built successfully."
+
+# For LocalStack, the ACI emulator configures containers with LocalStack's DNS
+# server, so *.localhost.localstack.cloud resolves to the LocalStack container.
+# We only need to downgrade HTTPS to HTTP (containers don't have the LS TLS cert).
+if [[ $ENVIRONMENT == "LocalStack" ]]; then
+	CONTAINER_BLOB_ENDPOINT="${BLOB_ENDPOINT/https:\/\//http:\/\/}"
+	CONTAINER_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${CONTAINER_BLOB_ENDPOINT}"
+	echo "Container blob endpoint: $CONTAINER_BLOB_ENDPOINT"
+else
+	CONTAINER_CONN_STRING="$STORAGE_CONN_STRING"
+fi
 
 # =============================================================================
 # Step 5: Create Blob Container
@@ -159,17 +161,20 @@ echo ""
 echo "============================================================"
 echo "Step 6: Creating Key Vault [$KEY_VAULT_NAME]..."
 echo "============================================================"
-$AZ keyvault create \
+KV_OUTPUT=$($AZ keyvault create \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--enable-rbac-authorization true \
-	--only-show-errors 1>/dev/null
+	--only-show-errors 2>&1)
 
 if [ $? -eq 0 ]; then
 	echo "Key Vault [$KEY_VAULT_NAME] created successfully."
+elif echo "$KV_OUTPUT" | grep -qi "already exists"; then
+	echo "Key Vault [$KEY_VAULT_NAME] already exists, reusing."
 else
 	echo "Failed to create Key Vault [$KEY_VAULT_NAME]."
+	echo "  $KV_OUTPUT"
 	exit 1
 fi
 
@@ -180,10 +185,11 @@ echo ""
 echo "============================================================"
 echo "Step 7: Storing storage connection string in Key Vault..."
 echo "============================================================"
+# Store the container-friendly connection string so ACI can reach LocalStack
 $AZ keyvault secret set \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "storage-conn" \
-	--value "$STORAGE_CONN_STRING" \
+	--value "$CONTAINER_CONN_STRING" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -339,6 +345,7 @@ if [ "$USE_ACR_IMAGE" = true ]; then
 			BLOB_CONTAINER_NAME="$BLOB_CONTAINER_NAME" \
 			LOGIN_NAME="$LOGIN_NAME" \
 		--ip-address Public \
+		--dns-name-label "$ACI_GROUP_NAME" \
 		--ports 80 \
 		--cpu 1 --memory 1 \
 		--os-type Linux \
@@ -355,6 +362,7 @@ else
 			BLOB_CONTAINER_NAME="$BLOB_CONTAINER_NAME" \
 			LOGIN_NAME="$LOGIN_NAME" \
 		--ip-address Public \
+		--dns-name-label "$ACI_GROUP_NAME" \
 		--ports 80 \
 		--cpu 1 --memory 1 \
 		--os-type Linux \
@@ -384,6 +392,7 @@ echo "Key Vault:         $KEY_VAULT_NAME"
 echo "ACR:               $ACR_NAME ($LOGIN_SERVER)"
 echo "ACI Container:     $ACI_GROUP_NAME"
 echo "Image:             $FULL_IMAGE"
+echo "FQDN:              ${ACI_GROUP_NAME}.${LOCATION}.azurecontainer.io"
 echo ""
 echo "Run 'bash scripts/validate.sh' to verify the deployment."
 echo "============================================================"

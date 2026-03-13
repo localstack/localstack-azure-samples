@@ -50,14 +50,30 @@ azlocal start_interception
 cd python
 bash scripts/deploy.sh
 
-# Validate the deployment
+# Validate the deployment (includes stop/start/restart lifecycle tests)
 bash scripts/validate.sh
+```
+
+## Advanced Deployment
+
+The advanced script demonstrates additional ACI features on top of the basic deployment:
+
+- **Init containers** — Run a health-check container before the app starts
+- **emptyDir volumes** — Shared temporary storage between init and app containers
+- **Secret volumes** — Config files decoded from base64 and mounted read-only
+- **Secure environment variables** — Connection string hidden from API responses
+- **DNS name label / FQDN** — Generates a fully qualified domain name
+
+```bash
+# Run the basic deployment first, then:
+bash scripts/deploy-advanced.sh
 ```
 
 ## Cleanup
 
 ```bash
-azlocal group delete --name local-aci-rg --yes
+# Removes all resources created by deploy.sh and deploy-advanced.sh
+bash scripts/cleanup.sh
 ```
 
 ## Application
@@ -81,3 +97,31 @@ The Vacation Planner is a Flask web application with a Bootstrap UI that lets us
 | `AZURE_STORAGE_CONNECTION_STRING` | Blob Storage connection string (from Key Vault) |
 | `BLOB_CONTAINER_NAME` | Name of the blob container for activities |
 | `LOGIN_NAME` | Username for the activity list (default: "paolo") |
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `scripts/deploy.sh` | Basic deployment: Storage, Key Vault, ACR, ACI with env vars and DNS label |
+| `scripts/validate.sh` | Validates all resources and exercises ACI lifecycle (get, list, logs, exec, stop, start, restart) |
+| `scripts/deploy-advanced.sh` | Advanced deployment: init containers, emptyDir/secret volumes, secure env vars |
+| `scripts/cleanup.sh` | Removes all resources created by deploy.sh and deploy-advanced.sh |
+
+## ACI Features Demonstrated
+
+| Feature | Basic Deploy | Advanced Deploy |
+|---------|:---:|:---:|
+| Container group create | x | x |
+| Public IP + ports | x | x |
+| Environment variables | x | x |
+| Registry credentials (ACR) | x | x |
+| CPU / memory resources | x | x |
+| DNS name label / FQDN | x | x |
+| Secure environment variables | | x |
+| Init containers | | x |
+| emptyDir volumes | | x |
+| Secret volumes | | x |
+| Stop / Start / Restart | validate.sh | |
+| List container groups | validate.sh | |
+| Logs with --tail | validate.sh | |
+| Container exec | validate.sh | |
