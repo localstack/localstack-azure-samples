@@ -66,17 +66,6 @@ variable "blob_container_name" {
   }
 }
 
-variable "acr_sku" {
-  description = "(Optional) Specifies the SKU for the container registry."
-  type        = string
-  default     = "Basic"
-
-  validation {
-    condition     = contains(["Basic", "Standard", "Premium"], var.acr_sku)
-    error_message = "The acr_sku must be one of: Basic, Standard, Premium."
-  }
-}
-
 variable "image_name" {
   description = "(Optional) Specifies the name of the container image."
   type        = string

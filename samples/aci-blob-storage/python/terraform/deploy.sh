@@ -23,7 +23,7 @@ fi
 
 # =============================================================================
 # Build and push the Docker image before Terraform deployment
-# (Terraform creates the ACI group referencing the image in ACR)
+# (Terraform references the pre-created ACR as a data source)
 # =============================================================================
 
 # Create resource group and ACR first so we can push the image
@@ -94,15 +94,19 @@ echo "Image pushed to ACR successfully."
 # Terraform init, plan, and apply
 # =============================================================================
 
-TF_VARS="-var prefix=$PREFIX -var suffix=$SUFFIX -var location=$LOCATION -var image_name=$IMAGE_NAME -var image_tag=$IMAGE_TAG"
-
 echo "Initializing Terraform..."
 terraform init -upgrade
 
-# Import the resource group and ACR that were pre-created for the image push
-echo "Importing pre-created resources into Terraform state..."
-terraform import $TF_VARS azurerm_resource_group.example "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
-terraform import $TF_VARS azurerm_container_registry.example "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" 2>/dev/null || true
+# Import the resource group that was pre-created for the image push
+echo "Importing pre-created resource group into Terraform state..."
+terraform import \
+	-var "prefix=$PREFIX" \
+	-var "suffix=$SUFFIX" \
+	-var "location=$LOCATION" \
+	-var "image_name=$IMAGE_NAME" \
+	-var "image_tag=$IMAGE_TAG" \
+	azurerm_resource_group.example \
+	"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
@@ -125,7 +129,6 @@ fi
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
 STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
-KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
 ACR_NAME=$(terraform output -raw acr_name)
 ACI_GROUP_NAME=$(terraform output -raw aci_group_name)
 FQDN=$(terraform output -raw fqdn)
@@ -136,7 +139,6 @@ echo "Deployment Complete!"
 echo "============================================================"
 echo "Resource Group:    $RESOURCE_GROUP_NAME"
 echo "Storage Account:   $STORAGE_ACCOUNT_NAME"
-echo "Key Vault:         $KEY_VAULT_NAME"
 echo "ACR:               $ACR_NAME"
 echo "ACI Container:     $ACI_GROUP_NAME"
 echo "FQDN:              $FQDN"
