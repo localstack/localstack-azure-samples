@@ -32,7 +32,8 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Web App and CosmosDB for MongoDB API ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
 | [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) | Azure Web App using CosmosDB for NoSQL API | 
 | [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities | 
-| [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database | 
+| [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database |
+| [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
  
 ## Sample Structure
 
