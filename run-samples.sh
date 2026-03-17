@@ -29,6 +29,7 @@ fi
 
 # 1. Define Samples (placed before tool checks so --list works without dependencies)
 SAMPLES=(
+  "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd --use-localstack|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
@@ -40,6 +41,7 @@ SAMPLES=(
 
 # 1a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
+  "samples/servicebus/java/terraform|bash deploy.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
   "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
@@ -50,6 +52,7 @@ TERRAFORM_SAMPLES=(
 
 # 1b. Define Bicep Samples
 BICEP_SAMPLES=(
+  "samples/servicebus/java/bicep|bash deploy.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
@@ -119,7 +122,7 @@ if command -v azlocal >/dev/null 2>&1; then
   echo "[DEBUG] azlocal command found, attempting login..."
   azlocal login || true
   echo "[DEBUG] Starting azlocal interception..."
-  azlocal start_interception
+  azlocal start-interception
   echo "[DEBUG] Setting default subscription..."
   azlocal account set --subscription "00000000-0000-0000-0000-000000000000" || true
   echo "[DEBUG] Checking azlocal account status..."

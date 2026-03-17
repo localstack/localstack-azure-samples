@@ -29,11 +29,14 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Function App and Storage](./samples/function-app-storage-http/dotnet/README.md) | Azure Functions App using Blob, Queue, and Table Storage |
 | [Function App and Front Door](./samples/function-app-front-door/python/README.md) | Azure Functions App exposed via Front Door |
 | [Function App and Managed Identities](./samples/function-app-managed-identity/python/README.md) | Azure Function App using Managed Identities | 
+| [Function App and Service Bus](./samples/function-app-service-bus/dotnet/README.md) | Azure Function App using Service Bus | 
 | [Web App and CosmosDB for MongoDB API ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API | 
 | [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) | Azure Web App using CosmosDB for NoSQL API | 
 | [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities | 
 | [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database |
 | [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
+| [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database | 
+| [ServiceBus ](./samples/servicebus/README.md) | Azure ServiceBus used by a Spring Boot application | 
  
 ## Sample Structure
 

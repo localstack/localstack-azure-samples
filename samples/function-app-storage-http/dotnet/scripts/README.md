@@ -116,7 +116,7 @@ The script configures the following application settings for the gaming system:
 
 ### LocalStack-Specific Commands
 
-1. `azlocal start_interception`:
+1. `azlocal start-interception`:
    - Redirects Azure CLI calls to LocalStack endpoints
    - Enables local development without Azure subscription
    - Maintains compatibility with standard Azure CLI syntax
@@ -126,7 +126,7 @@ The script configures the following application settings for the gaming system:
    - Wraps the Azure Functions Core Tools
    - Provides local testing environment for Azure Functions
 
-3. `azlocal stop_interception`:
+3. `azlocal stop-interception`:
    - Restores normal Azure CLI behavior
    - Cleans up LocalStack session state
    - Returns CLI to standard Azure cloud operations

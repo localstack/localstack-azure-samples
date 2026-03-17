@@ -15,6 +15,7 @@ RANDOM_SUFFIX=$(echo $RANDOM)
 NEW_DB_NAME="vacationplanner_${RANDOM_SUFFIX}"
 AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
 AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
+AURECOSMOSDB_PARTITION_KEY="/partitionKey"
 
 # Start azure CLI local mode session
 azlocal login
@@ -56,6 +57,21 @@ echo "Create CosmosDB NoSQL Account"
 
 echo "Account created"
 echo "AZURECOSMOSDB_ENDPOINT set to $AZURECOSMOSDB_ENDPOINT"
+
+echo "Create CosmosDB NoSQL Database"
+azlocal cosmosdb sql database create \
+    --resource-group $RESOURCE_GROUP_NAME \
+    --name $AZURECOSMOSDB_DATABASENAME \
+    --account-name $WEB_APP_NAME
+
+echo "Create CosmosDB NoSQL Container"
+azlocal cosmosdb sql container create \
+    --resource-group $RESOURCE_GROUP_NAME \
+    --account-name $WEB_APP_NAME \
+    --database-name $AZURECOSMOSDB_DATABASENAME \
+    --name $AZURECOSMOSDB_CONTAINERNAME \
+    --partition-key-path $AURECOSMOSDB_PARTITION_KEY \
+    --throughput 400
 
 echo "Fetching DB Account primary master key"
 export AZURECOSMOSDB_PRIMARY_KEY=$(azlocal cosmosdb keys list \
