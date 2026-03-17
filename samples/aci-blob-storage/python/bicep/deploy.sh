@@ -179,12 +179,14 @@ if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
 	suffix=$SUFFIX \
 	--query 'properties.outputs' -o json); then
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
-	echo "$DEPLOYMENT_OUTPUTS" | jq .
-	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value')
-	KEY_VAULT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.keyVaultName.value')
-	ACR_LOGIN_SERVER=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.acrLoginServer.value')
-	ACI_GROUP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.aciGroupName.value')
-	FQDN=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.fqdn.value')
+	# Strip any non-JSON prefix (e.g. Bicep CLI messages) before parsing
+	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$p')
+	echo "$DEPLOYMENT_JSON" | jq .
+	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.storageAccountName.value')
+	KEY_VAULT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.keyVaultName.value')
+	ACR_LOGIN_SERVER=$(echo "$DEPLOYMENT_JSON" | jq -r '.acrLoginServer.value')
+	ACI_GROUP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.aciGroupName.value')
+	FQDN=$(echo "$DEPLOYMENT_JSON" | jq -r '.fqdn.value')
 	echo "Deployment details:"
 	echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
 	echo "- keyVaultName: $KEY_VAULT_NAME"
