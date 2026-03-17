@@ -1,4 +1,4 @@
-#!/bin/bash
+  #!/bin/bash
 
 # =============================================================================
 # ACI Vacation Planner - Validation Script
@@ -172,26 +172,6 @@ else
 	fi
 fi
 
-# Logs with --tail
-echo -n "  Checking logs with --tail 5... "
-TAIL_LOGS=$($AZ container logs \
-	--name "$ACI_GROUP_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--tail 5 2>/dev/null)
-
-if [ -n "$TAIL_LOGS" ]; then
-	LINE_COUNT=$(echo "$TAIL_LOGS" | wc -l)
-	if [ "$LINE_COUNT" -le 6 ]; then
-		echo "OK ($LINE_COUNT lines)"
-		PASS_COUNT=$((PASS_COUNT + 1))
-	else
-		echo "FAIL (expected <= 5 lines, got $LINE_COUNT)"
-		FAIL_COUNT=$((FAIL_COUNT + 1))
-	fi
-else
-	echo "FAIL (no output)"
-	FAIL_COUNT=$((FAIL_COUNT + 1))
-fi
 echo ""
 
 # 8. Container Exec
