@@ -45,6 +45,7 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
   "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/web-app-sql-database/python/terraform|bash deploy.sh"
+  "samples/aci-blob-storage/python/terraform|bash deploy.sh"
 )
 
 # 1b. Define Bicep Samples
@@ -54,6 +55,7 @@ BICEP_SAMPLES=(
   "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
   "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
   "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
+  "samples/aci-blob-storage/python/bicep|bash deploy.sh"
 )
 
 # Combine script-based, Terraform, and Bicep samples into one array

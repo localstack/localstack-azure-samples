@@ -34,6 +34,7 @@ A sample application demonstrating how to deploy a containerized Flask web app u
 - [Docker](https://docs.docker.com/get-docker/)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [azlocal](https://pypi.org/project/azlocal/) (`pip install azlocal`)
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) (optional, for Terraform deployment)
 
 ## Quick Start
 
@@ -52,6 +53,22 @@ bash scripts/deploy.sh
 
 # Validate the deployment (includes stop/start/restart lifecycle tests)
 bash scripts/validate.sh
+```
+
+## Alternative Deployments
+
+### Bicep
+
+```bash
+cd python
+bash bicep/deploy.sh
+```
+
+### Terraform
+
+```bash
+cd python
+bash terraform/deploy.sh
 ```
 
 ## Cleanup
@@ -90,6 +107,8 @@ The Vacation Planner is a Flask web application with a Bootstrap UI that lets us
 | `scripts/deploy.sh` | Deploys Storage, Key Vault, ACR, and ACI with env vars and DNS label |
 | `scripts/validate.sh` | Validates all resources and exercises ACI lifecycle (get, list, logs, exec, stop, start, restart) |
 | `scripts/cleanup.sh` | Removes all resources created by deploy.sh |
+| `bicep/deploy.sh` | Deploys all resources using a Bicep template |
+| `terraform/deploy.sh` | Deploys all resources using Terraform |
 
 ## ACI Features Demonstrated
 
@@ -102,6 +121,6 @@ The Vacation Planner is a Flask web application with a Bootstrap UI that lets us
 | CPU / memory resources | deploy.sh |
 | DNS name label / FQDN | deploy.sh |
 | Container get / list | validate.sh |
-| Container logs (+ --tail) | validate.sh |
+| Container logs | validate.sh |
 | Container exec | validate.sh |
 | Stop / Start / Restart | validate.sh |
