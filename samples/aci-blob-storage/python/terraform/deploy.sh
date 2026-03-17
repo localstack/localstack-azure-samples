@@ -94,8 +94,15 @@ echo "Image pushed to ACR successfully."
 # Terraform init, plan, and apply
 # =============================================================================
 
+TF_VARS="-var prefix=$PREFIX -var suffix=$SUFFIX -var location=$LOCATION -var image_name=$IMAGE_NAME -var image_tag=$IMAGE_TAG"
+
 echo "Initializing Terraform..."
 terraform init -upgrade
+
+# Import the resource group and ACR that were pre-created for the image push
+echo "Importing pre-created resources into Terraform state..."
+terraform import $TF_VARS azurerm_resource_group.example "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
+terraform import $TF_VARS azurerm_container_registry.example "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" 2>/dev/null || true
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
