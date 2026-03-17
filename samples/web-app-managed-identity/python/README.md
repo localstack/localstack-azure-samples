@@ -44,7 +44,6 @@ The LocalStack emulator emulates the following services, which are necessary at 
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Python](https://www.python.org/downloads/)
 - [Flask](https://flask.palletsprojects.com/)
-- [pyodbc](https://github.com/mkleehammer/pyodbc)
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 
