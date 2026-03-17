@@ -1,18 +1,20 @@
 # Bicep Deployment
 
-This directory contains the Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Web App with Azure CosmosDB for MongoDB](../README.md).
+This directory contains the Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Functions App with Service Bus Messaging](../README.md).
 
 ## Prerequisites
 
 Before deploying this solution, ensure you have the following tools installed:
 
+- [Azure Subscription](https://azure.microsoft.com/free/)
 - [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
-- [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
-- [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
 - [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
-- [Python](https://www.python.org/downloads/): Python runtime (version 3.12 or above)
+- [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local) is required to build, run, and deploy the Azure Functions app locally
+- [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
+- [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
+- [.NET SDK](https://dotnet.microsoft.com/en-us/download) is required to compile and run the C# Azure Functions project
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
 ### Installing azlocal CLI
@@ -32,19 +34,30 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 1. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview): Hosts two subnets:
 	- *app-subnet*: Dedicated to [regional VNet integration](https://learn.microsoft.com/azure/azure-functions/functions-networking-options?tabs=azure-portal#outbound-networking-features) with the Function App.
 	- *pe-subnet*: Used for hosting Azure Private Endpoints.
-2. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone): Handles DNS resolution for the CosmosDB for MongoDB Private Endpoint within the virtual network.
-3. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): Secures network access to the CosmosDB for MongoDB account via a private IP within the VNet.
-4. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Provides deterministic outbound connectivity for the Web App. Included for completeness; the sample app does not call any external services.
+2. [Azure Private DNS Zones](https://learn.microsoft.com/azure/dns/private-dns-privatednszone): Provide internal DNS resolution so that resources within the virtual network can reach Private Endpoints by hostname rather than public addresses. There is a separate Azure Private DNS Zone for the following resource types:
+  - Azure Service Bus namespace
+	- Azure Blob Storage
+	- Azure Queue Storage
+	- Azure Table Storage
+3. [Azure Private Endpoints](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): Provide secure, private network connectivity to Azure resources by exposing them through private IP addresses within the virtual network, eliminating the need for traffic to traverse the public internet. There is a separate Azure Private Endpoint for the following resources:
+  - Azure Service Bus namespace
+	- Azure Blob Storage
+	- Azure Queue Storage
+	- Azure Table Storage
+4. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Provides deterministic outbound connectivity and a stable public IP address for the Function App's outbound traffic. Included for architectural completeness; the sample app itself does not call any external services.
 5. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): Enforces inbound and outbound traffic rules across the virtual network's subnets.
-6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution.
-7. [Azure Cosmos DB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction): A globally distributed database account optimized for MongoDB workloads, with multi-region failover enabled.
-8. [MongoDB Database](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `sampledb` database that holds all application data.
-9. [MongoDB Collection](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `activities` collection within `sampledb`, used to store vacation activity records.
-10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
-11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask single-page application (*Vacation Planner*), connected to CosmosDB for MongoDB via VNet integration.
-12. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
+6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution, enabling unified querying and analysis across the entire deployment.
+7. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview-hosting-plans): Defines the underlying compute tier and scaling behavior for the function app.
+8. [Azure Functions App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview): Hosts the sample function app.
+9. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): Provides application performance monitoring (APM), collecting and analyzing requests, traces, and metrics generated by the function app to surface performance bottlenecks and failures.
+10. [Azure Service Bus](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview): A fully managed enterprise message broker. This namespace hosts the `input` and `output` queues used by the function app to exchange messages asynchronously.
+11. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides durable storage used internally by the Azure Functions runtime for state management, including distributed locks, checkpoints, and timer trigger coordination.
+12. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): This identity is assigned the necessary RBAC roles and is used by the function app to authenticate securely—without storing credentials—to the following Azure resources: 
+  - Azure Service Bus namespace
+	- Azure Storage
+	- Azure Application Insights
 
-The web app enables users to plan and manage vacation activities, with all data persisted in a CosmosDB-backed MongoDB collection. For more information on the sample application, see [Azure Web App with Azure CosmosDB for MongoDB](../README.md). 
+For more information on the sample application, see [Azure Functions App with Service Bus Messaging](../README.md). 
 
 ## Configuration
 
@@ -73,9 +86,9 @@ See [deploy.sh](deploy.sh) for the complete deployment automation. The script pe
 - Optionally validates the Bicep template
 - Optionally runs what-if deployment for preview
 - Deploys the main.bicep template with parameters from [main.bicepparam](main.bicepparam)
-- Extracts deployment outputs (Web App name, CosmosDB details)
+- Extracts deployment outputs (Function App name, Service Bus Namespace name details)
 - Creates zip package of the Python application
-- Deploys the zip to Azure Web App
+- Deploys the zip to the Azure Functions App
 
 ## Deployment
 
@@ -95,7 +108,7 @@ IMAGE_NAME=localstack/localstack-azure-alpha localstack start
 Navigate to the `bicep` folder:
 
 ```bash
-cd samples/web-app-cosmosdb-mongodb-api/python/bicep
+cd samples/function-app-service-bus/dotnet/bicep
 ```
 
 Make the script executable:
@@ -122,18 +135,28 @@ PREFIX='local'
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-WEBAPP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
+FUNCTION_APP_SUBNET_NSG_NAME="${PREFIX}-func-subnet-nsg-${SUFFIX}"
 PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
 NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 VIRTUAL_NETWORK_NAME="${PREFIX}-vnet-${SUFFIX}"
-PRIVATE_DNS_ZONE_NAME="privatelink.mongo.cosmos.azure.com"
-PRIVATE_ENDPOINT_NAME="${PREFIX}-mongodb-pe-${SUFFIX}"
-APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
-WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
-COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
-MONGODB_DATABASE_NAME="sampledb"
-COLLECTION_NAME="activities"
+APP_SERVICE_PLAN_NAME="${PREFIX}-plan-${SUFFIX}"
+FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
+SERVICE_BUS_NAMESPACE_NAME="${PREFIX}-service-bus-${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-func-${SUFFIX}"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
+PRIVATE_DNS_ZONE_NAMES=(
+	"privatelink.servicebus.windows.net"
+	"privatelink.blob.core.windows.net"
+	"privatelink.queue.core.windows.net"
+	"privatelink.table.core.windows.net"
+)
+PE_NAMES=(
+	"${PREFIX}-service-bus-pe-${SUFFIX}"
+	"${PREFIX}-blob-storage-pe-${SUFFIX}"
+	"${PREFIX}-queue-storage-pe-${SUFFIX}"
+	"${PREFIX}-table-storage-pe-${SUFFIX}"
+)
 
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
@@ -159,40 +182,47 @@ $AZ appservice plan show \
 	--output table \
 	--only-show-errors
 
-# Check Azure Web App
-echo -e "\n[$WEBAPP_NAME] web app:\n"
-$AZ webapp show \
-	--name "$WEBAPP_NAME" \
+# Check Azure Functions App
+echo -e "\n[$FUNCTION_APP_NAME] web app:\n"
+$AZ functionapp show \
+	--name "$FUNCTION_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors
 
-# Check Azure CosmosDB account
-echo -e "\n[$COSMOSDB_ACCOUNT_NAME] cosmosdb account:\n"
-$AZ cosmosdb show \
-	--name "$COSMOSDB_ACCOUNT_NAME" \
+# Check Service Bus Namespace
+echo -e "\n[$SERVICE_BUS_NAMESPACE_NAME] service bus namespace:\n"
+$AZ servicebus namespace show \
+	--name "$SERVICE_BUS_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,DocumentEndpoint:documentEndpoint}' \
+	--output table \
+	--query '{Name:name,ServiceBusEndpoint:serviceBusEndpoint}' \
+	--only-show-errors
+
+# Check Service Bus Queues
+echo -e "\n[$SERVICE_BUS_NAMESPACE_NAME] service bus queues:\n"
+$AZ servicebus queue list \
+	--namespace-name "$SERVICE_BUS_NAMESPACE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--query '[].{Name:name,Status:status}' \
+	--only-show-errors
+
+	# Check Application Insights
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] application insights:\n"
+$AZ monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup}' \
 	--output table \
 	--only-show-errors
 
-# Check MongoDB database
-echo -e "\n[$MONGODB_DATABASE_NAME] mongodb database:\n"
-$AZ cosmosdb mongodb database show \
-	--name "$MONGODB_DATABASE_NAME" \
-	--account-name "$COSMOSDB_ACCOUNT_NAME" \
+# Check Storage Account
+echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account:\n"
+$AZ storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query '{Name:name,ResourceGroup:resourceGroup}' \
-	--output table \
-	--only-show-errors
-
-# Check MongoDB collection
-echo -e "\n[$COLLECTION_NAME] mongodb collection:\n"
-$AZ cosmosdb mongodb collection show \
-	--name "$COLLECTION_NAME" \
-	--database-name "$MONGODB_DATABASE_NAME" \
-	--account-name "$COSMOSDB_ACCOUNT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:primaryLocation,ResourceGroup:resourceGroup}' \
 	--output table \
 	--only-show-errors
 
@@ -222,26 +252,30 @@ $AZ network vnet show \
 	--only-show-errors
 
 # Check Private DNS Zone
-echo -e "\n[$PRIVATE_DNS_ZONE_NAME] private dns zone:\n"
-$AZ network private-dns zone show \
-	--name "$PRIVATE_DNS_ZONE_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query '{Name:name,ResourceGroup:resourceGroup,RecordSets:recordSets,VirtualNetworkLinks:virtualNetworkLinks}' \
-	--output table \
-	--only-show-errors
+for PRIVATE_DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
+	echo -e "\n[$PRIVATE_DNS_ZONE_NAME] private dns zone:\n"
+	$AZ network private-dns zone show \
+		--name "$PRIVATE_DNS_ZONE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--query '{Name:name,ResourceGroup:resourceGroup,RecordSets:recordSets,VirtualNetworkLinks:virtualNetworkLinks}' \
+		--output table \
+		--only-show-errors
+done
 
 # Check Private Endpoint
-echo -e "\n[$PRIVATE_ENDPOINT_NAME] private endpoint:\n"
-$AZ network private-endpoint show \
-	--name "$PRIVATE_ENDPOINT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--output table \
-	--only-show-errors
+for PRIVATE_ENDPOINT_NAME in "${PE_NAMES[@]}"; do
+	echo -e "\n[$PRIVATE_ENDPOINT_NAME] private endpoint:\n"
+	$AZ network private-endpoint show \
+		--name "$PRIVATE_ENDPOINT_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--output table \
+		--only-show-errors
+done
 
-# Check Web App Subnet NSG
-echo -e "\n[$WEBAPP_SUBNET_NSG_NAME] network security group:\n"
+# Check Functions App Subnet NSG
+echo -e "\n[$FUNCTION_APP_SUBNET_NSG_NAME] network security group:\n"
 $AZ network nsg show \
-	--name "$WEBAPP_SUBNET_NSG_NAME" \
+	--name "$FUNCTION_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors
