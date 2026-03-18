@@ -9,24 +9,12 @@ A sample application demonstrating how to deploy a containerized Flask web app u
 
 ## Architecture
 
-```
-┌──────────────┐     store conn     ┌──────────────┐  env vars   ┌──────────────┐
-│   Storage    │ ──── string ────►  │   KeyVault   │ ─────────►  │     ACI      │
-│   Account    │                    │  (secrets)   │             │  (container  │
-└──────────────┘                    └──────────────┘             │   group)     │
-       ▲                                                        │              │
-       │ read/write activities                                  │              │
-       └────────────────────────────────────────────────────────┤              │
-                                                                │              │
-┌──────────────┐     image pull                                 │              │
-│     ACR      │ ────────────────────────────────────────────►  │              │
-│  (registry)  │  (registry credentials)                        └──────────────┘
-└──────────────┘
-```
+The following diagram illustrates the architecture of the solution:
 
-**Deployment flow:** The deploy script creates Storage and Key Vault first, stores the storage connection string as a secret, creates ACR and pushes the container image, then creates an ACI container group that pulls from ACR with the secrets injected as environment variables.
+![Architecture Diagram](./images/architecture.png)
 
-**At runtime:** The Flask app reads the storage connection string from its environment, connects to Blob Storage, and provides a web UI for managing vacation activities (add, edit, delete).
+- **Deployment flow:** The deploy script creates Storage and Key Vault first, stores the storage connection string as a secret, creates ACR and pushes the container image, then creates an ACI container group that pulls from ACR with the secrets injected as environment variables.
+- **At runtime:** The Flask app reads the storage connection string from its environment, connects to Blob Storage, and provides a web UI for managing vacation activities (add, edit, delete).
 
 ## Prerequisites
 
