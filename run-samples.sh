@@ -121,17 +121,17 @@ if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
   mkdir -p "$AZURE_CONFIG_DIR"
 fi
 
-if command -v az >/dev/null 2>&1; then
-  echo "[DEBUG] az command found, attempting login..."
-  az login || true
-  echo "[DEBUG] Starting az interception..."
-  az start-interception
+if command -v azlocal >/dev/null 2>&1; then
+  echo "[DEBUG] azlocal command found, attempting login..."
+  azlocal login || true
+  echo "[DEBUG] Starting azlocal interception..."
+  azlocal start-interception
   echo "[DEBUG] Setting default subscription..."
-  az account set --subscription "00000000-0000-0000-0000-000000000000" || true
-  echo "[DEBUG] Checking az account status..."
-  az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
+  azlocal account set --subscription "00000000-0000-0000-0000-000000000000" || true
+  echo "[DEBUG] Checking azlocal account status..."
+  azlocal account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] azlocal account show failed"
 else
-  echo "[DEBUG] az not found, using standard az login with service principal..."
+  echo "[DEBUG] azlocal not found, using standard az login with service principal..."
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
   echo "[DEBUG] Checking az account status..."
   az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
@@ -188,13 +188,13 @@ for (( i=START; i<START+COUNT; i++ )); do
 
   # Clean up Azure resources to prevent state pollution between tests
   echo "Cleaning up Azure resources in LocalStack..."
-  if command -v az >/dev/null 2>&1; then
-    RG_LIST=$(az group list --query "[].name" -o tsv 2>/dev/null || echo "")
+  if command -v azlocal >/dev/null 2>&1; then
+    RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
     if [[ -n "$RG_LIST" ]]; then
       echo "$RG_LIST" | while read -r rg; do
         if [[ -n "$rg" ]]; then
           echo "  - Deleting resource group: $rg"
-          az group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+          azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
         fi
       done
       sleep 2

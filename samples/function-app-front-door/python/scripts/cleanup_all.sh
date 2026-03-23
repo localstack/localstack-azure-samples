@@ -27,6 +27,7 @@ Usage: $(basename "$0") [--env-file PATH] [--resource-group NAME] [--use-localst
 Options:
   --env-file PATH         Env file produced by deploy_all.sh (e.g., scripts/.last_deploy_all.env)
   -g, --resource-group    Resource group name to delete
+      --use-localstack    Use azlocal interception to target LocalStack emulator
   -h, --help              Show this help
 EOF
 }
@@ -58,8 +59,8 @@ fi
 INTERCEPTION_STARTED="false"
 AZURE_CONFIG_DIR_CREATED="false"
 finish() {
-  if [[ "$INTERCEPTION_STARTED" == "true" ]] && command -v az >/dev/null 2>&1; then
-    set +e; az stop-interception >/dev/null 2>&1 || true; set -e
+  if [[ "$INTERCEPTION_STARTED" == "true" ]] && command -v azlocal >/dev/null 2>&1; then
+    set +e; azlocal stop-interception >/dev/null 2>&1 || true; set -e
   fi
   if [[ "$AZURE_CONFIG_DIR_CREATED" == "true" && -n "${AZURE_CONFIG_DIR:-}" && -d "$AZURE_CONFIG_DIR" ]]; then
     rm -rf "$AZURE_CONFIG_DIR"
@@ -68,17 +69,17 @@ finish() {
 trap finish EXIT
 
 if [[ "$USE_LOCALSTACK" == "true" ]]; then
-  if command -v mktemp >/dev/null 2>&1; then AZ_TEMP_CONFIG_DIR="$(mktemp -d)"; else AZ_TEMP_CONFIG_DIR="$(pwd)/.az_config_$$"; mkdir -p "$AZ_TEMP_CONFIG_DIR"; fi
+  if command -v mktemp >/dev/null 2>&1; then AZ_TEMP_CONFIG_DIR="$(mktemp -d)"; else AZ_TEMP_CONFIG_DIR="$(pwd)/.azlocal_config_$$"; mkdir -p "$AZ_TEMP_CONFIG_DIR"; fi
   export AZURE_CONFIG_DIR="$AZ_TEMP_CONFIG_DIR"; AZURE_CONFIG_DIR_CREATED="true"
   echo "Using isolated AZURE_CONFIG_DIR at: $AZURE_CONFIG_DIR"
-  if ! command -v az >/dev/null 2>&1; then
-    echo "Error: --use-localstack specified but 'az' was not found in PATH." >&2
+  if ! command -v azlocal >/dev/null 2>&1; then
+    echo "Error: --use-localstack specified but 'azlocal' was not found in PATH." >&2
     exit 1
   fi
-  if az start-interception; then
+  if azlocal start-interception; then
     INTERCEPTION_STARTED="true"; echo "LocalStack interception started."
   else
-    echo "Error: az failed to start interception. Ensure LocalStack is running and az is configured correctly." >&2
+    echo "Error: azlocal failed to start interception. Ensure LocalStack is running and azlocal is configured correctly." >&2
     exit 1
   fi
 fi
