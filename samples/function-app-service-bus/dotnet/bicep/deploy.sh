@@ -12,30 +12,20 @@ USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="functionapp.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1> /dev/null
@@ -55,7 +45,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		$AZ deployment group what-if \
+		az deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -73,7 +63,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$($AZ deployment group validate \
+		output=$(az deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -94,7 +84,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
+if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -124,7 +114,7 @@ fi
 
 # Print the application settings of the function app
 echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
-$AZ functionapp config appsettings list \
+az functionapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME"
 
@@ -153,7 +143,7 @@ cd ..
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-if $AZ functionapp deployment source config-zip \
+if az functionapp deployment source config-zip \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME" \
 	--src "$ZIPFILE" 1>/dev/null; then

@@ -6,20 +6,9 @@ SUFFIX='test'
 LOCATION='westeurope'
 SERVICEBUS_QUEUE_NAME="myqueue" # Queue name is hardcoded in the application properties
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZIPFILE="planner_website.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 # Intialize Terraform
 echo "Initializing Terraform..."
@@ -59,7 +48,7 @@ fi
 
 # Retrieve the connection string for the Service Bus namespace
 echo "Retrieving connection string for [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace..."
-AZURE_SERVICEBUS_CONNECTION_STRING=$($AZ servicebus namespace authorization-rule keys list \
+AZURE_SERVICEBUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--namespace-name "$SERVICEBUS_NAMESPACE_NAME" \
 	--name RootManageSharedAccessKey \
@@ -78,6 +67,3 @@ fi
 echo "Starting Java application..."
 cd "$CURRENT_DIR/../app" && mvn clean spring-boot:run
 
-# Optionally tear down all resources (uncomment to enable)
-# echo "Deleting resource group [$RESOURCE_GROUP_NAME]..."
-# $AZ group delete --name "$RESOURCE_GROUP_NAME" --yes

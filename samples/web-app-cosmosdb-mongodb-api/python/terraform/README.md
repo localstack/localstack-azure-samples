@@ -138,27 +138,16 @@ WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
 COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
 MONGODB_DATABASE_NAME="sampledb"
 COLLECTION_NAME="activities"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
-$AZ group show \
+az group show \
 	--name "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors
 
 # Check App Service Plan
 echo -e "\n[$APP_SERVICE_PLAN_NAME] app service plan:\n"
-$AZ appservice plan show \
+az appservice plan show \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--output table \
@@ -166,7 +155,7 @@ $AZ appservice plan show \
 
 # Check Azure Web App
 echo -e "\n[$WEBAPP_NAME] web app:\n"
-$AZ webapp show \
+az webapp show \
 	--name "$WEBAPP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -174,7 +163,7 @@ $AZ webapp show \
 
 # Check Azure CosmosDB account
 echo -e "\n[$COSMOSDB_ACCOUNT_NAME] cosmosdb account:\n"
-$AZ cosmosdb show \
+az cosmosdb show \
 	--name "$COSMOSDB_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,DocumentEndpoint:documentEndpoint}' \
@@ -183,7 +172,7 @@ $AZ cosmosdb show \
 
 # Check MongoDB database
 echo -e "\n[$MONGODB_DATABASE_NAME] mongodb database:\n"
-$AZ cosmosdb mongodb database show \
+az cosmosdb mongodb database show \
 	--name "$MONGODB_DATABASE_NAME" \
 	--account-name "$COSMOSDB_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -193,7 +182,7 @@ $AZ cosmosdb mongodb database show \
 
 # Check MongoDB collection
 echo -e "\n[$COLLECTION_NAME] mongodb collection:\n"
-$AZ cosmosdb mongodb collection show \
+az cosmosdb mongodb collection show \
 	--name "$COLLECTION_NAME" \
 	--database-name "$MONGODB_DATABASE_NAME" \
 	--account-name "$COSMOSDB_ACCOUNT_NAME" \
@@ -203,7 +192,7 @@ $AZ cosmosdb mongodb collection show \
 
 # Check Log Analytics Workspace
 echo -e "\n[$LOG_ANALYTICS_NAME] log analytics workspace:\n"
-$AZ monitor log-analytics workspace show \
+az monitor log-analytics workspace show \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--workspace-name "$LOG_ANALYTICS_NAME" \
 	--query '{Name:name,Location:location,ResourceGroup:resourceGroup}' \
@@ -212,7 +201,7 @@ $AZ monitor log-analytics workspace show \
 
 # Check NAT Gateway
 echo -e "\n[$NAT_GATEWAY_NAME] nat gateway:\n"
-$AZ network nat gateway show \
+az network nat gateway show \
 	--name "$NAT_GATEWAY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -220,7 +209,7 @@ $AZ network nat gateway show \
 
 # Check Virtual Network
 echo -e "\n[$VIRTUAL_NETWORK_NAME] virtual network:\n"
-$AZ network vnet show \
+az network vnet show \
 	--name "$VIRTUAL_NETWORK_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -228,7 +217,7 @@ $AZ network vnet show \
 
 # Check Private DNS Zone
 echo -e "\n[$PRIVATE_DNS_ZONE_NAME] private dns zone:\n"
-$AZ network private-dns zone show \
+az network private-dns zone show \
 	--name "$PRIVATE_DNS_ZONE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query '{Name:name,ResourceGroup:resourceGroup,RecordSets:recordSets,VirtualNetworkLinks:virtualNetworkLinks}' \
@@ -237,7 +226,7 @@ $AZ network private-dns zone show \
 
 # Check Private Endpoint
 echo -e "\n[$PRIVATE_ENDPOINT_NAME] private endpoint:\n"
-$AZ network private-endpoint show \
+az network private-endpoint show \
 	--name "$PRIVATE_ENDPOINT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -245,7 +234,7 @@ $AZ network private-endpoint show \
 
 # Check Web App Subnet NSG
 echo -e "\n[$WEBAPP_SUBNET_NSG_NAME] network security group:\n"
-$AZ network nsg show \
+az network nsg show \
 	--name "$WEBAPP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -253,7 +242,7 @@ $AZ network nsg show \
 
 # Check Private Endpoint Subnet NSG
 echo -e "\n[$PE_SUBNET_NSG_NAME] network security group:\n"
-$AZ network nsg show \
+az network nsg show \
 	--name "$PE_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
@@ -261,7 +250,7 @@ $AZ network nsg show \
 
 # List resources
 echo -e "\n[$RESOURCE_GROUP_NAME] all resources:\n"
-$AZ resource list \
+az resource list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors

@@ -68,7 +68,7 @@ get_docker_container_port_mapping() {
 call_web_app() {
 	# Get the web app name
 	echo "Getting web app name..."
-	web_app_name=$(azlocal webapp list --query '[0].name' --output tsv)
+	web_app_name=$(az webapp list --query '[0].name' --output tsv)
 
 	if [ -n "$web_app_name" ]; then
 		echo "Web app [$web_app_name] successfully retrieved."
@@ -79,7 +79,7 @@ call_web_app() {
 
 	# Get the resource group name
 	echo "Getting resource group name for web app [$web_app_name]..."
-	resource_group_name=$(azlocal webapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az webapp list --query '[0].resourceGroup' --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -90,7 +90,7 @@ call_web_app() {
 
 	# Get the the default host name of the web app
 	echo "Getting the default host name of the web app [$web_app_name]..."
-	app_host_name=$(azlocal webapp show \
+	app_host_name=$(az webapp show \
 		--name "$web_app_name" \
 		--resource-group "$resource_group_name" \
 		--query 'defaultHostName' \

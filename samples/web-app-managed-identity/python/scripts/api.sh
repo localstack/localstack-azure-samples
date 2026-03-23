@@ -10,33 +10,29 @@ MANAGED_IDENTITY_NAME="${PREFIX}-identity-${SUFFIX}-${RANDOM_SUFFIX}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 SUBSCRIPTION_ID=$(az account show --query id --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 PROXY_PORT=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
 SUB_BASE_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
 RG_BASE_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP_NAME/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
+ENVIRONMENT=$(az account show --query environmentName --output tsv)
 API_VERSION="2024-11-30"
 
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
 	CURL="env http_proxy=http://127.0.0.1:$PROXY_PORT https_proxy=http://127.0.0.1:$PROXY_PORT curl -k -s"
 else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
 	CURL="curl -s"
 fi
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location "$LOCATION" \
 		--only-show-errors 1>/dev/null
@@ -52,7 +48,7 @@ else
 fi
 
 # Get security token
-TOKEN=$($AZ account get-access-token --resource=https://management.azure.com/ --query accessToken --output tsv)
+TOKEN=$(az account get-access-token --resource=https://management.azure.com/ --query accessToken --output tsv)
 
 # Create a new user-assigned managed identity
 echo "Creating user-assigned managed identity [$MANAGED_IDENTITY_NAME]..."

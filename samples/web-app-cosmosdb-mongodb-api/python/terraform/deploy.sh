@@ -6,19 +6,9 @@ SUFFIX='test'
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 # Intialize Terraform
 echo "Initializing Terraform..."
@@ -57,7 +47,7 @@ fi
 
 # Print the application settings of the web app
 echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
-$AZ webapp config appsettings list \
+az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME"
 
@@ -76,7 +66,7 @@ zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
 # Deploy the web app
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \

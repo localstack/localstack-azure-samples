@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Enable verbose debugging
-set -x
-
 # Variables
 PREFIX='local'
 SUFFIX='test'
@@ -16,37 +13,20 @@ SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="webapp_app.zip"
 MANAGED_IDENTITY_TYPE="UserAssigned" # SystemAssigned or UserAssigned
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-echo "=================================================="
-echo "DEBUG: Starting bicep deployment for web-app-managed-identity"
-echo "DEBUG: Resource Group: $RESOURCE_GROUP_NAME"
-echo "DEBUG: Environment: $ENVIRONMENT"
-echo "DEBUG: Managed Identity Type: $MANAGED_IDENTITY_TYPE"
-echo "=================================================="
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1>/dev/null
@@ -66,7 +46,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		$AZ deployment group what-if \
+		az deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -85,7 +65,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$($AZ deployment group validate \
+		output=$(az deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -107,7 +87,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
+if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \
@@ -153,7 +133,7 @@ zip -r "$ZIPFILE" app.py requirements.txt static templates
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \

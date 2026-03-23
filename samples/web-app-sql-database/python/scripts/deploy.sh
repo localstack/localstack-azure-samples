@@ -21,26 +21,15 @@ ZIPFILE="planner_website.zip"
 RUNTIME="python"
 RUNTIME_VERSION="3.13"
 DEPLOY_APP=1
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 CERT_NAME="${PREFIX}-cert-${SUFFIX}"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-$AZ group create \
+az group create \
 	--name $RESOURCE_GROUP_NAME \
 	--location $LOCATION \
 	--only-show-errors 1>/dev/null
@@ -54,7 +43,7 @@ fi
 
 # Create a sql server
 echo "Checking if [$SQL_SERVER_NAME] sql server exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ sql server show \
+az sql server show \
 	--name $SQL_SERVER_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors &>/dev/null
@@ -64,7 +53,7 @@ if [ $? -eq 0 ]; then
 else
 	echo "[$SQL_SERVER_NAME] sql server does not exist in the [$RESOURCE_GROUP_NAME] resource group. Proceeding to create it."
 	echo "Creating [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ sql server create \
+	az sql server create \
 		--name $SQL_SERVER_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
@@ -86,7 +75,7 @@ fi
 
 # Add firewall rule to allow all local network addresses (for testing/development)
 echo "Creating firewall rule to allow all IP addresses..."
-$AZ sql server firewall-rule create \
+az sql server firewall-rule create \
 	--name $FIREWALL_RULE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--server $SQL_SERVER_NAME \
@@ -103,7 +92,7 @@ fi
 
 # Create database if it does not exist
 echo "Checking if [$SQL_DATABASE_NAME] database exists in the [$SQL_SERVER_NAME] sql server..."
-$AZ sql db show \
+az sql db show \
 	--name $SQL_DATABASE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--server $SQL_SERVER_NAME \
@@ -113,7 +102,7 @@ if [ $? -eq 0 ]; then
 	echo "[$SQL_DATABASE_NAME] database already exists in the [$SQL_SERVER_NAME] sql server."
 else
 	echo "Creating [$SQL_DATABASE_NAME] database with Provisioned compute model in the [$SQL_SERVER_NAME] sql server..."
-	$AZ sql db create \
+	az sql db create \
 		--name $SQL_DATABASE_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--server $SQL_SERVER_NAME \
@@ -133,7 +122,7 @@ fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
 echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
-SQL_SERVER_FQDN=$($AZ sql server show \
+SQL_SERVER_FQDN=$(az sql server show \
 	--name "$SQL_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "fullyQualifiedDomainName" \
@@ -294,7 +283,7 @@ fi
 
 # Create App Service Plan
 echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-$AZ appservice plan create \
+az appservice plan create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--location "$LOCATION" \
@@ -311,7 +300,7 @@ fi
 
 # Create the web app
 echo "Creating web app [$WEB_APP_NAME]..."
-$AZ webapp create \
+az webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
@@ -327,7 +316,7 @@ else
 fi
 
 # Get Web App principal ID
-PRINCIPAL_ID=$($AZ webapp identity show \
+PRINCIPAL_ID=$(az webapp identity show \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "principalId" \
@@ -340,7 +329,7 @@ fi
 
 # Create Key Vault
 echo "Creating Key Vault [$KEY_VAULT_NAME]..."
-$AZ keyvault create \
+az keyvault create \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -356,7 +345,7 @@ fi
 
 # Assign access policy to Web App managed identity
 echo "Assigning Key Vault access policy to Web App..."
-$AZ keyvault set-policy \
+az keyvault set-policy \
 	--name "$KEY_VAULT_NAME" \
 	--object-id "$PRINCIPAL_ID" \
 	--secret-permissions get \
@@ -375,7 +364,7 @@ SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABAS
 
 # Create secret
 echo "Creating secret [$SECRET_NAME] in Key Vault..."
-$AZ keyvault secret set \
+az keyvault secret set \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "$SECRET_NAME" \
 	--value "$SQL_CONNECTION_STRING" \
@@ -390,7 +379,7 @@ fi
 
 # Create certificate in Key Vault
 echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
-$AZ keyvault certificate create \
+az keyvault certificate create \
     --vault-name "$KEY_VAULT_NAME" \
     --name "$CERT_NAME" \
     --policy '{
@@ -410,7 +399,7 @@ fi
 
 # Get Key Vault URI
 echo "Retrieving Key Vault URI..."
-KEYVAULT_URI=$($AZ keyvault show \
+KEYVAULT_URI=$(az keyvault show \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "properties.vaultUri" \
@@ -426,7 +415,7 @@ echo "Key Vault URI: [$KEYVAULT_URI]"
 # Pass Key Vault name and secret name as app settings.
 # The Python SDK will retrieve the actual connection string value from Key Vault.
 echo "Setting web app settings for [$WEB_APP_NAME]..."
-$AZ webapp config appsettings set \
+az webapp config appsettings set \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--settings \
@@ -465,7 +454,7 @@ zip -r "$ZIPFILE" app.py activities.py database.py certificates.py static templa
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \
@@ -480,7 +469,7 @@ else
 fi
 
 # Get web app URL
-WEB_APP_URL=$($AZ webapp show \
+WEB_APP_URL=$(az webapp show \
     --name "$WEB_APP_NAME" \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --query "defaultHostName" \

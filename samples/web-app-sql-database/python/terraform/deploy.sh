@@ -11,19 +11,9 @@ DATABASE_USER_PASSWORD='TestP@ssw0rd123'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 DEPLOY_APP=1
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 echo "Initializing Terraform..."
 terraform init -upgrade
@@ -61,7 +51,7 @@ fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
 echo "Retrieving the fullyQualifiedDomainName of the [$SQL_SERVER_NAME] SQL server..."
-SQL_SERVER_FQDN=$($AZ sql server show \
+SQL_SERVER_FQDN=$(az sql server show \
 	--name "$SQL_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "fullyQualifiedDomainName" \
@@ -231,7 +221,7 @@ zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \
