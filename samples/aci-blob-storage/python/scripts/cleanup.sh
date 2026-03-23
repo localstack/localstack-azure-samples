@@ -15,7 +15,6 @@ ACI_GROUP_ADVANCED="${PREFIX}-aci-planner-advanced"
 KEY_VAULT_NAME="${PREFIX}acikv"
 ACR_NAME="${PREFIX}aciacr"
 STORAGE_ACCOUNT_NAME="${PREFIX}acistorage"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
@@ -31,13 +30,13 @@ echo ""
 
 # 1. Delete ACI container groups (basic + advanced)
 echo "[1/5] Deleting ACI container groups..."
-$AZ container delete \
+az container delete \
 	--name "$ACI_GROUP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--yes \
 	--only-show-errors 2>/dev/null && echo "  Deleted: $ACI_GROUP_NAME" || echo "  Skipped: $ACI_GROUP_NAME (not found)"
 
-$AZ container delete \
+az container delete \
 	--name "$ACI_GROUP_ADVANCED" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--yes \
@@ -46,7 +45,7 @@ echo ""
 
 # 2. Delete ACR
 echo "[2/5] Deleting ACR [$ACR_NAME]..."
-$AZ acr delete \
+az acr delete \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--yes \
@@ -55,18 +54,18 @@ echo ""
 
 # 3. Delete Key Vault (delete + purge to release the vault name)
 echo "[3/5] Deleting Key Vault [$KEY_VAULT_NAME]..."
-$AZ keyvault delete \
+az keyvault delete \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors 2>/dev/null && echo "  Deleted: $KEY_VAULT_NAME" || echo "  Skipped: $KEY_VAULT_NAME (not found)"
-$AZ keyvault purge \
+az keyvault purge \
 	--name "$KEY_VAULT_NAME" \
 	--only-show-errors 2>/dev/null && echo "  Purged: $KEY_VAULT_NAME" || true
 echo ""
 
 # 4. Delete Storage Account
 echo "[4/5] Deleting Storage Account [$STORAGE_ACCOUNT_NAME]..."
-$AZ storage account delete \
+az storage account delete \
 	--name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--yes \
@@ -75,7 +74,7 @@ echo ""
 
 # 5. Delete Resource Group
 echo "[5/5] Deleting Resource Group [$RESOURCE_GROUP_NAME]..."
-$AZ group delete \
+az group delete \
 	--name "$RESOURCE_GROUP_NAME" \
 	--yes \
 	--only-show-errors 2>/dev/null && echo "  Deleted: $RESOURCE_GROUP_NAME" || echo "  Skipped: $RESOURCE_GROUP_NAME (not found)"

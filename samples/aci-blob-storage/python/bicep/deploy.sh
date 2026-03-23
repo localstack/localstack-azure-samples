@@ -16,7 +16,6 @@ SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGE_NAME="vacation-planner"
 IMAGE_TAG="v1"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 echo "=================================================="
 echo "DEBUG: Starting bicep deployment for aci-blob-storage"
@@ -26,26 +25,16 @@ echo "=================================================="
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1>/dev/null
@@ -68,7 +57,7 @@ fi
 # Create ACR first so we can push the image
 ACR_NAME="${PREFIX}aciacr${SUFFIX}"
 echo "Creating ACR [$ACR_NAME] for image push..."
-$AZ acr create \
+az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -76,21 +65,21 @@ $AZ acr create \
 	--admin-enabled true \
 	--only-show-errors 1>/dev/null
 
-LOGIN_SERVER=$($AZ acr show \
+LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
 	--only-show-errors)
 
-ACR_USERNAME=$($AZ acr credential show \
+ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
 	--only-show-errors)
 
-ACR_PASSWORD=$($AZ acr credential show \
+ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
@@ -130,7 +119,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
 		# Execute a deployment What-If operation at resource group scope.
 		echo "Previewing changes deployed by Bicep template [$TEMPLATE]..."
-		$AZ deployment group what-if \
+		az deployment group what-if \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -148,7 +137,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	else
 		# Validate the Bicep template
 		echo "Validating Bicep template [$TEMPLATE]..."
-		output=$($AZ deployment group validate \
+		output=$(az deployment group validate \
 			--resource-group $RESOURCE_GROUP_NAME \
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
@@ -169,7 +158,7 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$($AZ deployment group create \
+if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--only-show-errors \
 	--template-file $TEMPLATE \

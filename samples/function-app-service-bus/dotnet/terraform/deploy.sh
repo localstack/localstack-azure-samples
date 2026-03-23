@@ -6,19 +6,9 @@ SUFFIX='test'
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="functionapp.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 # Intialize Terraform
 echo "Initializing Terraform..."
@@ -27,13 +17,13 @@ terraform init -upgrade
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
 terraform plan -out=tfplan \
-        -var "prefix=$PREFIX" \
-        -var "suffix=$SUFFIX" \
-        -var "location=$LOCATION"
+	-var "prefix=$PREFIX" \
+	-var "suffix=$SUFFIX" \
+	-var "location=$LOCATION"
 
 if [[ $? != 0 ]]; then
-        echo "Terraform plan failed. Exiting."
-        exit 1
+	echo "Terraform plan failed. Exiting."
+	exit 1
 fi
 
 # Apply the Terraform configuration
@@ -41,8 +31,8 @@ echo "Applying Terraform configuration..."
 terraform apply -auto-approve tfplan
 
 if [[ $? != 0 ]]; then
-        echo "Terraform apply failed. Exiting."
-        exit 1
+	echo "Terraform apply failed. Exiting."
+	exit 1
 fi
 
 # Get the output values
@@ -57,7 +47,7 @@ fi
 
 # Print the application settings of the function app
 echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
-$AZ functionapp config appsettings list \
+az functionapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME"
 
@@ -86,7 +76,7 @@ cd ..
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-if $AZ functionapp deployment source config-zip \
+if az functionapp deployment source config-zip \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME" \
 	--src "$ZIPFILE" 1>/dev/null; then
@@ -103,4 +93,4 @@ fi
 
 # Print the list of resources in the resource group
 echo "Listing resources in resource group [$RESOURCE_GROUP_NAME]..."
-az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table 
+az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table

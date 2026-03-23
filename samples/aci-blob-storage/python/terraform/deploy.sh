@@ -7,7 +7,6 @@ LOCATION='eastus'
 IMAGE_NAME='vacation-planner'
 IMAGE_TAG='v1'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -31,13 +30,13 @@ RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
 ACR_NAME="${PREFIX}aciacr${SUFFIX}"
 
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-$AZ group create \
+az group create \
 	--name "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--only-show-errors 1>/dev/null
 
 echo "Creating ACR [$ACR_NAME] for image push..."
-$AZ acr create \
+az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -45,21 +44,21 @@ $AZ acr create \
 	--admin-enabled true \
 	--only-show-errors 1>/dev/null
 
-LOGIN_SERVER=$($AZ acr show \
+LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
 	--only-show-errors)
 
-ACR_USERNAME=$($AZ acr credential show \
+ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
 	--only-show-errors)
 
-ACR_PASSWORD=$($AZ acr credential show \
+ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
