@@ -354,6 +354,18 @@ hostBasic=""; hostMulti=""; hostSpec=""; hostRules=""; hostState=""
 [[ "$DO_RULES" == "true" ]] && hostRules=$(resolve_ep_host "$epRules")
 [[ "$DO_STATE" == "true" ]] && hostState=$(resolve_ep_host "$epState")
 
+# Detect LocalStack environment for local URLs
+IS_LOCALSTACK="false"
+ENVIRONMENT=$(az account show --query environmentName --output tsv 2>/dev/null || true)
+if [[ "$ENVIRONMENT" == "LocalStack" ]]; then
+  IS_LOCALSTACK="true"
+  epBasicLocal="${epBasic}.afd.localhost.localstack.cloud:4566"
+  epMultiLocal="${epMulti}.afd.localhost.localstack.cloud:4566"
+  epSpecLocal="${epSpec}.afd.localhost.localstack.cloud:4566"
+  epRulesLocal="${epRules}.afd.localhost.localstack.cloud:4566"
+  epStateLocal="${epState}.afd.localhost.localstack.cloud:4566"
+fi
+
 # -------------------------------
 # Persist environment for cleanup
 # -------------------------------
@@ -379,20 +391,28 @@ echo "Deployment complete."
 echo "Resource Group: $RESOURCE_GROUP"
 if [[ "$DO_BASIC" == "true" ]]; then
   echo "[Basic] AFD Endpoint:         https://$hostBasic/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epBasicLocal/john"
 fi
 if [[ "$DO_MULTI" == "true" ]]; then
   echo "[Multi] AFD Endpoint:         https://$hostMulti/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epMultiLocal/john"
 fi
 if [[ "$DO_SPEC" == "true" ]]; then
   echo "[Spec]  AFD Endpoint:         https://$hostSpec/john  (specific route)"
   echo "       Also try:              https://$hostSpec/jane  (catch-all)"
+  if [[ "$IS_LOCALSTACK" == "true" ]]; then
+    echo "       Local Endpoint:        http://$epSpecLocal/john  (specific route)"
+    echo "       Also try:              http://$epSpecLocal/jane  (catch-all)"
+  fi
 fi
 if [[ "$DO_RULES" == "true" ]]; then
   echo "[Rules] AFD Endpoint:         https://$hostRules/john"
   echo "       Expect response header: X-CDN: MSFT (once propagation completes)."
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epRulesLocal/john"
 fi
 if [[ "$DO_STATE" == "true" ]]; then
   echo "[State] AFD Endpoint:         https://$hostState/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epStateLocal/john"
   echo "       To test enabled-state toggle:"
   echo "         az afd endpoint update -g $RESOURCE_GROUP --profile-name $profileName --endpoint-name $epState --enabled-state Disabled"
   echo "         # Then re-enable:"
