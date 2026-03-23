@@ -16,13 +16,6 @@ KEY_VAULT_NAME="${PREFIX}acikv"
 ACR_NAME="${PREFIX}aciacr"
 STORAGE_ACCOUNT_NAME="${PREFIX}acistorage"
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	AZ="azlocal"
-else
-	AZ="az"
-fi
-
 echo "============================================================"
 echo "Cleaning up ACI Vacation Planner Resources"
 echo "============================================================"

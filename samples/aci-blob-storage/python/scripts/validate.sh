@@ -19,13 +19,6 @@ ACI_GROUP_NAME="${PREFIX}-aci-planner"
 PASS_COUNT=0
 FAIL_COUNT=0
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	AZ="azlocal"
-else
-	AZ="az"
-fi
-
 check() {
 	local description="$1"
 	local command="$2"
