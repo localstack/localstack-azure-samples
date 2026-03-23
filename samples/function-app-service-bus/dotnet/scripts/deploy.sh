@@ -1,6 +1,6 @@
-WEBAP#!/bin/bash
+#!/bin/bash
 
-PREFIX='local'
+PREFIX='babo'
 SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
@@ -31,9 +31,7 @@ SERVICE_BUS_CONNECTION_STRING=''
 INPUT_QUEUE_NAME="input"
 OUTPUT_QUEUE_NAME="output"
 TAGS='environment=test deployment=azcli'
-SUBSCRIPTION_ID=$(az account show --query id --output tsv)
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 DEPLOY=1
 RETRY_COUNT=3
 SLEEP=5
@@ -59,24 +57,15 @@ PE_DNS_ZONE_LABELS=("servicebus-zone" "blob-zone" "queue-zone" "table-zone")
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--tags $TAGS \
@@ -94,14 +83,14 @@ fi
 
 # Create a service bus namespace
 echo "Checking if [$SERVICE_BUS_NAMESPACE] service bus namespace exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ servicebus namespace show \
+az servicebus namespace show \
 	--name $SERVICE_BUS_NAMESPACE \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No [$SERVICE_BUS_NAMESPACE] service bus namespace exists in the [$RESOURCE_GROUP_NAME] resource group"
 	echo "Creating [$SERVICE_BUS_NAMESPACE] service bus namespace in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ servicebus namespace create \
+	az servicebus namespace create \
 		--name $SERVICE_BUS_NAMESPACE \
 		--sku Premium \
 		--location $LOCATION \
@@ -120,7 +109,7 @@ fi
 
 # Create the service bus input queue
 echo "Checking if [$INPUT_QUEUE_NAME] service bus queue exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
-$AZ servicebus queue show \
+az servicebus queue show \
 	--name $INPUT_QUEUE_NAME \
 	--namespace-name $SERVICE_BUS_NAMESPACE \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
@@ -129,7 +118,7 @@ if [[ $? != 0 ]]; then
 	echo "No [$INPUT_QUEUE_NAME] service bus queue exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
 	echo "Creating [$INPUT_QUEUE_NAME] service bus queue in the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
 
-	$AZ servicebus queue create \
+	az servicebus queue create \
 		--name $INPUT_QUEUE_NAME \
 		--namespace-name $SERVICE_BUS_NAMESPACE \
 		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
@@ -146,7 +135,7 @@ fi
 
 # Create the service bus output queue
 echo "Checking if [$OUTPUT_QUEUE_NAME] service bus queue exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
-$AZ servicebus queue show \
+az servicebus queue show \
 	--name $OUTPUT_QUEUE_NAME \
 	--namespace-name $SERVICE_BUS_NAMESPACE \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
@@ -155,7 +144,7 @@ if [[ $? != 0 ]]; then
 	echo "No [$OUTPUT_QUEUE_NAME] service bus queue exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
 	echo "Creating [$OUTPUT_QUEUE_NAME] service bus queue in the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
 
-	$AZ servicebus queue create \
+	az servicebus queue create \
 		--name $OUTPUT_QUEUE_NAME \
 		--namespace-name $SERVICE_BUS_NAMESPACE \
 		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
@@ -171,7 +160,7 @@ else
 fi
 
 # Retrieve and display connection string
-SERVICE_BUS_CONNECTION_STRING=$($AZ servicebus namespace authorization-rule keys list \
+SERVICE_BUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys list \
 	--name RootManageSharedAccessKey \
 	--namespace-name $SERVICE_BUS_NAMESPACE \
 	--resource-group $RESOURCE_GROUP_NAME \
@@ -182,7 +171,7 @@ echo "Service Bus connection string: $SERVICE_BUS_CONNECTION_STRING"
 
 # Get the Service Bus namespace resource id
 echo "Getting [$SERVICE_BUS_NAMESPACE] service bus namespace resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-SERVICE_BUS_NAMESPACE_ID=$($AZ servicebus namespace show \
+SERVICE_BUS_NAMESPACE_ID=$(az servicebus namespace show \
 	--name $SERVICE_BUS_NAMESPACE \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query id \
@@ -197,21 +186,19 @@ fi
 
 # Check if the user-assigned managed identity already exists
 echo "Checking if [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-
-$AZ identity show \
-	--name"$MANAGED_IDENTITY_NAME" \
-	--resource-group $"$RESOURCE_GROUP_NAME" &>/dev/null
+az identity show \
+	--name "$MANAGED_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group"
 	echo "Creating [$MANAGED_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the user-assigned managed identity
-	$AZ identity create \
+	az identity create \
 		--name "$MANAGED_IDENTITY_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
-		--subscription "$SUBSCRIPTION_ID" \
 		--tags $TAGS 1>/dev/null
 
 	if [[ $? == 0 ]]; then
@@ -226,7 +213,7 @@ fi
 
 # Retrieve the clientId of the user-assigned managed identity
 echo "Retrieving clientId for [$MANAGED_IDENTITY_NAME] managed identity..."
-CLIENT_ID=$($AZ identity show \
+CLIENT_ID=$(az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query clientId \
@@ -241,7 +228,7 @@ fi
 
 # Retrieve the principalId of the user-assigned managed identity
 echo "Retrieving principalId for [$MANAGED_IDENTITY_NAME] managed identity..."
-PRINCIPAL_ID=$($AZ identity show \
+PRINCIPAL_ID=$(az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query principalId \
@@ -256,7 +243,7 @@ fi
 
 # Retrieve the resource id of the user-assigned managed identity
 echo "Retrieving resource id for the [$MANAGED_IDENTITY_NAME] managed identity..."
-IDENTITY_ID=$($AZ identity show \
+IDENTITY_ID=$(az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -269,50 +256,9 @@ else
 	exit 1
 fi
 
-# Assign the Azure Service Bus Data Owner role to the managed identity with the Service Bus namespace as a scope
-ROLE="Azure Service Bus Data Owner"
-echo "Checking if the managed identity with principal ID [$PRINCIPAL_ID] has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
-current=$($AZ role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$SERVICE_BUS_NAMESPACE_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "Managed identity already has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-else
-	echo "Managed identity does not have the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-	echo "Creating role assignment: assigning [$ROLE] role to managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		$AZ role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$SERVICE_BUS_NAMESPACE_ID" 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-	else
-		echo "Failed to assign [$ROLE] role to managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-		exit
-	fi
-fi
-
 # Check if the network security group for the function app subnet already exists
 echo "Checking if [$FUNCTION_APP_SUBNET_NSG_NAME] network security group for the function app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ network nsg show \
+az network nsg show \
 	--name "$FUNCTION_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -322,7 +268,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$FUNCTION_APP_SUBNET_NSG_NAME] network security group for the function app subnet..."
 
 	# Create the network security group for the function app subnet
-	$AZ network nsg create \
+	az network nsg create \
 		--name "$FUNCTION_APP_SUBNET_NSG_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -341,7 +287,7 @@ fi
 
 # Get the resource id of the network security group for the function app subnet
 echo "Getting [$FUNCTION_APP_SUBNET_NSG_NAME] network security group for the function app subnet resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-FUNCTION_APP_SUBNET_NSG_ID=$($AZ network nsg show \
+FUNCTION_APP_SUBNET_NSG_ID=$(az network nsg show \
 	--name "$FUNCTION_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -357,7 +303,7 @@ fi
 
 # Check if the network security group for the private endpoint subnet already exists
 echo "Checking if [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ network nsg show \
+az network nsg show \
 	--name "$PE_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -367,7 +313,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet..."
 
 	# Create the network security group for the private endpoint subnet
-	$AZ network nsg create \
+	az network nsg create \
 		--name "$PE_SUBNET_NSG_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -386,7 +332,7 @@ fi
 
 # Get the resource id of the network security group for the private endpoint subnet
 echo "Getting [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-PE_SUBNET_NSG_ID=$($AZ network nsg show \
+PE_SUBNET_NSG_ID=$(az network nsg show \
 	--name "$PE_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -402,7 +348,7 @@ fi
 
 # Check if the public IP prefix for the NAT Gateway already exists
 echo "Checking if [$PIP_PREFIX_NAME] public IP prefix for the NAT Gateway actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ network public-ip prefix show \
+az network public-ip prefix show \
 	--name "$PIP_PREFIX_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -412,7 +358,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$PIP_PREFIX_NAME] public IP prefix for the NAT Gateway in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the public IP prefix for the NAT Gateway
-	$AZ network public-ip prefix create \
+	az network public-ip prefix create \
 		--name "$PIP_PREFIX_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -432,7 +378,7 @@ fi
 
 # Check if the NAT Gateway already exists
 echo "Checking if [$NAT_GATEWAY_NAME] NAT Gateway actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ network nat gateway show \
+az network nat gateway show \
 	--name "$NAT_GATEWAY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -442,7 +388,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$NAT_GATEWAY_NAME] NAT Gateway in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the NAT Gateway
-	$AZ network nat gateway create \
+	az network nat gateway create \
 		--name "$NAT_GATEWAY_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -463,7 +409,7 @@ fi
 
 # Check if the virtual network already exists
 echo "Checking if [$VIRTUAL_NETWORK_NAME] virtual network actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ network vnet show \
+az network vnet show \
 	--name "$VIRTUAL_NETWORK_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -473,7 +419,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$VIRTUAL_NETWORK_NAME] virtual network in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the virtual network
-	$AZ network vnet create \
+	az network vnet create \
 		--name "$VIRTUAL_NETWORK_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -494,7 +440,7 @@ if [[ $? != 0 ]]; then
 	echo "Associating [$FUNCTION_APP_SUBNET_NAME] subnet with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$FUNCTION_APP_SUBNET_NSG_NAME] network security group..."
 
 	# Update the function app subnet to associate it with the NAT Gateway and the NSG
-	$AZ network vnet subnet update \
+	az network vnet subnet update \
 		--name "$FUNCTION_APP_SUBNET_NAME" \
 		--vnet-name "$VIRTUAL_NETWORK_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
@@ -514,7 +460,7 @@ fi
 
 # Check if the subnet already exists
 echo "Checking if [$PE_SUBNET_NAME] subnet actually exists in the [$VIRTUAL_NETWORK_NAME] virtual network..."
-$AZ network vnet subnet show \
+az network vnet subnet show \
 	--name "$PE_SUBNET_NAME" \
 	--vnet-name "$VIRTUAL_NETWORK_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -525,7 +471,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$PE_SUBNET_NAME] subnet in the [$VIRTUAL_NETWORK_NAME] virtual network..."
 
 	# Create the subnet
-	$AZ network vnet subnet create \
+	az network vnet subnet create \
 		--name "$PE_SUBNET_NAME" \
 		--vnet-name "$VIRTUAL_NETWORK_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
@@ -547,7 +493,7 @@ fi
 
 # Retrieve the virtual network resource id
 echo "Getting [$VIRTUAL_NETWORK_NAME] virtual network resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-VIRTUAL_NETWORK_ID=$($AZ network vnet show \
+VIRTUAL_NETWORK_ID=$(az network vnet show \
 	--name "$VIRTUAL_NETWORK_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors \
@@ -565,7 +511,7 @@ fi
 for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 	# Check if the private DNS Zone already exists
 	echo "Checking if [$DNS_ZONE_NAME] private DNS zone actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ network private-dns zone show \
+	az network private-dns zone show \
 		--name "$DNS_ZONE_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--only-show-errors &>/dev/null
@@ -575,7 +521,7 @@ for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 		echo "Creating [$DNS_ZONE_NAME] private DNS zone in the [$RESOURCE_GROUP_NAME] resource group..."
 
 		# Create the private DNS Zone
-		$AZ network private-dns zone create \
+		az network private-dns zone create \
 			--name "$DNS_ZONE_NAME" \
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--tags $TAGS \
@@ -593,7 +539,7 @@ for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 
 	# Check if the virtual network link already exists
 	echo "Checking if [$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network actually exists..."
-	$AZ network private-dns link vnet show \
+	az network private-dns link vnet show \
 		--name "$VIRTUAL_NETWORK_LINK_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--zone-name "$DNS_ZONE_NAME" \
@@ -604,7 +550,7 @@ for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 		echo "Creating [$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network..."
 
 		# Create the virtual network link
-		$AZ network private-dns link vnet create \
+		az network private-dns link vnet create \
 			--name "$VIRTUAL_NETWORK_LINK_NAME" \
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--zone-name "$DNS_ZONE_NAME" \
@@ -625,19 +571,20 @@ done
 
 # Create a storage account
 echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ storage account show \
+az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
 	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ storage account create \
+	az storage account create \
 		--name $STORAGE_ACCOUNT_NAME \
 		--location $LOCATION \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--sku Standard_LRS \
-		--tags $TAGS 1>/dev/null
+		--tags $TAGS \
+		--only-show-errors 1>/dev/null
 
 	if [ $? -eq 0 ]; then
 		echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
@@ -651,7 +598,7 @@ fi
 
 # Get the storage account key
 echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "[0].value" \
@@ -670,7 +617,7 @@ echo "Storage connection string constructed: [$STORAGE_CONNECTION_STRING]"
 
 # Get the storage account resource id
 echo "Getting [$STORAGE_ACCOUNT_NAME] storage account resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-STORAGE_ACCOUNT_ID=$($AZ storage account show \
+STORAGE_ACCOUNT_ID=$(az storage account show \
 	--name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -697,7 +644,7 @@ for i in "${!PE_NAMES[@]}"; do
 
 	# Check if the private endpoint already exists
 	echo "Checking if private endpoint [$PE_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
-	privateEndpointId=$($AZ network private-endpoint list \
+	privateEndpointId=$(az network private-endpoint list \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--only-show-errors \
 		--query "[?name=='$PE_NAME'].id" \
@@ -708,7 +655,7 @@ for i in "${!PE_NAMES[@]}"; do
 		echo "Creating [$PE_NAME] private endpoint in the [$RESOURCE_GROUP_NAME] resource group..."
 
 		# Create the private endpoint
-		$AZ network private-endpoint create \
+		az network private-endpoint create \
 			--name "$PE_NAME" \
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--location "$LOCATION" \
@@ -732,20 +679,20 @@ for i in "${!PE_NAMES[@]}"; do
 
 	# Check if the private DNS zone group is already created
 	echo "Checking if the private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint already exists..."
-	NAME=$($AZ network private-endpoint dns-zone-group show \
+	az network private-endpoint dns-zone-group show \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--endpoint-name "$PE_NAME" \
 		--name "$PRIVATE_DNS_ZONE_GROUP_NAME" \
 		--query name \
 		--output tsv \
-		--only-show-errors)
+		--only-show-errors &>/dev/null
 
-	if [[ -z $NAME ]]; then
+	if [[ $? != 0 ]]; then
 		echo "No private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint actually exists"
 		echo "Creating private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint..."
 
 		# Create the private DNS zone group
-		$AZ network private-endpoint dns-zone-group create \
+		az network private-endpoint dns-zone-group create \
 			--name "$PRIVATE_DNS_ZONE_GROUP_NAME" \
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--endpoint-name "$PE_NAME" \
@@ -771,7 +718,7 @@ fi
 
 # Check if the application insights component already exists
 echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ monitor app-insights component show \
+az monitor app-insights component show \
 	--app "$APPLICATION_INSIGHTS_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
@@ -781,7 +728,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the application insights component
-	$AZ monitor app-insights component create \
+	az monitor app-insights component create \
 		--app "$APPLICATION_INSIGHTS_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -799,14 +746,298 @@ else
 	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component already exists in the [$RESOURCE_GROUP_NAME] resource group."
 fi
 
+# Get the application insights component resource id
+echo "Getting [$APPLICATION_INSIGHTS_NAME] Application Insights component resource id in the [$RESOURCE_GROUP_NAME] resource group..."
+APPLICATION_INSIGHTS_ID=$(az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APPLICATION_INSIGHTS_ID ]]; then
+	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component resource id retrieved successfully: $APPLICATION_INSIGHTS_ID"
+else
+	echo "Failed to retrieve [$APPLICATION_INSIGHTS_NAME] Application Insights component resource id in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
+# Assign the Azure Service Bus Data Owner role to the managed identity with the Service Bus namespace as a scope
+ROLE="Azure Service Bus Data Owner"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$SERVICE_BUS_NAMESPACE_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$SERVICE_BUS_NAMESPACE_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
+		exit
+	fi
+fi
+
+# Get the storage account resource id for role assignments
+echo "Getting [$STORAGE_ACCOUNT_NAME] storage account resource id in the [$RESOURCE_GROUP_NAME] resource group..."
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $STORAGE_ACCOUNT_ID ]]; then
+	echo "[$STORAGE_ACCOUNT_NAME] storage account resource id retrieved successfully"
+else
+	echo "Failed to retrieve [$STORAGE_ACCOUNT_NAME] storage account resource id in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
+# Assign the Storage Account Contributor role to the managed identity with the storage account as a scope
+ROLE="Storage Account Contributor"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$STORAGE_ACCOUNT_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$STORAGE_ACCOUNT_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+		exit
+	fi
+fi
+
+# Assign the Storage Blob Data Owner role to the managed identity with the storage account as a scope
+ROLE="Storage Blob Data Owner"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$STORAGE_ACCOUNT_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$STORAGE_ACCOUNT_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+		exit
+	fi
+fi
+
+# Assign the Storage Queue Data Contributor role to the managed identity with the storage account as a scope
+ROLE="Storage Queue Data Contributor"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$STORAGE_ACCOUNT_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$STORAGE_ACCOUNT_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+		exit
+	fi
+fi
+
+# Assign the Storage Table Data Contributor role to the managed identity with the storage account as a scope
+ROLE="Storage Table Data Contributor"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$STORAGE_ACCOUNT_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$STORAGE_ACCOUNT_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
+		exit
+	fi
+fi
+
+# Assign the Monitoring Metrics Publisher role to the managed identity with the Application Insights as a scope
+ROLE="Monitoring Metrics Publisher"
+echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]..."
+current=$(az role assignment list \
+	--assignee "$PRINCIPAL_ID" \
+	--scope "$APPLICATION_INSIGHTS_ID" \
+	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
+	--output tsv 2>/dev/null)
+
+if [[ $current == "$ROLE" ]]; then
+	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
+else
+	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
+	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]..."
+	ATTEMPT=1
+	while [ $ATTEMPT -le $RETRY_COUNT ]; do
+		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
+		az role assignment create \
+			--assignee "$PRINCIPAL_ID" \
+			--role "$ROLE" \
+			--scope "$APPLICATION_INSIGHTS_ID" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			break
+		else
+			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
+				sleep $SLEEP
+			fi
+			ATTEMPT=$((ATTEMPT + 1))
+		fi
+	done
+
+	if [[ $? == 0 ]]; then
+		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
+	else
+		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
+		exit
+	fi
+fi
+
 # Create the app service plan
 echo "Checking if app service plan [$APP_SERVICE_PLAN_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
-if ! $AZ appservice plan show \
+if ! az appservice plan show \
 	--name $APP_SERVICE_PLAN_NAME \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null; then
 	echo "No app service plan [$APP_SERVICE_PLAN_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
 	echo "Creating app service plan [$APP_SERVICE_PLAN_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-	if $AZ appservice plan create \
+	if az appservice plan create \
 		--name $APP_SERVICE_PLAN_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
@@ -825,7 +1056,7 @@ fi
 
 # Get the app service plan resource id
 echo "Getting [$APP_SERVICE_PLAN_NAME] app service plan resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-APP_SERVICE_PLAN_ID=$($AZ appservice plan show \
+APP_SERVICE_PLAN_ID=$(az appservice plan show \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -841,14 +1072,14 @@ fi
 
 # Check if the function app already exists
 echo "Checking if function app [$FUNCTION_APP_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
-if ! $AZ functionapp show \
+if ! az functionapp show \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null; then
 	echo "No function app [$FUNCTION_APP_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
 	echo "Creating function app [$FUNCTION_APP_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the function app
-	$AZ functionapp create \
+	az functionapp create \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--plan $APP_SERVICE_PLAN_NAME \
 		--assign-identity "$IDENTITY_ID" \
@@ -876,7 +1107,7 @@ fi
 
 # Get the function app resource id
 echo "Getting [$FUNCTION_APP_NAME] function app resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-FUNCTION_APP_ID=$($AZ functionapp show \
+FUNCTION_APP_ID=$(az functionapp show \
 	--name "$FUNCTION_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
@@ -893,7 +1124,7 @@ fi
 # Enable forced tunneling for the function app to route all outbound traffic through the virtual network and thus through the NAT Gateway
 echo "Enabling forced tunneling for function app [$FUNCTION_APP_NAME] to route all outbound traffic through the virtual network..."
 
-$AZ resource update \
+az resource update \
 	--ids "$FUNCTION_APP_ID" \
 	--set properties.outboundVnetRouting.allTraffic=true \
 	--only-show-errors 1>/dev/null
@@ -907,7 +1138,7 @@ fi
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
-$AZ functionapp config appsettings set \
+az functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
@@ -920,7 +1151,8 @@ $AZ functionapp config appsettings set \
 	INPUT_QUEUE_NAME="input" \
 	OUTPUT_QUEUE_NAME="output" \
 	NAMES="Paolo,John,Jane,Max,Mary,Leo,Mia,Anna,Lisa,Anastasia" \
-	TIMER_SCHEDULE="*/10 * * * * *" 1>/dev/null
+	TIMER_SCHEDULE="*/10 * * * * *" \
+	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Function app settings for [$FUNCTION_APP_NAME] set successfully."
@@ -931,7 +1163,7 @@ fi
 
 # Check if the log analytics workspace already exists
 echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group..."
-$AZ monitor log-analytics workspace show \
+az monitor log-analytics workspace show \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--workspace-name "$LOG_ANALYTICS_NAME" \
 	--only-show-errors &>/dev/null
@@ -941,7 +1173,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
 
 	# Create the Log Analytics workspace
-	$AZ monitor log-analytics workspace create \
+	az monitor log-analytics workspace create \
 		--name "$LOG_ANALYTICS_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
@@ -963,7 +1195,7 @@ fi
 
 # Check whether the diagnostic settings for the function app already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$FUNCTION_APP_ID" \
 	--only-show-errors &>/dev/null
@@ -973,7 +1205,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app..."
 
 	# Create the diagnostic settings for the function app to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$FUNCTION_APP_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -998,7 +1230,7 @@ fi
 
 # Check whether the diagnostic settings for the app service plan already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] app service plan already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$APP_SERVICE_PLAN_ID" \
 	--only-show-errors &>/dev/null
@@ -1008,7 +1240,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] app service plan..."
 
 	# Create the diagnostic settings for the app service plan to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$APP_SERVICE_PLAN_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -1029,7 +1261,7 @@ fi
 
 # Check whether the diagnostic settings for the service bus namespace already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$SERVICE_BUS_NAMESPACE_ID" \
 	--only-show-errors &>/dev/null
@@ -1039,7 +1271,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
 
 	# Create the diagnostic settings for the service bus namespace to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$SERVICE_BUS_NAMESPACE_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -1066,7 +1298,7 @@ fi
 
 # Check whether the diagnostic settings for the virtual network already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$VIRTUAL_NETWORK_NAME] virtual network already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$VIRTUAL_NETWORK_ID" \
 	--only-show-errors &>/dev/null
@@ -1076,7 +1308,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$VIRTUAL_NETWORK_NAME] virtual network..."
 
 	# Create the diagnostic settings for the virtual network to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$VIRTUAL_NETWORK_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -1100,7 +1332,7 @@ fi
 
 # Check whether the diagnostic settings for the network security group for the function app subnet already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_SUBNET_NSG_NAME] network security group for the function app subnet already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$FUNCTION_APP_SUBNET_NSG_ID" \
 	--only-show-errors &>/dev/null
@@ -1110,7 +1342,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_SUBNET_NSG_NAME] network security group for the function app subnet..."
 
 	# Create the diagnostic settings for the network security group for the function app subnet to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$FUNCTION_APP_SUBNET_NSG_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -1132,7 +1364,7 @@ fi
 
 # Check whether the diagnostic settings for the network security group for the private endpoint subnet already exist
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet already exist..."
-$AZ monitor diagnostic-settings show \
+az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$PE_SUBNET_NSG_ID" \
 	--only-show-errors &>/dev/null
@@ -1142,7 +1374,7 @@ if [[ $? != 0 ]]; then
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet..."
 
 	# Create the diagnostic settings for the network security group for the private endpoint subnet to send logs to the Log Analytics workspace
-	$AZ monitor diagnostic-settings create \
+	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$PE_SUBNET_NSG_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
@@ -1187,10 +1419,11 @@ cd ..
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-if $AZ functionapp deployment source config-zip \
+if az functionapp deployment source config-zip \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME" \
-	--src "$ZIPFILE" 1>/dev/null; then
+	--src "$ZIPFILE" \
+	--only-show-errors 1>/dev/null; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
 else
 	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."

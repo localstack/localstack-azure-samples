@@ -15,7 +15,6 @@ STORAGE_ACCOUNT_NAME="${PREFIX}acistorage"
 KEY_VAULT_NAME="${PREFIX}acikv"
 ACR_NAME="${PREFIX}aciacr"
 ACI_GROUP_NAME="${PREFIX}-aci-planner"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -71,34 +70,34 @@ echo ""
 
 # 1. Resource Group
 echo "[1/5] Resource Group"
-check "resource group exists" "$AZ group show --name $RESOURCE_GROUP_NAME"
+check "resource group exists" "az group show --name $RESOURCE_GROUP_NAME"
 echo ""
 
 # 2. Storage Account
 echo "[2/5] Storage Account"
-check "storage account exists" "$AZ storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME"
+check "storage account exists" "az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME"
 echo ""
 
 # 3. Key Vault
 echo "[3/5] Key Vault"
-check "key vault exists" "$AZ keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP_NAME"
-check "secret exists" "$AZ keyvault secret show --vault-name $KEY_VAULT_NAME --name storage-conn"
+check "key vault exists" "az keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP_NAME"
+check "secret exists" "az keyvault secret show --vault-name $KEY_VAULT_NAME --name storage-conn"
 echo ""
 
 # 4. Container Registry
 echo "[4/5] Container Registry"
-check "ACR exists" "$AZ acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP_NAME"
+check "ACR exists" "az acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP_NAME"
 echo ""
 
 # 5. Container Instance - Get
 echo "[5/5] Container Instance"
-check "ACI container group exists" "$AZ container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME"
+check "ACI container group exists" "az container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME"
 echo ""
 
 # Wait for the container group to reach Running state before testing operations
 echo -n "  Waiting for container group to be Running... "
 for i in $(seq 1 20); do
-	STATE=$($AZ container show --name "$ACI_GROUP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'instanceView.state' --output tsv 2>/dev/null)
+	STATE=$(az container show --name "$ACI_GROUP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'instanceView.state' --output tsv 2>/dev/null)
 	if [[ "$STATE" == "Running" ]]; then
 		break
 	fi
@@ -119,13 +118,13 @@ echo ""
 
 # Check FQDN is set (after wait, so async creation has completed)
 check_output "FQDN is set" \
-	"$AZ container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'ipAddress.fqdn' --output tsv" \
+	"az container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'ipAddress.fqdn' --output tsv" \
 	"azurecontainer.io"
 
 # 6. List container groups
 echo "[6] List Container Groups"
 check_output "list returns our group" \
-	"$AZ container list --resource-group $RESOURCE_GROUP_NAME --query '[].name' --output tsv" \
+	"az container list --resource-group $RESOURCE_GROUP_NAME --query '[].name' --output tsv" \
 	"$ACI_GROUP_NAME"
 echo ""
 
@@ -135,7 +134,7 @@ echo -n "  Checking container logs for Flask startup... "
 
 # Wait for Flask to start (container may need a few seconds to initialize)
 for i in $(seq 1 15); do
-	LOGS=$($AZ container logs \
+	LOGS=$(az container logs \
 		--name "$ACI_GROUP_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" 2>/dev/null)
 
@@ -177,7 +176,7 @@ echo ""
 # 8. Container Exec
 echo "[8] Container Exec"
 echo -n "  Executing command inside container... "
-EXEC_OUTPUT=$($AZ container exec \
+EXEC_OUTPUT=$(az container exec \
 	--name "$ACI_GROUP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--container-name "$ACI_GROUP_NAME" \
@@ -201,7 +200,7 @@ echo ""
 # 9. Stop
 echo "[9] Stop Container Group"
 echo -n "  Stopping container group... "
-$AZ container stop \
+az container stop \
 	--name "$ACI_GROUP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors 2>/dev/null
@@ -216,14 +215,14 @@ fi
 
 # Verify stopped state
 check_output "state is Stopped" \
-	"$AZ container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
+	"az container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
 	"Stopped"
 echo ""
 
 # 10. Start
 echo "[10] Start Container Group"
 echo -n "  Starting container group... "
-$AZ container start \
+az container start \
 	--name "$ACI_GROUP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors 2>/dev/null
@@ -240,14 +239,14 @@ fi
 sleep 3
 
 check_output "state is Running" \
-	"$AZ container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
+	"az container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
 	"Running"
 echo ""
 
 # 11. Restart
 echo "[11] Restart Container Group"
 echo -n "  Restarting container group... "
-$AZ container restart \
+az container restart \
 	--name "$ACI_GROUP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors 2>/dev/null
@@ -264,7 +263,7 @@ fi
 sleep 3
 
 check_output "state is Running after restart" \
-	"$AZ container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
+	"az container show --name $ACI_GROUP_NAME --resource-group $RESOURCE_GROUP_NAME --query 'instanceView.state' --output tsv" \
 	"Running"
 echo ""
 
@@ -277,7 +276,7 @@ echo "============================================================"
 
 # Show the app URL if a host port is mapped
 HOST_PORT=$(docker port "$(docker ps -q --filter "name=ls-aci-${ACI_GROUP_NAME}" | head -1)" 80/tcp 2>/dev/null | head -1 | sed 's/.*://')
-FQDN=$($AZ container show --name "$ACI_GROUP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'ipAddress.fqdn' --output tsv 2>/dev/null)
+FQDN=$(az container show --name "$ACI_GROUP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'ipAddress.fqdn' --output tsv 2>/dev/null)
 
 if [ -n "$HOST_PORT" ] || [ -n "$FQDN" ]; then
 	echo ""

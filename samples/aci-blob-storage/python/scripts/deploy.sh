@@ -22,21 +22,10 @@ ACI_GROUP_NAME="${PREFIX}-aci-planner"
 IMAGE_NAME="vacation-planner"
 IMAGE_TAG="v1"
 LOGIN_NAME="paolo"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # =============================================================================
 # Step 1: Create Resource Group
 # =============================================================================
@@ -44,7 +33,7 @@ echo ""
 echo "============================================================"
 echo "Step 1: Creating resource group [$RESOURCE_GROUP_NAME]..."
 echo "============================================================"
-$AZ group create \
+az group create \
 	--name $RESOURCE_GROUP_NAME \
 	--location $LOCATION \
 	--only-show-errors 1>/dev/null
@@ -63,7 +52,7 @@ echo ""
 echo "============================================================"
 echo "Step 2: Creating storage account [$STORAGE_ACCOUNT_NAME]..."
 echo "============================================================"
-$AZ storage account create \
+az storage account create \
 	--name $STORAGE_ACCOUNT_NAME \
 	--location $LOCATION \
 	--resource-group $RESOURCE_GROUP_NAME \
@@ -84,7 +73,7 @@ echo ""
 echo "============================================================"
 echo "Step 3: Retrieving storage account key..."
 echo "============================================================"
-STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "[0].value" \
@@ -104,7 +93,7 @@ echo ""
 echo "============================================================"
 echo "Step 4: Retrieving storage blob endpoint..."
 echo "============================================================"
-BLOB_ENDPOINT=$($AZ storage account show \
+BLOB_ENDPOINT=$(az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "primaryEndpoints.blob" \
@@ -142,7 +131,7 @@ echo "Step 5: Creating blob container [$BLOB_CONTAINER_NAME]..."
 echo "============================================================"
 # Use --connection-string to ensure the correct endpoint is used
 # (--account-name constructs its own hostname which may not match LocalStack's cert)
-$AZ storage container create \
+az storage container create \
 	--name $BLOB_CONTAINER_NAME \
 	--connection-string "$STORAGE_CONN_STRING" \
 	--only-show-errors 1>/dev/null
@@ -161,7 +150,7 @@ echo ""
 echo "============================================================"
 echo "Step 6: Creating Key Vault [$KEY_VAULT_NAME]..."
 echo "============================================================"
-KV_OUTPUT=$($AZ keyvault create \
+KV_OUTPUT=$(az keyvault create \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -186,7 +175,7 @@ echo "============================================================"
 echo "Step 7: Storing storage connection string in Key Vault..."
 echo "============================================================"
 # Store the container-friendly connection string so ACI can reach LocalStack
-$AZ keyvault secret set \
+az keyvault secret set \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "storage-conn" \
 	--value "$CONTAINER_CONN_STRING" \
@@ -200,7 +189,7 @@ else
 fi
 
 # Retrieve secret to verify and pass to ACI
-RETRIEVED_CONN_STRING=$($AZ keyvault secret show \
+RETRIEVED_CONN_STRING=$(az keyvault secret show \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "storage-conn" \
 	--query "value" \
@@ -221,7 +210,7 @@ echo ""
 echo "============================================================"
 echo "Step 8: Creating ACR [$ACR_NAME] with admin user enabled..."
 echo "============================================================"
-$AZ acr create \
+az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -243,7 +232,7 @@ echo ""
 echo "============================================================"
 echo "Step 9: Retrieving ACR credentials..."
 echo "============================================================"
-LOGIN_SERVER=$($AZ acr show \
+LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
@@ -256,14 +245,14 @@ if [ -z "$LOGIN_SERVER" ]; then
 fi
 echo "ACR Login Server: $LOGIN_SERVER"
 
-ACR_USERNAME=$($AZ acr credential show \
+ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
 	--only-show-errors)
 
-ACR_PASSWORD=$($AZ acr credential show \
+ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
@@ -333,7 +322,7 @@ echo "Step 11: Creating ACI container group [$ACI_GROUP_NAME]..."
 echo "============================================================"
 
 if [ "$USE_ACR_IMAGE" = true ]; then
-	$AZ container create \
+	az container create \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--name "$ACI_GROUP_NAME" \
 		--image "$FULL_IMAGE" \
@@ -353,7 +342,7 @@ if [ "$USE_ACR_IMAGE" = true ]; then
 		--location "$LOCATION" \
 		--only-show-errors 1>/dev/null
 else
-	$AZ container create \
+	az container create \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--name "$ACI_GROUP_NAME" \
 		--image "$FULL_IMAGE" \
