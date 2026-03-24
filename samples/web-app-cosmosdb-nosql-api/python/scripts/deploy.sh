@@ -15,15 +15,9 @@ RANDOM_SUFFIX=$(echo $RANDOM)
 NEW_DB_NAME="vacationplanner_${RANDOM_SUFFIX}"
 AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
 AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
-<<<<<<< Updated upstream
-=======
 AURECOSMOSDB_PARTITION_KEY="/username"
 
-azlocal start-interception
->>>>>>> Stashed changes
-
-# Start azure CLI local mode session
-# az login
+# azlocal start-interception
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists..."
@@ -60,8 +54,6 @@ echo "Create CosmosDB NoSQL Account"
 echo "Account created"
 echo "AZURECOSMOSDB_ENDPOINT set to $AZURECOSMOSDB_ENDPOINT"
 
-<<<<<<< Updated upstream
-=======
 echo "Create CosmosDB NoSQL Database"
 az cosmosdb sql database create \
     --resource-group $RESOURCE_GROUP_NAME \
@@ -77,7 +69,6 @@ az cosmosdb sql container create \
     --partition-key-path $AURECOSMOSDB_PARTITION_KEY \
     --throughput 400
 
->>>>>>> Stashed changes
 echo "Fetching DB Account primary master key"
 export AZURECOSMOSDB_PRIMARY_KEY=$(az cosmosdb keys list \
         --resource-group $RESOURCE_GROUP_NAME \
