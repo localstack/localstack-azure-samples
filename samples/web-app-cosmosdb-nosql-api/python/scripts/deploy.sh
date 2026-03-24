@@ -15,13 +15,7 @@ RANDOM_SUFFIX=$(echo $RANDOM)
 NEW_DB_NAME="vacationplanner_${RANDOM_SUFFIX}"
 AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
 AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
-AURECOSMOSDB_PARTITION_KEY="/partitionKey"
-
-# Start azure CLI local mode session
-az login
-
-# Change the current directory to the script's directory
-#cd "$CURRENT_DIR" || exit
+AURECOSMOSDB_PARTITION_KEY="/username"
 
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists..."
@@ -118,14 +112,13 @@ zip -r "$ZIPFILE" app.py cosmosdb_client.py static templates requirements.txt
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
+echo "Using az webapp deploy command for LocalStack emulator environment."
 az webapp deploy \
     --resource-group $RESOURCE_GROUP_NAME \
     --name $WEB_APP_NAME \
     --src-path ${ZIPFILE} \
     --type zip \
-    --async true \
-    --debug \
-    --verbose 1>/dev/null
+    --async true
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then
