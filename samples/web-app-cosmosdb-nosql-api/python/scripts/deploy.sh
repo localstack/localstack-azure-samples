@@ -17,8 +17,6 @@ AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
 AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
 AURECOSMOSDB_PARTITION_KEY="/username"
 
-# azlocal start-interception
-
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists..."
 az group show --name $RESOURCE_GROUP_NAME &>/dev/null
