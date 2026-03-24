@@ -1,54 +1,3 @@
-<!--- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Vacation Planner</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
-</head>
-<body style="background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%); min-height: 100vh;">
-    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:480px;">
-        <img src="{{ url_for('static', filename='summer_banner.jpg') }}" alt="Summer Banner" class="img-fluid rounded mb-3 w-100" style="max-height:180px; object-fit:cover;">
-        <h1 class="display-9 fw-bold sea-title mb-4">Vacation Planner</h1>
-        <form method="post" class="sea-form mb-4" style="max-width: 520px; margin: 0 auto;">
-            <div style="display: flex; width: 100%;">
-                <input type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." required>
-                <button type="submit" class="sea-btn">Add</button>
-            </div>
-        </form>
-        <div class="table-responsive" style="width: 100%;">
-            <table class="table sea-table align-middle" style="width: 100%; margin: 0;">
-                <thead>
-                    <tr>
-                        <th class="text-start">Activity</th>
-                        <th class="text-start align-middle action-col" style="width: 90px;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for activity in activities %}
-                    <tr>
-                        <td class="text-start">{{ activity[1] }}</td>
-                        <td class="text-start align-middle action-col" style="width: 90px;">
-                            <form method="post" action="{{ url_for('delete', activity_id=activity[0]) }}" class="d-inline">
-                                <input type="hidden" name="row_id" value="{{ activity[0] }}">
-                                <button type="submit" class="sea-btn" style="width: 90px;">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="2" class="text-center text-muted fst-italic">No vacation plans yet!</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</body>
-</html> --->
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -59,15 +8,17 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body style="background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%); min-height: 100vh;">
-    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:520px;">
+    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:600px;">
         <img src="{{ url_for('static', filename='summer_banner.jpg') }}" alt="Summer Banner" class="img-fluid rounded mb-3 w-100" style="max-height:180px; object-fit:cover;">
         
         <h1 class="display-9 fw-bold sea-title mb-4 text-center">Vacation Planner</h1>
 
-        <form method="post" class="sea-form mb-4">
-            <div class="d-flex w-100">
-                <input type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." required>
-                <button type="submit" class="sea-btn ms-2">Add</button>
+        <form method="post" action="{{ url_for('index') }}" class="sea-form mb-4" style="max-width: 600px; margin: 0 auto;">
+            <div style="display: flex; width: 100%;">
+                <input type="hidden" name="row_id" value="{{ edit_id or '' }}">
+                <input id="activityInput" type="text" name="activity" class="form-control sea-input" 
+                       placeholder="Enter a vacation activity..." value="{{ edit_activity or '' }}" required autofocus>
+                <button type="submit" class="sea-btn ms-2">{{ 'Update' if edit_id else 'Add' }}</button>
             </div>
         </form>
 
@@ -76,36 +27,23 @@
                 <thead>
                     <tr>
                         <th class="text-start">Activity</th>
-                        <th class="text-end" style="width: 160px;">Actions</th>
+                        <th class="text-center align-middle" style="width: 220px;" colspan="2">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for activity in activities %}
                     <tr>
-                        <td class="text-start">
-                            <span id="display-{{ activity[0] }}">{{ activity[1] }}</span>
-                            
-                            <form id="edit-form-{{ activity[0] }}" method="post" action="{{ url_for('edit', activity_id=activity[0]) }}" class="d-none">
-                                <div class="input-group input-group-sm">
-                                    <input type="text" name="new_text" class="form-control" value="{{ activity[1] }}" required>
-                                    <button type="submit" class="btn btn-success btn-sm">Save</button>
-                                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEdit('{{ activity[0] }}')">✕</button>
-                                </div>
+                        <td class="text-start">{{ activity[1] }}</td>
+
+                        <td class="text-start align-middle p-1" style="width: 110px;">
+                            <form method="post" action="{{ url_for('delete', activity_id=activity[0]) }}" class="d-inline">
+                                <button type="submit" class="sea-btn" style="width: 90px; font-size: 0.9rem;">Delete</button>
                             </form>
-                        </td>
-                        <td class="text-end">
-                            <div id="actions-{{ activity[0] }}">
-                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleEdit('{{ activity[0] }}')">Edit</button>
-                                
-                                <form method="post" action="{{ url_for('delete', activity_id=activity[0]) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                                </form>
-                            </div>
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="2" class="text-center text-muted fst-italic py-4">No vacation plans yet!</td>
+                        <td colspan="3" class="text-center text-muted fst-italic py-4">No vacation plans yet!</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -114,24 +52,18 @@
     </div>
 
     <script>
-        function toggleEdit(id) {
-            const displaySpan = document.getElementById(`display-${id}`);
-            const editForm = document.getElementById(`edit-form-${id}`);
-            const actionButtons = document.getElementById(`actions-${id}`);
-
-            if (editForm.classList.contains('d-none')) {
-                // Switch to Edit Mode
-                editForm.classList.remove('d-none');
-                displaySpan.classList.add('d-none');
-                actionButtons.classList.add('d-none');
+        // Auto-focus logic for the input field
+        (function () {
+            const input = document.getElementById('activityInput');
+            if (!input) return;
+            if (input.value && input.value.length > 0) {
+                input.focus();
+                const len = input.value.length;
+                input.setSelectionRange(len, len);
             } else {
-                // Switch back to Display Mode
-                editForm.class
-                editForm.classList.add('d-none');
-                displaySpan.classList.remove('d-none');
-                actionButtons.classList.remove('d-none');
+                input.focus();
             }
-        }
+        })();
     </script>
 </body>
 </html>
