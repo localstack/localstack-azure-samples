@@ -73,7 +73,5 @@ class CosmosDbClient:
         except exceptions.CosmosHttpResponseError as e:
             raise e
         except Exception as e:
-            # THIS IS THE CRITICAL LOG: This will tell us exactly why it's stopping
             logger.info(f"DELETE METHOD CRASHED: Error Type: {type(e).__name__}, Message: {e}")
-            # Optionally re-raise if you want the Flask debugger to show it
-            # raise e
+            raise e
