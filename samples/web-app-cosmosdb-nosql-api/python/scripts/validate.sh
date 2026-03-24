@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Variables
 # Check resource group
 az group show \
 --name local-rg \

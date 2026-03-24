@@ -110,15 +110,5 @@ def delete(activity_id: str):
     
     return redirect(url_for('index'))
 
-@app.route('/edit/<string:activity_id>', methods=['POST'])
-def edit(activity_id: str):
-    new_text = request.form.get('new_text')
-    
-    if new_text:
-        logger.info(f"Updating ID {activity_id} with activity: {new_text}")
-        get_cosmos().update_document_activity(activity_id, username, new_text) 
-        
-    return redirect(url_for('index'))
-
 if __name__ == '__main__':
     app.run(debug=True)
