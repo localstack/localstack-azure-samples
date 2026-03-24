@@ -68,7 +68,7 @@ get_docker_container_port_mapping() {
 call_http_trigger_functions() {
 	# Get the function app name
 	echo "Getting function app name..."
-	function_app_name=$(azlocal functionapp list --query '[0].name' --output tsv)
+	function_app_name=$(az functionapp list --query '[0].name' --output tsv)
 
 	if [ -n "$function_app_name" ]; then
 		echo "Function app [$function_app_name] successfully retrieved."
@@ -79,7 +79,7 @@ call_http_trigger_functions() {
 
 	# Get the resource group name
 	echo "Getting resource group name for function app [$function_app_name]..."
-	resource_group_name=$(azlocal functionapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az functionapp list --query '[0].resourceGroup' --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -90,7 +90,7 @@ call_http_trigger_functions() {
 
 	# Get the the default host name of the function app
 	echo "Getting the default host name of the function app [$function_app_name]..."
-	function_host_name=$(azlocal functionapp show \
+	function_host_name=$(az functionapp show \
 		--name "$function_app_name" \
 		--resource-group "$resource_group_name" \
 		--query 'defaultHostName' \

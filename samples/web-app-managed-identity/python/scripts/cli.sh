@@ -8,27 +8,17 @@ RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 4)
 MANAGED_IDENTITY_NAME="${PREFIX}-identity-${SUFFIX}-${RANDOM_SUFFIX}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location "$LOCATION" \
 		--only-show-errors 1>/dev/null
@@ -45,7 +35,7 @@ fi
 
 # Create a new user-assigned managed identity
 echo "Creating user-assigned managed identity [$MANAGED_IDENTITY_NAME]..."
-$AZ identity create \
+az identity create \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
@@ -61,7 +51,7 @@ fi
 
 # Get the user-assigned managed identity
 echo "Retrieving user-assigned managed identity [$MANAGED_IDENTITY_NAME]..."
-$AZ identity show \
+az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors
@@ -75,7 +65,7 @@ fi
 
 # List all user-assigned managed identities in the resource group
 echo "Listing all user-assigned managed identities in resource group [$RESOURCE_GROUP_NAME]..."
-$AZ identity list \
+az identity list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors
 
@@ -88,7 +78,7 @@ fi
 
 # Delete the user-assigned managed identity
 echo "Deleting user-assigned managed identity [$MANAGED_IDENTITY_NAME]..."
-$AZ identity delete \
+az identity delete \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors

@@ -45,9 +45,9 @@ The LocalStack emulator emulates the following services, which are necessary at 
 
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local)
 - [Python](https://www.python.org/downloads/)
 - [Flask](https://flask.palletsprojects.com/)
-- [pyodbc](https://github.com/mkleehammer/pyodbc)
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 
@@ -92,20 +92,9 @@ INPUT_CONTAINER_NAME="input"
 OUTPUT_CONTAINER_NAME="output"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Generate a timestamp in the format YYYY-MM-DD-HH-MM-SS
 TIMESTAMP=$(date +"%Y-%m-%d-%H-%M-%S")
 
@@ -118,7 +107,7 @@ FILE_EXTENSION="${FILE_NAME##*.}" # File extension
 BLOB_NAME="${FILE_BASE_NAME}-${TIMESTAMP}.${FILE_EXTENSION}"
 
 # Check whether the input container already exists
-CONTAINER_EXISTS=$($AZ storage container exists \
+CONTAINER_EXISTS=$(az storage container exists \
 	--name "$INPUT_CONTAINER_NAME" \
 	--account-name "$STORAGE_ACCOUNT_NAME" \
 	--auth-mode login | jq .exists)
@@ -129,14 +118,14 @@ else
 	echo "Container [$INPUT_CONTAINER_NAME] does not exist."
 
 	# Create the input container if it doesn't exist
-	$AZ storage container create \
+	az storage container create \
 		--name $INPUT_CONTAINER_NAME \
 		--account-name $STORAGE_ACCOUNT_NAME \
 		--auth-mode login
 fi
 
 # Check whether the output container already exists
-CONTAINER_EXISTS=$($AZ storage container exists \
+CONTAINER_EXISTS=$(az storage container exists \
 	--name "$OUTPUT_CONTAINER_NAME" \
 	--account-name "$STORAGE_ACCOUNT_NAME" \
 	--auth-mode login | jq .exists)
@@ -147,14 +136,14 @@ else
 	echo "Container [$OUTPUT_CONTAINER_NAME] does not exist."
 
 	# Create the output container if it doesn't exist
-	$AZ storage container create \
+	az storage container create \
 		--name $OUTPUT_CONTAINER_NAME \
 		--account-name $STORAGE_ACCOUNT_NAME \
 		--auth-mode login
 fi
 
 # Upload the file to the container
-$AZ storage blob upload \
+az storage blob upload \
 	--container-name $INPUT_CONTAINER_NAME \
 	--file "$FILE_PATH" \
 	--name "$BLOB_NAME" \
@@ -164,7 +153,7 @@ $AZ storage blob upload \
 echo "[$BLOB_NAME] file uploaded successfully to the [$INPUT_CONTAINER_NAME] container."
 
 # Verify the upload by checking if the blob exists in the input container
-BLOB_EXISTS=$($AZ storage blob exists \
+BLOB_EXISTS=$(az storage blob exists \
 	--container-name "$INPUT_CONTAINER_NAME" \
 	--name "$BLOB_NAME" \
 	--account-name "$STORAGE_ACCOUNT_NAME" \
@@ -186,7 +175,7 @@ seconds=5
 for ((i=1; i<=n; i++)); do
 	echo "Checking for [$BLOB_NAME] file in the [$OUTPUT_CONTAINER_NAME] container (Attempt $i of $n)..."
 	
-	BLOB_EXISTS=$($AZ storage blob exists \
+	BLOB_EXISTS=$(az storage blob exists \
 		--container-name "$OUTPUT_CONTAINER_NAME" \
 		--name "$BLOB_NAME" \
 		--account-name "$STORAGE_ACCOUNT_NAME" \
