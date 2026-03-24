@@ -35,7 +35,7 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities |
 | [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database |
 | [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
-| [Azure Service Bus with Spring Boot](./samples/servicebus/README.md) | Azure Service Bus used by a Spring Boot application |
+| [Azure Service Bus with Spring Boot](./samples/servicebus/java/README.md) | Azure Service Bus used by a Spring Boot application |
  
 ## Sample Structure
 
