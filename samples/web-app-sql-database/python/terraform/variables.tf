@@ -349,6 +349,24 @@ variable "login_name" {
   default     = "paolo"
 }
 
+variable "secret_name" {
+  description = "(Optional) Specifies the name of the Key Vault secret for the SQL connection string."
+  type        = string
+  default     = "sql-connection-string"
+}
+
+variable "cert_name" {
+  description = "(Optional) Specifies the name of the Key Vault certificate."
+  type        = string
+  default     = "webapp-cert"
+}
+
+variable "cert_subject" {
+  description = "(Optional) Specifies the subject of the self-signed certificate."
+  type        = string
+  default     = "sample-web-app-sql"
+}
+
 variable "tags" {
   description = "(Optional) Specifies the tags to be applied to the resources."
   type        = map(string)
