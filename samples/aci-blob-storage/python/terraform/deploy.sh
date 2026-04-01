@@ -128,6 +128,7 @@ fi
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
 STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
+KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
 ACR_NAME=$(terraform output -raw acr_name)
 ACI_GROUP_NAME=$(terraform output -raw aci_group_name)
 FQDN=$(terraform output -raw fqdn)
@@ -138,6 +139,7 @@ echo "Deployment Complete!"
 echo "============================================================"
 echo "Resource Group:    $RESOURCE_GROUP_NAME"
 echo "Storage Account:   $STORAGE_ACCOUNT_NAME"
+echo "Key Vault:         $KEY_VAULT_NAME"
 echo "ACR:               $ACR_NAME"
 echo "ACI Container:     $ACI_GROUP_NAME"
 echo "FQDN:              $FQDN"
