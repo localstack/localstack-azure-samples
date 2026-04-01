@@ -16,7 +16,7 @@ set -euo pipefail
 # Requirements
 #   - az CLI
 #   - bash, zip
-#   - Optional for LocalStack mode: azlocal (CLI interceptor), funclocal + Azure Functions Core Tools ('func')
+#   - Optional for LocalStack mode: azlocal (CLI interceptor), Azure Functions Core Tools ('func')
 #
 # Examples
 #   # Real Azure (eastus by default)
@@ -51,7 +51,7 @@ Options:
   -l, --location STR          Azure region (default: eastus)
   -g, --resource-group STR    Resource group name (auto-generated if omitted)
       --python-version STR    Python runtime for Function App(s) (default: 3.11)
-      --use-localstack        Use azlocal/funclocal for LocalStack emulator
+      --use-localstack        Use azlocal for LocalStack emulator
 
   # Scenario toggles (all enabled by default)
       --no-basic              Skip basic single-origin scenario
@@ -221,14 +221,11 @@ create_function_app() {
 publish_function_code() {
   local funcName="$1"; local zipPath="$2"
   if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    if ! command -v funclocal >/dev/null 2>&1; then
-      echo "Error: funclocal is required in --use-localstack mode." >&2; exit 1
-    fi
     if ! command -v func >/dev/null 2>&1; then
       echo "Error: Azure Functions Core Tools ('func') not found in PATH." >&2; exit 1
     fi
     pushd "$FUNCTION_SRC" >/dev/null
-    funclocal azure functionapp publish "$funcName" --python --build local #--verbose --debug
+    func azure functionapp publish "$funcName" --python --build local #--verbose --debug
     popd >/dev/null
   else
     rm -f "$zipPath"; ( cd "$FUNCTION_SRC" && zip -rq "$zipPath" . )

@@ -26,8 +26,8 @@ cd "$CURRENT_DIR" || exit
 
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using funclocal for LocalStack emulator environment."
-	FUNC="funclocal"
+	echo "Using func for LocalStack emulator environment."
+	FUNC="func"
 else
 	echo "Using standard func for AzureCloud environment."
 	FUNC="func"
