@@ -716,6 +716,26 @@ if [ $DEPLOY -eq 0 ]; then
 	exit 0
 fi
 
+# Check if the application insights az extension is already installed
+echo "Checking if [application-insights] az extension is already installed..."
+az extension show --name application-insights &>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[application-insights] az extension is already installed"
+else
+	echo "[application-insights] az extension is not installed. Installing..."
+
+	# Install application-insights az extension
+	az extension add --name application-insights 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[application-insights] az extension successfully installed"
+	else
+		echo "Failed to install [application-insights] az extension"
+		exit
+	fi
+fi
+
 # Check if the application insights component already exists
 echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
 az monitor app-insights component show \
