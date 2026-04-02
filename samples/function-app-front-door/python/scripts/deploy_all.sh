@@ -10,20 +10,16 @@ set -euo pipefail
 #   4) Rules Engine demo via Rule Set + Rule (ep-rules)
 #   5) Endpoint enabled/disabled state toggle (ep-state)
 #
-# It supports deploying to real Azure or to LocalStack’s Azure emulator via azlocal interception.
 # By default, all scenarios are deployed. You can selectively skip scenarios via flags.
 #
 # Requirements
 #   - az CLI
 #   - bash, zip
-#   - Optional for LocalStack mode: azlocal (CLI interceptor), Azure Functions Core Tools ('func')
+#   - Optional: Azure Functions Core Tools (‘func’)
 #
 # Examples
 #   # Real Azure (eastus by default)
 #   bash ./scripts/deploy_all.sh --name-prefix demo
-#
-#   # LocalStack emulator
-#   bash ./scripts/deploy_all.sh --name-prefix demo --use-localstack
 #
 
 # -------------------------------
@@ -32,7 +28,6 @@ set -euo pipefail
 NAME_PREFIX="funcafdall"
 LOCATION="eastus"
 RESOURCE_GROUP=""
-USE_LOCALSTACK="false"
 PYTHON_VERSION="3.11"
 
 # Scenario toggles
@@ -51,7 +46,6 @@ Options:
   -l, --location STR          Azure region (default: eastus)
   -g, --resource-group STR    Resource group name (auto-generated if omitted)
       --python-version STR    Python runtime for Function App(s) (default: 3.11)
-      --use-localstack        Use azlocal for LocalStack emulator
 
   # Scenario toggles (all enabled by default)
       --no-basic              Skip basic single-origin scenario
@@ -70,7 +64,6 @@ while [[ $# -gt 0 ]]; do
     -l|--location) LOCATION=${2:-}; shift 2;;
     -g|--resource-group) RESOURCE_GROUP=${2:-}; shift 2;;
     --python-version) PYTHON_VERSION=${2:-}; shift 2;;
-    --use-localstack) USE_LOCALSTACK="true"; shift;;
     --no-basic) DO_BASIC="false"; shift;;
     --no-multi) DO_MULTI="false"; shift;;
     --no-spec) DO_SPEC="false"; shift;;
@@ -145,44 +138,16 @@ ruleSetName="rs${prefix}${suffix}"
 ruleName="ruleAddHeader"
 
 # -------------------------------
-# LocalStack interception lifecycle (optional)
+# Cleanup on exit
 # -------------------------------
-INTERCEPTION_STARTED="false"
-AZURE_CONFIG_DIR_CREATED="false"
 finish() {
   set +e
   [[ -f "$ZIP_MAIN" ]] && rm -f "$ZIP_MAIN"
   [[ -f "$ZIP_A" ]] && rm -f "$ZIP_A"
   [[ -f "$ZIP_B" ]] && rm -f "$ZIP_B"
-  if [[ "$INTERCEPTION_STARTED" == "true" ]] && command -v azlocal >/dev/null 2>&1; then
-    azlocal stop-interception >/dev/null 2>&1 || true
-  fi
-  if [[ "$AZURE_CONFIG_DIR_CREATED" == "true" && -n "${AZURE_CONFIG_DIR:-}" && -d "$AZURE_CONFIG_DIR" ]]; then
-    rm -rf "$AZURE_CONFIG_DIR"
-  fi
   set -e
 }
 trap finish EXIT
-
-if [[ "$USE_LOCALSTACK" == "true" ]]; then
-  if command -v mktemp >/dev/null 2>&1; then
-    AZ_TEMP_CONFIG_DIR="$(mktemp -d)"
-  else
-    AZ_TEMP_CONFIG_DIR="$ROOT_DIR/.azlocal_config_$$"; mkdir -p "$AZ_TEMP_CONFIG_DIR"
-  fi
-  export AZURE_CONFIG_DIR="$AZ_TEMP_CONFIG_DIR"; AZURE_CONFIG_DIR_CREATED="true"
-  echo "Using isolated AZURE_CONFIG_DIR: $AZURE_CONFIG_DIR"
-  if ! command -v azlocal >/dev/null 2>&1; then
-    echo "Error: --use-localstack specified but 'azlocal' not found in PATH." >&2
-    exit 1
-  fi
-  if azlocal start-interception; then
-    INTERCEPTION_STARTED="true"; echo "LocalStack interception started."
-  else
-    echo "Error: azlocal failed to start interception. Ensure LocalStack is running." >&2
-    exit 1
-  fi
-fi
 
 echo "Resource Group: $RESOURCE_GROUP"
 
@@ -202,35 +167,14 @@ create_function_app() {
     --runtime python --runtime-version "$PYTHON_VERSION" \
     --functions-version 4 --os-type Linux \
     --storage-account "$storageName" --disable-app-insights -o none
-  if [[ "$USE_LOCALSTACK" != "true" ]]; then
-    az functionapp config appsettings set -g "$RESOURCE_GROUP" -n "$funcName" \
-      --settings WEBSITE_RUN_FROM_PACKAGE=1 FUNCTIONS_WORKER_RUNTIME=python SCM_DO_BUILD_DURING_DEPLOYMENT=false -o none
-  else
-    az functionapp config appsettings set -g "$RESOURCE_GROUP" -n "$funcName" \
-      --settings FUNCTIONS_WORKER_RUNTIME=python WEBSITE_RUN_FROM_PACKAGE=0 -o none
-    local STORAGE_KEY
-    STORAGE_KEY=$(az storage account keys list -g "$RESOURCE_GROUP" -n "$storageName" --query "[0].value" -o tsv)
-    if [[ -z "$STORAGE_KEY" ]]; then echo "Failed to get storage key for $storageName" >&2; exit 1; fi
-    local STORAGE_CONNECTION_STRING
-    STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=$storageName;AccountKey=$STORAGE_KEY;BlobEndpoint=http://$storageName.blob.localhost.localstack.cloud:4566;QueueEndpoint=http://$storageName.queue.localhost.localstack.cloud:4566;TableEndpoint=http://$storageName.table.localhost.localstack.cloud:4566;FileEndpoint=http://$storageName.file.localhost.localstack.cloud:4566"
-    az functionapp config appsettings set -g "$RESOURCE_GROUP" -n "$funcName" \
-      --settings AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" WEBSITE_CONTENTAZUREFILECONNECTIONSTRING="$STORAGE_CONNECTION_STRING" SCM_RUN_FROM_PACKAGE= -o none
-  fi
+  az functionapp config appsettings set -g "$RESOURCE_GROUP" -n "$funcName" \
+    --settings WEBSITE_RUN_FROM_PACKAGE=1 FUNCTIONS_WORKER_RUNTIME=python SCM_DO_BUILD_DURING_DEPLOYMENT=false -o none
 }
 
 publish_function_code() {
   local funcName="$1"; local zipPath="$2"
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    if ! command -v func >/dev/null 2>&1; then
-      echo "Error: Azure Functions Core Tools ('func') not found in PATH." >&2; exit 1
-    fi
-    pushd "$FUNCTION_SRC" >/dev/null
-    func azure functionapp publish "$funcName" --python --build local #--verbose --debug
-    popd >/dev/null
-  else
-    rm -f "$zipPath"; ( cd "$FUNCTION_SRC" && zip -rq "$zipPath" . )
-    az functionapp deployment source config-zip -g "$RESOURCE_GROUP" -n "$funcName" --src "$zipPath"
-  fi
+  rm -f "$zipPath"; ( cd "$FUNCTION_SRC" && zip -rq "$zipPath" . )
+  az functionapp deployment source config-zip -g "$RESOURCE_GROUP" -n "$funcName" --src "$zipPath"
 }
 
 if [[ "$DO_BASIC" == "true" || "$DO_SPEC" == "true" || "$DO_RULES" == "true" || "$DO_STATE" == "true" ]]; then
@@ -410,11 +354,11 @@ hostBasic=""; hostMulti=""; hostSpec=""; hostRules=""; hostState=""
 [[ "$DO_RULES" == "true" ]] && hostRules=$(resolve_ep_host "$epRules")
 [[ "$DO_STATE" == "true" ]] && hostState=$(resolve_ep_host "$epState")
 
-# Local addresses for emulator
-if [[ "$USE_LOCALSTACK" == "true" ]]; then
-  funcMainLocal="${funcMain}website.localhost.localstack.cloud:4566"
-  funcALocal="${funcA}website.localhost.localstack.cloud:4566"
-  funcBLocal="${funcB}website.localhost.localstack.cloud:4566"
+# Detect LocalStack environment for local URLs
+IS_LOCALSTACK="false"
+ENVIRONMENT=$(az account show --query environmentName --output tsv 2>/dev/null || true)
+if [[ "$ENVIRONMENT" == "LocalStack" ]]; then
+  IS_LOCALSTACK="true"
   epBasicLocal="${epBasic}.afd.localhost.localstack.cloud:4566"
   epMultiLocal="${epMulti}.afd.localhost.localstack.cloud:4566"
   epSpecLocal="${epSpec}.afd.localhost.localstack.cloud:4566"
@@ -446,44 +390,29 @@ echo
 echo "Deployment complete."
 echo "Resource Group: $RESOURCE_GROUP"
 if [[ "$DO_BASIC" == "true" ]]; then
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    echo "[Basic] AFD Local Endpoint:   https://$epBasicLocal/john"
-  else
-    echo "[Basic] AFD Endpoint:         https://$hostBasic/john"
-  fi
+  echo "[Basic] AFD Endpoint:         https://$hostBasic/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epBasicLocal/john"
 fi
 if [[ "$DO_MULTI" == "true" ]]; then
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    echo "[Multi] AFD Local Endpoint:   https://$epMultiLocal/john"
-    echo "       You can inspect responses to see which origin served them (function echoes WEBSITE_HOSTNAME)."
-  else
-    echo "[Multi] AFD Endpoint:         https://$hostMulti/john"
-  fi
+  echo "[Multi] AFD Endpoint:         https://$hostMulti/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epMultiLocal/john"
 fi
 if [[ "$DO_SPEC" == "true" ]]; then
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    echo "[Spec]  AFD Local Endpoint:   https://$epSpecLocal/john  (specific route)"
-    echo "       Also try:              https://$epSpecLocal/jane  (catch-all)"
-  else
-    echo "[Spec]  AFD Endpoint:         https://$hostSpec/john  (specific route)"
-    echo "       Also try:              https://$hostSpec/jane  (catch-all)"
+  echo "[Spec]  AFD Endpoint:         https://$hostSpec/john  (specific route)"
+  echo "       Also try:              https://$hostSpec/jane  (catch-all)"
+  if [[ "$IS_LOCALSTACK" == "true" ]]; then
+    echo "       Local Endpoint:        http://$epSpecLocal/john  (specific route)"
+    echo "       Also try:              http://$epSpecLocal/jane  (catch-all)"
   fi
 fi
 if [[ "$DO_RULES" == "true" ]]; then
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    echo "[Rules] AFD Local Endpoint:   https://$epRulesLocal/john"
-    echo "       Expect response header: X-CDN: MSFT (if rules are supported)."
-  else
-    echo "[Rules] AFD Endpoint:         https://$hostRules/john"
-    echo "       Expect response header: X-CDN: MSFT (once propagation completes)."
-  fi
+  echo "[Rules] AFD Endpoint:         https://$hostRules/john"
+  echo "       Expect response header: X-CDN: MSFT (once propagation completes)."
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epRulesLocal/john"
 fi
 if [[ "$DO_STATE" == "true" ]]; then
-  if [[ "$USE_LOCALSTACK" == "true" ]]; then
-    echo "[State] AFD Local Endpoint:   https://$epStateLocal/john"
-  else
-    echo "[State] AFD Endpoint:         https://$hostState/john"
-  fi
+  echo "[State] AFD Endpoint:         https://$hostState/john"
+  [[ "$IS_LOCALSTACK" == "true" ]] && echo "       Local Endpoint:        http://$epStateLocal/john"
   echo "       To test enabled-state toggle:"
   echo "         az afd endpoint update -g $RESOURCE_GROUP --profile-name $profileName --endpoint-name $epState --enabled-state Disabled"
   echo "         # Then re-enable:"

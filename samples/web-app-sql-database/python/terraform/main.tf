@@ -5,7 +5,11 @@ locals {
   sql_server_name       = "${var.prefix}-sqlserver-${var.suffix}"
   app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
   web_app_name          = "${var.prefix}-webapp-${var.suffix}"
+  key_vault_name        = "${var.prefix}-kv-${var.suffix}"
 }
+
+# Retrieve the current Azure client configuration
+data "azurerm_client_config" "current" {}
 
 # Create a resource group
 resource "azurerm_resource_group" "example" {
@@ -111,10 +115,10 @@ resource "azurerm_linux_web_app" "example" {
   app_settings = {
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
     ENABLE_ORYX_BUILD              = "true"
-    SQL_SERVER                     = azurerm_mssql_server.example.fully_qualified_domain_name
-    SQL_DATABASE                   = azurerm_mssql_database.example.name
-    SQL_USERNAME                   = var.sql_database_username
-    SQL_PASSWORD                   = var.sql_database_password
+    KEY_VAULT_NAME                 = azurerm_key_vault.example.name
+    SECRET_NAME                    = azurerm_key_vault_secret.sql_connection_string.name
+    KEYVAULT_URI                   = azurerm_key_vault.example.vault_uri
+    CERT_NAME                      = azurerm_key_vault_certificate.example.name
     LOGIN_NAME                     = var.login_name
   }
 
@@ -122,6 +126,80 @@ resource "azurerm_linux_web_app" "example" {
     ignore_changes = [
       tags
     ]
+  }
+}
+
+# Create a Key Vault
+resource "azurerm_key_vault" "example" {
+  name                       = local.key_vault_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = azurerm_resource_group.example.location
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  enable_rbac_authorization  = false
+  soft_delete_retention_days = 7
+  tags                       = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      tags
+    ]
+  }
+}
+
+# Grant the Web App managed identity access to Key Vault secrets and certificates
+resource "azurerm_key_vault_access_policy" "web_app" {
+  key_vault_id = azurerm_key_vault.example.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_linux_web_app.example.identity[0].principal_id
+
+  secret_permissions = [
+    "Get",
+    "List",
+  ]
+
+  certificate_permissions = [
+    "Get",
+  ]
+}
+
+# Create a Key Vault secret for SQL connection string
+resource "azurerm_key_vault_secret" "sql_connection_string" {
+  name         = var.secret_name
+  value        = "Server=tcp:${azurerm_mssql_server.example.fully_qualified_domain_name},1433;Database=${azurerm_mssql_database.example.name};User ID=${var.sql_database_username};Password=${var.sql_database_password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+  key_vault_id = azurerm_key_vault.example.id
+}
+
+# Create a self-signed certificate in Key Vault
+resource "azurerm_key_vault_certificate" "example" {
+  name         = var.cert_name
+  key_vault_id = azurerm_key_vault.example.id
+
+  certificate_policy {
+    issuer_parameters {
+      name = "Self"
+    }
+
+    key_properties {
+      exportable = true
+      key_size   = 2048
+      key_type   = "RSA"
+      reuse_key  = false
+    }
+
+    secret_properties {
+      content_type = "application/x-pkcs12"
+    }
+
+    x509_certificate_properties {
+      subject            = "CN=${var.cert_subject}"
+      validity_in_months = 12
+
+      key_usage = [
+        "digitalSignature",
+        "keyEncipherment",
+      ]
+    }
   }
 }
 

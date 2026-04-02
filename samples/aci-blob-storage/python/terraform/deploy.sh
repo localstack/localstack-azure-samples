@@ -11,15 +11,6 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
-
 # =============================================================================
 # Build and push the Docker image before Terraform deployment
 # (Terraform references the pre-created ACR as a data source)

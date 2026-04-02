@@ -21,3 +21,15 @@ output "web_app_name" {
 output "web_app_url" {
   value = azurerm_linux_web_app.example.default_hostname
 }
+
+output "key_vault_name" {
+  value = azurerm_key_vault.example.name
+}
+
+output "key_vault_url" {
+  value = azurerm_key_vault.example.vault_uri
+}
+
+output "sql_connection_string_secret_uri" {
+  value = azurerm_key_vault_secret.sql_connection_string.id
+}
