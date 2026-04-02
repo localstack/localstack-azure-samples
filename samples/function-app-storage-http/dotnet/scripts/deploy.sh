@@ -24,14 +24,7 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using func for LocalStack emulator environment."
-	FUNC="func"
-else
-	echo "Using standard func for AzureCloud environment."
-	FUNC="func"
-fi
+FUNC="func"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
