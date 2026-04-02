@@ -6,6 +6,10 @@ output "storage_account_name" {
   value = azurerm_storage_account.example.name
 }
 
+output "key_vault_name" {
+  value = azurerm_key_vault.example.name
+}
+
 output "acr_name" {
   value = data.azurerm_container_registry.example.name
 }
