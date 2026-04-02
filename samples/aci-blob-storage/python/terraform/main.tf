@@ -2,9 +2,13 @@
 locals {
   resource_group_name  = "${var.prefix}-aci-rg"
   storage_account_name = "${var.prefix}acistorage${var.suffix}"
+  key_vault_name       = "${var.prefix}acikv${var.suffix}"
   acr_name             = "${var.prefix}aciacr${var.suffix}"
   aci_group_name       = "${var.prefix}-aci-planner-${var.suffix}"
 }
+
+# Get the current client configuration (for tenant_id)
+data "azurerm_client_config" "current" {}
 
 # Create a resource group
 resource "azurerm_resource_group" "example" {
@@ -35,6 +39,30 @@ resource "azurerm_storage_container" "example" {
   name                  = var.blob_container_name
   storage_account_id    = azurerm_storage_account.example.id
   container_access_type = "private"
+}
+
+# Create Key Vault
+resource "azurerm_key_vault" "example" {
+  name                       = local.key_vault_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = azurerm_resource_group.example.location
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  enable_rbac_authorization  = true
+  tags                       = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      tags
+    ]
+  }
+}
+
+# Store the storage connection string in Key Vault
+resource "azurerm_key_vault_secret" "storage_conn" {
+  name         = "storage-conn"
+  value        = "DefaultEndpointsProtocol=http;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};BlobEndpoint=${azurerm_storage_account.example.primary_blob_endpoint}"
+  key_vault_id = azurerm_key_vault.example.id
 }
 
 # Reference the pre-created ACR (created by deploy.sh before terraform apply)
@@ -76,7 +104,7 @@ resource "azurerm_container_group" "example" {
     }
 
     secure_environment_variables = {
-      AZURE_STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=http;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};BlobEndpoint=${azurerm_storage_account.example.primary_blob_endpoint}"
+      AZURE_STORAGE_CONNECTION_STRING = azurerm_key_vault_secret.storage_conn.value
     }
   }
 
