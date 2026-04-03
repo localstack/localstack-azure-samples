@@ -46,12 +46,13 @@ public class HelloWorld
 
     private static readonly Random _random = new();
 
-    // Circular buffer storing the last 100 greetings
-    private const int MaxGreetingHistory = 100;
-    private static readonly string[] _greetingHistory = new string[MaxGreetingHistory];
-    private static int _greetingIndex = 0;
-    private static int _greetingCount = 0;
-    private static readonly object _greetingLock = new();
+    // Circular buffers for message history across all functions
+    private const int MaxHistory = 100;
+    private static readonly object _historyLock = new();
+    private static readonly CircularBuffer _requesterSent = new(MaxHistory);
+    private static readonly CircularBuffer _handlerReceived = new(MaxHistory);
+    private static readonly CircularBuffer _handlerSent = new(MaxHistory);
+    private static readonly CircularBuffer _consumerReceived = new(MaxHistory);
 
     // Static initialization - runs once per application lifetime
     private static readonly Lazy<bool> _initialized = new Lazy<bool>(() => { Initialize(); return true; });
@@ -116,7 +117,7 @@ public class HelloWorld
         }
     }
 
-        /// <summary>
+    /// <summary>
     /// Validates that all required configuration values are present and not empty.
     /// With default values in place, only the connection string is mandatory.
     /// </summary>
@@ -214,6 +215,12 @@ public class HelloWorld
 
         _logger.LogInformation("[GreetingHandler] Processing request for name: {name}", requestMessage.Name);
 
+        // Record received name in history
+        lock (_historyLock)
+        {
+            _handlerReceived.Add(requestMessage.Name);
+        }
+
         // Create the response message
         var greetingText = GetGreeting(requestMessage.Name);
         var outputObj = new ResponseMessage
@@ -287,6 +294,12 @@ public class HelloWorld
             _logger.LogInformation("[GreetingRequester] Sending message to input queue '{inputQueue}'...", _inputQueueName);
             await sender.SendMessageAsync(serviceBusMessage);
             _logger.LogInformation("[GreetingRequester] Successfully sent message to input queue '{inputQueue}' with name: {Name}", _inputQueueName, selectedName);
+
+            // Record sent name in history
+            lock (_historyLock)
+            {
+                _requesterSent.Add(selectedName);
+            }
         }
         catch (Exception ex)
         {
@@ -320,7 +333,7 @@ public class HelloWorld
         }
 
         try
-        {   
+        {
             // Create Service Bus client for receiving messages from the output queue
             _logger.LogInformation("[GreetingConsumer] Creating Service Bus client for receiving messages...");
             await using var client = _hasClientId && _hasFullyQualifiedNamespace
@@ -364,6 +377,12 @@ public class HelloWorld
 
                                 // Complete the message after successful processing
                                 await receiver.CompleteMessageAsync(receivedMessage);
+
+                                // Record received greeting in history
+                                lock (_historyLock)
+                                {
+                                    _consumerReceived.Add(responseMessage.Text);
+                                }
                             }
                             else
                             {
@@ -387,17 +406,18 @@ public class HelloWorld
             finally
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                try 
-                { 
-                    await receiver.CloseAsync(cts.Token); 
+                try
+                {
+                    await receiver.CloseAsync(cts.Token);
                 }
                 catch
                 { /* timeout or error on close */ }
-                    try 
-                    { 
-                        await client.DisposeAsync(); 
-                    }
-                    catch { /* benign */ 
+                try
+                {
+                    await client.DisposeAsync();
+                }
+                catch
+                { /* benign */
                 }
             }
         }
@@ -421,12 +441,9 @@ public class HelloWorld
         var template = _greetingTemplates[_random.Next(_greetingTemplates.Length)];
         var greeting = string.Format(template, name);
 
-        lock (_greetingLock)
+        lock (_historyLock)
         {
-            _greetingHistory[_greetingIndex] = greeting;
-            _greetingIndex = (_greetingIndex + 1) % MaxGreetingHistory;
-            if (_greetingCount < MaxGreetingHistory)
-                _greetingCount++;
+            _handlerSent.Add(greeting);
         }
 
         return greeting;
@@ -444,30 +461,65 @@ public class HelloWorld
         [HttpTrigger(AuthorizationLevel.Function, "get", Route = "greetings")] HttpRequestData request,
         int count = 20)
     {
-        _logger.LogInformation("[GetGreetings] Retrieving last {count} greetings.", count);
+        _logger.LogInformation("[GetGreetings] Retrieving last {count} entries.", count);
 
         // Clamp count to valid range
         if (count < 1) count = 1;
-        if (count > MaxGreetingHistory) count = MaxGreetingHistory;
+        if (count > MaxHistory) count = MaxHistory;
 
-        string[] result;
-        lock (_greetingLock)
+        object history;
+        lock (_historyLock)
         {
-            var available = Math.Min(count, _greetingCount);
-            result = new string[available];
-
-            // Read backwards from the most recent entry
-            for (int i = 0; i < available; i++)
+            history = new
             {
-                var idx = (_greetingIndex - 1 - i + MaxGreetingHistory) % MaxGreetingHistory;
-                result[i] = _greetingHistory[idx];
-            }
+                requester = new
+                {
+                    sent = _requesterSent.ToArray(count)
+                },
+                handler = new
+                {
+                    received = _handlerReceived.ToArray(count),
+                    sent = _handlerSent.ToArray(count)
+                },
+                consumer = new
+                {
+                    received = _consumerReceived.ToArray(count)
+                }
+            };
         }
 
         var response = request.CreateResponse(HttpStatusCode.OK);
         response.Headers.Add("Content-Type", "application/json");
-        await response.WriteStringAsync(JsonSerializer.Serialize(result));
+        await response.WriteStringAsync(JsonSerializer.Serialize(history));
         return response;
+    }
+
+    private sealed class CircularBuffer
+    {
+        private readonly string[] _items;
+        private int _index;
+        private int _count;
+
+        public CircularBuffer(int capacity) => _items = new string[capacity];
+
+        public void Add(string item)
+        {
+            _items[_index] = item;
+            _index = (_index + 1) % _items.Length;
+            if (_count < _items.Length) _count++;
+        }
+
+        public string[] ToArray(int count)
+        {
+            var available = Math.Min(count, _count);
+            var result = new string[available];
+            for (int i = 0; i < available; i++)
+            {
+                var idx = (_index - available + i + _items.Length) % _items.Length;
+                result[i] = _items[idx];
+            }
+            return result;
+        }
     }
 }
 
