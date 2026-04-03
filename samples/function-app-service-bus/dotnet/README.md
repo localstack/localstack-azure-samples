@@ -81,7 +81,99 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 ## Test
 
-Once the resources and function app have been deployed, you can use the [call-http-trigger.sh](./scripts/call-http-trigger.sh) Bash script to invoke the **GetGreetings** HTTP-triggered function. This function returns the most recent greetings stored in the in-memory circular buffer, allowing you to verify that the entire message pipeline is working end to end.
+Once the resources and function app have been deployed, you can use the [call-http-trigger.sh](./scripts/call-http-trigger.sh) Bash script to invoke the **GetGreetings** HTTP-triggered function. This function returns the most recent greetings stored in the in-memory circular buffer, allowing you to verify that the entire message pipeline is working end to end. The output should look like this:
+
+```bash
+Getting function app name...
+Function app [local-func-test] successfully retrieved.
+Getting resource group name for function app [local-func-test]...
+Resource group [local-rg] successfully retrieved.
+Getting the default host name of the function app [local-func-test]...
+Function app default host name [local-func-test.azurewebsites.azure.localhost.localstack.cloud:4566] successfully retrieved.
+Finding container name with prefix [ls-local-func-test]...
+Looking for containers with names starting with [ls-local-func-test]...
+Found matching container [ls-local-func-test-tdkqjh]
+Container [ls-local-func-test-tdkqjh] found successfully
+Getting IP address for container [ls-local-func-test-tdkqjh]...
+IP address [172.17.0.7] retrieved successfully for container [ls-local-func-test-tdkqjh]
+Getting the host port mapped to internal port 80 in container [ls-local-func-test-tdkqjh]...
+Mapped host port [42330] retrieved successfully for container [ls-local-func-test-tdkqjh]
+Calling HTTP trigger function to retrieve the last [10] greetings via emulator...
+{
+  "requester": {
+    "sent": [
+      "Paolo",
+      "Max"
+    ]
+  },
+  "handler": {
+    "received": [
+      "Paolo",
+      "Max"
+    ],
+    "sent": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  },
+  "consumer": {
+    "received": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  }
+}
+Calling HTTP trigger function to retrieve the last [10] greetings via container IP address [172.17.0.7]...
+{
+  "requester": {
+    "sent": [
+      "Paolo",
+      "Max"
+    ]
+  },
+  "handler": {
+    "received": [
+      "Paolo",
+      "Max"
+    ],
+    "sent": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  },
+  "consumer": {
+    "received": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  }
+}
+Calling HTTP trigger function to retrieve the last [10] greetings via host port [42330]...
+{
+  "requester": {
+    "sent": [
+      "Paolo",
+      "Max"
+    ]
+  },
+  "handler": {
+    "received": [
+      "Paolo",
+      "Max"
+    ],
+    "sent": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  },
+  "consumer": {
+    "received": [
+      "Welcome Paolo, glad you're here!",
+      "Salutations Max, how's everything going?"
+    ]
+  }
+}
+```
 
 You can also inspect the function app's runtime behavior by viewing the logs of its Docker container. Run `docker logs ls-local-func-test-xxxxxx` (replacing `xxxxxx` with the actual container suffix) to see output similar to the following:
 
