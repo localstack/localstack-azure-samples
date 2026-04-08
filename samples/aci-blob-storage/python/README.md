@@ -27,13 +27,12 @@ The following diagram illustrates the architecture of the solution:
 ## Quick Start
 
 ```bash
-# Start LocalStack Azure
+# Start the LocalStack Azure emulator
 IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
 localstack wait -t 60
 
-# Login
-azlocal login
-azlocal start_interception
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 
 # Deploy all services
 cd python

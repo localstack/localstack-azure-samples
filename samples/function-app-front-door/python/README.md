@@ -62,12 +62,26 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
 
 ## Quick Start
 
-1. **Deploy against real Azure** (eastus by default):
+1. 
+
+## Quick Start
+
+1. **Start the LocalStack Azure emulator**
+  ```bash
+  # Start the LocalStack Azure emulator
+  IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+  localstack wait -t 60
+
+  # Route all Azure CLI calls to the LocalStack Azure emulator
+  azlocal start-interception
+  ```
+
+2. **Deploy against real Azure** (eastus by default):
    ```bash
    bash ./scripts/deploy_all.sh --name-prefix mydemo
    ```
 
-2. **Deploy against LocalStack emulator**:
+3. **Deploy against LocalStack emulator**:
    ```bash
    bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack
    ```
