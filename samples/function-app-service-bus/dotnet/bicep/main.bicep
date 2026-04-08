@@ -354,7 +354,7 @@ module network 'modules/virtual-network.bicep' = {
     functionAppSubnetName: functionAppSubnetName
     functionAppSubnetAddressPrefix: functionAppSubnetAddressPrefix
     functionAppSubnetNsgName: empty(functionAppSubnetNsgName)
-      ? toLower('${prefix}-webapp-subnet-nsg-${suffix}')
+      ? toLower('${prefix}-func-subnet-nsg-${suffix}')
       : functionAppSubnetNsgName
     peSubnetName: peSubnetName
     peSubnetAddressPrefix: peSubnetAddressPrefix
