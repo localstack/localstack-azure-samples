@@ -273,13 +273,13 @@ variable "vnet_address_space" {
   type        = list(string)
 }
 
-variable "webapp_subnet_name" {
+variable "func_subnet_name" {
   description = "Specifies the name of the web app subnet."
   default     = "app-subnet"
   type        = string
 }
 
-variable "webapp_subnet_address_prefix" {
+variable "func_subnet_address_prefix" {
   description = "Specifies the address prefix of the web app subnet."
   default     = ["10.0.0.0/24"]
   type        = list(string)
