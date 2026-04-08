@@ -11,10 +11,11 @@ locals {
   blob_storage_private_endpoint_name  = "${local.prefix}-blob-storage-pe-${local.suffix}"
   queue_storage_private_endpoint_name = "${local.prefix}-queue-storage-pe-${local.suffix}"
   table_storage_private_endpoint_name = "${local.prefix}-table-storage-pe-${local.suffix}"
-  network_security_group_name         = "${local.prefix}-default-nsg-${local.suffix}"
+  func_subnet_nsg_name                = "${local.prefix}-func-subnet-nsg-${local.suffix}"
+  pe_subnet_nsg_name                  = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
   cosmosdb_account_name               = "${local.prefix}-mongodb-${local.suffix}"
   service_bus_namespace_name          = "${local.prefix}-service-bus-${local.suffix}"
-  app_service_plan_name               = "${local.prefix}-app-service-plan-${local.suffix}"
+  app_service_plan_name               = "${local.prefix}-plan-${local.suffix}"
   function_app_name                   = "${local.prefix}-func-${local.suffix}"
   application_insights_name           = "${local.prefix}-func-${local.suffix}"
   managed_identity_name               = "${local.prefix}-identity-${local.suffix}"
@@ -53,8 +54,8 @@ module "virtual_network" {
 
   subnets = [
     {
-      name : var.webapp_subnet_name
-      address_prefixes : var.webapp_subnet_address_prefix
+      name : var.func_subnet_name
+      address_prefixes : var.func_subnet_address_prefix
       private_endpoint_network_policies : "Enabled"
       private_link_service_network_policies_enabled : false
       delegation : "Microsoft.Web/serverFarms"
@@ -64,24 +65,34 @@ module "virtual_network" {
       address_prefixes : var.pe_subnet_address_prefix
       private_endpoint_network_policies : "Enabled"
       private_link_service_network_policies_enabled : false
-      delegation : null
     }
   ]
 }
 
-# Create a network security group and associate it with both subnets
-module "network_security_group" {
+# Create a network security group and associate it with the function app subnet
+module "func_subnet_network_security_group" {
   source                     = "./modules/network_security_group"
-  name                       = local.network_security_group_name
+  name                       = local.func_subnet_nsg_name
   resource_group_name        = azurerm_resource_group.example.name
   location                   = var.location
   log_analytics_workspace_id = module.log_analytics_workspace.id
   tags                       = var.tags
   subnet_ids = {
-    (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
+    (var.func_subnet_name) = module.virtual_network.subnet_ids[var.func_subnet_name]
+  }
+}
+
+# Create a network security group and associate it with the private endpoint subnet
+module "pe_subnet_network_security_group" {
+  source                     = "./modules/network_security_group"
+  name                       = local.pe_subnet_nsg_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = var.location
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
+  subnet_ids = {
     (var.pe_subnet_name)     = module.virtual_network.subnet_ids[var.pe_subnet_name]
   }
-
 }
 
 # Create a NAT gateway and associate it with the default subnet
@@ -94,7 +105,7 @@ module "nat_gateway" {
   idle_timeout_in_minutes = var.nat_gateway_idle_timeout_in_minutes
   zones                   = var.nat_gateway_zones
   subnet_ids = {
-    (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
+    (var.func_subnet_name) = module.virtual_network.subnet_ids[var.func_subnet_name]
   }
   tags = var.tags
 }
@@ -306,7 +317,7 @@ module "function_app" {
   storage_account_name          = module.storage_account.name
   storage_account_access_key    = module.storage_account.primary_access_key
   https_only                    = var.https_only
-  virtual_network_subnet_id     = module.virtual_network.subnet_ids[var.webapp_subnet_name]
+  virtual_network_subnet_id     = module.virtual_network.subnet_ids[var.func_subnet_name]
   vnet_route_all_enabled        = true
   public_network_access_enabled = var.public_network_access_enabled
   always_on                     = var.always_on
