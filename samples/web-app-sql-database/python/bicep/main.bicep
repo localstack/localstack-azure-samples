@@ -323,6 +323,7 @@ var sqlServerName = '${prefix}-sqlserver-${suffix}'
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var keyVaultName = '${prefix}-kv-${suffix}'
+var certificateName = '${prefix}-cert-${suffix}'
 var sqlConnectionStringSecretName = 'sql-connection-string'
 var identity = {
     type: 'SystemAssigned'
@@ -478,6 +479,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     KEY_VAULT_NAME: keyVaultName
     SECRET_NAME: sqlConnectionStringSecretName
     LOGIN_NAME: username
+    KEYVAULT_URI: keyVault.properties.vaultUri
   }
 }
 

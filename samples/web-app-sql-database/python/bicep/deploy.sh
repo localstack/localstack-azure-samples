@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX='cayado'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="$PREFIX-webapp-sql-rg"
+RESOURCE_GROUP_NAME="$PREFIX-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -295,7 +295,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py activities.py certificates.py database.py static templates requirements.txt
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
