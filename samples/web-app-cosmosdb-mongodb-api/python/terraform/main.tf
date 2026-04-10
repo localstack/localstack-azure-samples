@@ -4,10 +4,12 @@ locals {
   suffix                      = lower(var.suffix)
   resource_group_name         = "${var.prefix}-rg"
   log_analytics_name          = "${local.prefix}-log-analytics-${local.suffix}"
+  storage_account_name        = "${local.prefix}datastore${local.suffix}"
   virtual_network_name        = "${local.prefix}-vnet-${local.suffix}"
   nat_gateway_name            = "${local.prefix}-nat-gateway-${local.suffix}"
   private_endpoint_name       = "${local.prefix}-mongodb-pe-${local.suffix}"
-  network_security_group_name = "${local.prefix}-default-nsg-${local.suffix}"
+  webapp_subnet_nsg_name      = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
+  pe_subnet_nsg_name          = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
   cosmosdb_account_name       = "${local.prefix}-mongodb-${local.suffix}"
   app_service_plan_name       = "${local.prefix}-app-service-plan-${local.suffix}"
   web_app_name                = "${local.prefix}-webapp-${local.suffix}"
@@ -61,10 +63,10 @@ module "virtual_network" {
   ]
 }
 
-# Create a network security group and associate it with the default subnet
-module "network_security_group" {
+# Create a network security group and associate it with the webapp subnet
+module "webapp_subnet_network_security_group" {
   source                     = "./modules/network_security_group"
-  name                       = local.network_security_group_name
+  name                       = local.webapp_subnet_nsg_name
   resource_group_name        = azurerm_resource_group.example.name
   location                   = var.location
   log_analytics_workspace_id = module.log_analytics_workspace.id
@@ -72,10 +74,22 @@ module "network_security_group" {
   subnet_ids = {
     (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
   }
-
 }
 
-# Create a NAT gateway and associate it with the default subnet
+# Create a network security group and associate it with the private endpoint subnet
+module "pe_subnet_network_security_group" {
+  source                     = "./modules/network_security_group"
+  name                       = local.pe_subnet_nsg_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = var.location
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
+  subnet_ids = {
+    (var.pe_subnet_name)     = module.virtual_network.subnet_ids[var.pe_subnet_name]
+  }
+}
+
+# Create a NAT gateway and associate it with the webapp subnet
 module "nat_gateway" {
   source                  = "./modules/nat_gateway"
   name                    = local.nat_gateway_name
