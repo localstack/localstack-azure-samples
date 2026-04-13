@@ -323,8 +323,7 @@ var sqlServerName = '${prefix}-sqlserver-${suffix}'
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var keyVaultName = '${prefix}-kv-${suffix}'
-var certificateName = '${prefix}-cert-${suffix}'
-var sqlConnectionStringSecretName = 'sql-connection-string'
+var sqlConnectionStringSecretName = '${prefix}-secret-${suffix}'
 var identity = {
     type: 'SystemAssigned'
   }
