@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    runs-on: github-ubuntu2204-amd64-4
+    runs-on: ubuntu-22.04
 
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
