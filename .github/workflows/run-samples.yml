@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    runs-on: github-ubuntu2204-amd64-4
+    runs-on: ubuntu-22.04
 
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
@@ -163,6 +163,7 @@ jobs:
         # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to
         # initialize and verify the database schema in the local emulator.
         run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
           curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
           sudo apt-get update
