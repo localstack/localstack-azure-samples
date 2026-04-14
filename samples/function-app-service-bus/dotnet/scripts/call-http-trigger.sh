@@ -117,7 +117,7 @@ call_http_trigger_function() {
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	greeting_count=10
+	greeting_count=100
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
@@ -137,15 +137,12 @@ call_http_trigger_function() {
 		exit 1
 	fi
 
-	# Retrieve LocalStack proxy port
-	proxy_port=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
-
-	if [ -n "$proxy_port" ]; then
-		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via emulator
-		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via emulator..."
-		curl --proxy "http://localhost:$proxy_port/" -s "http://$function_host_name/api/greetings?count=$greeting_count" | jq
+	if [ -n "$function_host_name" ]; then
+		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via the function hostname
+		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via function hostname [$function_host_name]..."
+		curl -s "http://$function_host_name/api/greetings?count=$greeting_count" | jq
 	else
-		echo "Failed to retrieve LocalStack proxy port"
+		echo "Failed to retrieve function hostname"
 	fi
 
 	if [ -n "$container_ip" ]; then
