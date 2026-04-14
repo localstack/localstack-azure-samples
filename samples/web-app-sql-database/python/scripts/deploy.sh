@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='babo'
+PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
