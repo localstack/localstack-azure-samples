@@ -49,10 +49,23 @@ PE_NAMES=(
 	"${PREFIX}-queue-storage-pe-${SUFFIX}"
 	"${PREFIX}-table-storage-pe-${SUFFIX}"
 )
-PE_GROUP_IDS=("namespace" "blob" "queue" "table")
-PE_CONNECTION_NAMES=("servicebus-connection" "blob-connection" "queue-connection" "table-connection")
-PE_DNS_ZONES=("privatelink.servicebus.windows.net" "privatelink.blob.core.windows.net" "privatelink.queue.core.windows.net" "privatelink.table.core.windows.net")
-PE_DNS_ZONE_LABELS=("servicebus-zone" "blob-zone" "queue-zone" "table-zone")
+PE_GROUP_IDS=(
+	"namespace" 
+	"blob" "queue" 
+	"table"
+)
+PE_CONNECTION_NAMES=(
+	"servicebus-connection"
+	"blob-connection"
+	"queue-connection"
+	"table-connection"
+)
+PE_DNS_ZONES=(
+	"privatelink.servicebus.windows.net"
+	"privatelink.blob.core.windows.net"
+	"privatelink.queue.core.windows.net"
+	"privatelink.table.core.windows.net"
+)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -640,7 +653,6 @@ for i in "${!PE_NAMES[@]}"; do
 	PE_RESOURCE_ID="${PE_RESOURCE_IDS[$i]}"
 	PE_CONNECTION="${PE_CONNECTION_NAMES[$i]}"
 	PE_DNS_ZONE="${PE_DNS_ZONES[$i]}"
-	PE_DNS_ZONE_LABEL="${PE_DNS_ZONE_LABELS[$i]}"
 
 	# Check if the private endpoint already exists
 	echo "Checking if private endpoint [$PE_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -679,15 +691,15 @@ for i in "${!PE_NAMES[@]}"; do
 
 	# Check if the private DNS zone group is already created
 	echo "Checking if the private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint already exists..."
-	az network private-endpoint dns-zone-group show \
+	NAME=$(az network private-endpoint dns-zone-group show \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--endpoint-name "$PE_NAME" \
 		--name "$PRIVATE_DNS_ZONE_GROUP_NAME" \
 		--query name \
 		--output tsv \
-		--only-show-errors &>/dev/null
+		--only-show-errors) 
 
-	if [[ $? != 0 ]]; then
+	if [[ -z $NAME ]]; then
 		echo "No private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint actually exists"
 		echo "Creating private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint..."
 
@@ -697,7 +709,7 @@ for i in "${!PE_NAMES[@]}"; do
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--endpoint-name "$PE_NAME" \
 			--private-dns-zone "$PE_DNS_ZONE" \
-			--zone-name "$PE_DNS_ZONE_LABEL" \
+			--zone-name "$PE_DNS_ZONE" \
 			--only-show-errors 1>/dev/null
 
 		if [[ $? == 0 ]]; then
@@ -714,26 +726,6 @@ done
 if [ $DEPLOY -eq 0 ]; then
 	echo "Deployment flag is not set. Exiting deployment script."
 	exit 0
-fi
-
-# Check if the application insights az extension is already installed
-echo "Checking if [application-insights] az extension is already installed..."
-az extension show --name application-insights &>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[application-insights] az extension is already installed"
-else
-	echo "[application-insights] az extension is not installed. Installing..."
-
-	# Install application-insights az extension
-	az extension add --name application-insights 1>/dev/null
-
-	if [[ $? == 0 ]]; then
-		echo "[application-insights] az extension successfully installed"
-	else
-		echo "Failed to install [application-insights] az extension"
-		exit
-	fi
 fi
 
 # Check if the application insights component already exists
@@ -1061,7 +1053,7 @@ if ! az appservice plan show \
 		--name $APP_SERVICE_PLAN_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
-		--sku B1 \
+		--sku S1 \
 		--is-linux \
 		--tags $TAGS \
 		--only-show-errors 1>/dev/null; then
@@ -1162,6 +1154,7 @@ az functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
+	APPLICATIONINSIGHTS_AUTHENTICATION_STRING="ClientId=${CLIENT_ID};Authorization=AAD" \
 	AZURE_CLIENT_ID="$CLIENT_ID" \
 	SCM_DO_BUILD_DURING_DEPLOYMENT=false \
 	FUNCTIONS_WORKER_RUNTIME=${RUNTIME,,} \

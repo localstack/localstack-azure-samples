@@ -181,6 +181,20 @@ call_web_app() {
 		echo "Failed to retrieve host port"
 	fi
 
+	if [ -n "$app_host_name" ]; then
+		# Call the web app via the default hostname
+		echo "Calling web app [$web_app_name] via default hostname [$app_host_name]..."
+		curl -s "http://$app_host_name/" 1> /dev/null
+
+		if [ $? == 0 ]; then
+			echo "Web app call via default hostname [$app_host_name] succeeded."
+		else
+			echo "Web app call via default hostname [$app_host_name] failed."
+		fi
+	else
+		echo "Failed to retrieve web app hostname"
+	fi
+
 	echo "Validating certificate from Key Vault..."
 	KV_RESPONSE=$(curl -sk "https://$container_ip:8443/api/certificate")
 	KV_THUMBPRINT=$(echo "$KV_RESPONSE" | jq -r '.thumbprint')

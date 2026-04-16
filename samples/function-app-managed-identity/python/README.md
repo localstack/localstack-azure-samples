@@ -86,7 +86,7 @@ All deployment methods have been fully tested with both user-assigned and system
 
 ## Test
 
-Once the resources and serverless application have been deployed, you can use the `test.sh` script below to copy a sample file to the `input` container and monitor whether the Azure Functions App processes the input blob file and generates a result file in the `output` container. 
+Once the resources and serverless application have been deployed, you can use the [test.sh](./scripts/test.sh) script below to copy a sample file to the `input` container and monitor whether the Azure Functions App processes the input blob file and generates a result file in the `output` container. 
 
 ```bash
 #!/bin/bash
