@@ -138,19 +138,16 @@ call_http_trigger_functions() {
 		exit 1
 	fi
 
-	# Retrieve LocalStack proxy port
-	proxy_port=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
+	if [ -n "$function_host_name" ]; then
+		# Call the GET HTTP trigger function that returns a player status in a specified game session via the function hostname
+		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via function hostname [$function_host_name]..."
+		curl  -s "http://$function_host_name/api/player/$game_session/$player_name/status" | jq
 
-	if [ -n "$proxy_port" ]; then
-		# Call the GET HTTP trigger function that returns a player status in a specified game session via emulator
-		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via emulator..."
-		curl  --proxy "http://localhost:$proxy_port/" -s "http://$function_host_name/api/player/$game_session/$player_name/status" | jq
-
-		# Call the POST HTTP trigger function that returns the game session details via emulator
-		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via emulator..."
-		curl --proxy "http://localhost:$proxy_port/" -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$function_host_name/api/game/session" | jq
+		# Call the POST HTTP trigger function that returns the game session details via the function hostname
+		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via function hostname [$function_host_name]..."
+		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$function_host_name/api/game/session" | jq
 	else
-		echo "Failed to retrieve LocalStack proxy port"
+		echo "Failed to retrieve function hostname"
 	fi
 	
 	if [ -n "$container_ip" ]; then
@@ -174,7 +171,7 @@ call_http_trigger_functions() {
 		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via host port [$host_port]..."
 		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://localhost:$host_port/api/game/session" | jq
 	else
-		echo "Failed to retrieve container IP address"
+		echo "Failed to retrieve host port"
 	fi
 }
 

@@ -181,20 +181,18 @@ call_web_app() {
 		echo "Failed to retrieve host port"
 	fi
 
-	gateway_port=4566
-
-	if [ -n "$gateway_port" ]; then
-		# Call the web app via the runtime gateway
-		echo "Calling web app [$web_app_name] via runtime gateway on port [$gateway_port]..."
-		curl -s "http://${web_app_name}website.localhost.localstack.cloud:$gateway_port/" 1> /dev/null
+	if [ -n "$app_host_name" ]; then
+		# Call the web app via the default hostname
+		echo "Calling web app [$web_app_name] via default hostname [$app_host_name]..."
+		curl -s "http://$app_host_name/" 1> /dev/null
 
 		if [ $? == 0 ]; then
-			echo "Web app call via runtime gateway on port [$gateway_port] succeeded."
+			echo "Web app call via default hostname [$app_host_name] succeeded."
 		else
-			echo "Web app call via runtime gateway on port [$gateway_port] failed."
+			echo "Web app call via default hostname [$app_host_name] failed."
 		fi
 	else
-		echo "Failed to retrieve runtime gateway port"
+		echo "Failed to retrieve web app hostname"
 	fi
 }
 
