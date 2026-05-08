@@ -219,4 +219,4 @@ You can also inspect the function app's runtime behavior by viewing the logs of 
 
 - [Azure Functions Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
 - [Azure Service Bus](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview)
-- [LocalStack for Azure](https://azure.localstack.cloud/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)

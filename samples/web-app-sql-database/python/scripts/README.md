@@ -6,7 +6,7 @@ This directory includes Bash scripts designed for deploying and testing the samp
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
@@ -133,4 +133,4 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

@@ -76,7 +76,7 @@ Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./doc
 
 ## Documentation
 
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
 - [Azure CLI with LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/)
 - [Supported Azure Services](https://azure.localstack.cloud/references/coverage/)
 

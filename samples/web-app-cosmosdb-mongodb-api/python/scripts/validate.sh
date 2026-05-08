@@ -5,14 +5,14 @@ PREFIX='local'
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-WEBAPP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
+WEB_APP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
 PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
 NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 VIRTUAL_NETWORK_NAME="${PREFIX}-vnet-${SUFFIX}"
 PRIVATE_DNS_ZONE_NAME="privatelink.mongo.cosmos.azure.com"
 PRIVATE_ENDPOINT_NAME="${PREFIX}-mongodb-pe-${SUFFIX}"
 APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
-WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
 MONGODB_DATABASE_NAME="sampledb"
 COLLECTION_NAME="activities"
@@ -32,9 +32,9 @@ az appservice plan show \
 	--only-show-errors
 
 # Check Azure Web App
-echo -e "\n[$WEBAPP_NAME] web app:\n"
+echo -e "\n[$WEB_APP_NAME] web app:\n"
 az webapp show \
-	--name "$WEBAPP_NAME" \
+	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors
@@ -111,9 +111,9 @@ az network private-endpoint show \
 	--only-show-errors
 
 # Check Web App Subnet NSG
-echo -e "\n[$WEBAPP_SUBNET_NSG_NAME] network security group:\n"
+echo -e "\n[$WEB_APP_SUBNET_NSG_NAME] network security group:\n"
 az network nsg show \
-	--name "$WEBAPP_SUBNET_NSG_NAME" \
+	--name "$WEB_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--output table \
 	--only-show-errors

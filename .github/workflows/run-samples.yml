@@ -157,7 +157,20 @@ jobs:
 
       - name: Install Azure Functions Core Tools
         # Required for publishing function app samples to the emulator.
-        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+        run: |
+          MAX_RETRIES=3
+          DELAY=15
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+            npm install -g azure-functions-core-tools@4 --unsafe-perm true && break
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "All $MAX_RETRIES attempts failed"
+              exit 1
+            fi
+            echo "Retrying in ${DELAY}s..."
+            sleep $DELAY
+            DELAY=$((DELAY * 2))
+          done
 
       - name: Install MSSQL ODBC and Tools
         # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to

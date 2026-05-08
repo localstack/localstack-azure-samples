@@ -6,7 +6,7 @@ This folder contains Bash scripts for deploying an Azure Functions application w
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [.NET SDK](https://dotnet.microsoft.com/en-us/download): Required for building and publishing the C# Azure Functions application
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
@@ -199,4 +199,4 @@ This will remove all Azure resources created by the CLI deployment script.
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
 - [Azure Functions CLI Documentation](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)
 - [Azure Functions Methods Documentation](../src/sample/Methods.md) - Detailed documentation of all implemented functions
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

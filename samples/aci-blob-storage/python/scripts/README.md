@@ -4,7 +4,7 @@ This directory includes Bash scripts for deploying and testing the ACI Vacation 
 
 ## Prerequisites
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
 - [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
@@ -48,4 +48,4 @@ bash scripts/cleanup.sh
 ## Related Documentation
 
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

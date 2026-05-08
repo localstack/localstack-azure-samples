@@ -3,8 +3,8 @@ set -euo pipefail
 
 PREFIX='local'
 SUFFIX='test'
-RESOURCE_GROUP_NAME="${PREFIX}-custom-image-rg"
-WEB_APP_NAME="${PREFIX}-custom-image-webapp-${SUFFIX}"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 
 get_docker_container_name_by_prefix() {
 	local app_prefix="$1"

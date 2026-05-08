@@ -310,7 +310,7 @@ variable "nat_gateway_zones" {
   default     = ["1"]
 }
 
-variable "website_port" {
+variable "websites_port" {
   description = "(Optional) Specifies the port on which the Web App will listen. Defaults to 8000."
   type        = number
   default     = 8000
