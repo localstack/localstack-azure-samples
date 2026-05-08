@@ -10,7 +10,6 @@ Before deploying this solution, ensure you have the following tools installed:
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack and building the custom image
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
 - [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
-- [Python](https://www.python.org/downloads/): Python runtime (version 3.12 or above)
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
 ### Installing azlocal CLI
