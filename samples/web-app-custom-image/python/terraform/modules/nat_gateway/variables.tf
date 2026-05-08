@@ -49,7 +49,7 @@ variable "public_ip_prefix_name" {
 }
 
 variable "public_ip_prefix_length" {
-  description = "(Required) The length of the public IP prefix to create and associate with the NAT Gateway. Must be between 28 and 30."
+  description = "(Required) The length of the public IP prefix to create and associate with the NAT Gateway. Must be between 28 and 31."
   type        = number
   default     = 31
 }

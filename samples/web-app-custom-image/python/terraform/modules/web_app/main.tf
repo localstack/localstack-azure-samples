@@ -9,9 +9,12 @@ resource "azurerm_linux_web_app" "example" {
   client_affinity_enabled       = false
   tags                          = var.tags
 
-  identity {
-    type         = "UserAssigned"
-    identity_ids = var.managed_identity_id != null ? [var.managed_identity_id] : []
+  dynamic "identity" {
+    for_each = var.managed_identity_id != null ? [1] : []
+    content {
+      type         = "UserAssigned"
+      identity_ids = [var.managed_identity_id]
+    }
   }
 
   site_config {
