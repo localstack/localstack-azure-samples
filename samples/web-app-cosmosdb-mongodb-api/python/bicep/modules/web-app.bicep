@@ -179,7 +179,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     COSMOSDB_CONNECTION_STRING: account.listConnectionStrings().connectionStrings[0].connectionString
     COSMOSDB_DATABASE_NAME: databaseName
     COSMOSDB_COLLECTION_NAME: collectionName
-    WEBSITE_PORT: '8000'
+    WEBSITES_PORT: '8000'
     LOGIN_NAME: username
   }
 }

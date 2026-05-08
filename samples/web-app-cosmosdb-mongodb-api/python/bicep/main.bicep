@@ -269,6 +269,7 @@ param tags object = {
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var accountName = '${prefix}-mongodb-${suffix}'
+var privateDnsZoneName = 'privatelink.mongo.cosmos.azure.com'
 
 //********************************************
 // Modules and Resources
@@ -332,7 +333,7 @@ module network 'modules/virtual-network.bicep' = {
 module privateDnsZone 'modules/private-dns-zone.bicep' = {
   name: 'privateDnsZone'
   params: {
-    name: 'privatelink.mongo.cosmos.azure.com'
+    name: privateDnsZoneName
     vnetId: network.outputs.virtualNetworkId
     tags: tags
   }

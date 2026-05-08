@@ -4,7 +4,7 @@ This directory contains Terraform modules and a deployment script for provisioni
 
 ## Prerequisites
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Terraform](https://developer.hashicorp.com/terraform/downloads): Infrastructure as Code tool
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
@@ -66,4 +66,4 @@ rm -rf .terraform terraform.tfstate terraform.tfstate.backup .terraform.lock.hcl
 ## Related Documentation
 
 - [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

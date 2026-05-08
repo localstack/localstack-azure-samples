@@ -12,7 +12,7 @@ def index():
     return render_template(
         "index.html",
         app_name=os.environ.get("APP_NAME", "Custom Image Web App"),
-        image_name=os.environ.get("IMAGE_NAME", "vacation-planner-webapp:v1"),
+        image_name=os.environ.get("IMAGE_NAME", "custom-image-webapp:v1"),
         hostname=socket.gethostname(),
     )
 
@@ -23,7 +23,7 @@ def status():
         {
             "status": "ok",
             "app": os.environ.get("APP_NAME", "Custom Image Web App"),
-            "image": os.environ.get("IMAGE_NAME", "vacation-planner-webapp:v1"),
+            "image": os.environ.get("IMAGE_NAME", "custom-image-webapp:v1"),
             "hostname": socket.gethostname(),
         }
     )

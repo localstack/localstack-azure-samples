@@ -133,7 +133,6 @@ call_web_app() {
 		echo "Mapped host port [$host_port] retrieved successfully for container [$container_name]"
 	else
 		echo "Failed to get mapped host port for container [$container_name]"
-		exit 1
 	fi
 
 	# Retrieve LocalStack proxy port
