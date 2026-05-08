@@ -7,14 +7,14 @@ LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
-WEBAPP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
+WEB_APP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
 PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
 NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 PIP_PREFIX_NAME="${PREFIX}-nat-gateway-pip-prefix-${SUFFIX}"
 VIRTUAL_NETWORK_NAME="${PREFIX}-vnet-${SUFFIX}"
 VIRTUAL_NETWORK_ADDRESS_PREFIX="10.0.0.0/8"
-WEBAPP_SUBNET_NAME="app-subnet"
-WEBAPP_SUBNET_PREFIX="10.0.0.0/24"
+WEB_APP_SUBNET_NAME="app-subnet"
+WEB_APP_SUBNET_PREFIX="10.0.0.0/24"
 PE_SUBNET_NAME="pe-subnet"
 PE_SUBNET_PREFIX="10.0.1.0/24"
 VIRTUAL_NETWORK_LINK_NAME="link-to-vnet"
@@ -24,7 +24,7 @@ PRIVATE_ENDPOINT_GROUP="mongodb"
 PRIVATE_DNS_ZONE_GROUP_NAME="default"
 APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
 APP_SERVICE_PLAN_SKU="S1"
-WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
 MONGODB_API_VERSION="7.0"
 MONGODB_DATABASE_NAME="sampledb"
@@ -37,7 +37,6 @@ RUNTIME_VERSION="3.13"
 LOGIN_NAME="paolo"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
-SUBSCRIPTION_ID=$(az account show --query id --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -199,46 +198,46 @@ else
 fi
 
 # Check if the network security group for the web app subnet already exists
-echo "Checking if [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
+echo "Checking if [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
 az network nsg show \
-	--name "$WEBAPP_SUBNET_NSG_NAME" \
+	--name "$WEB_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
-	echo "No [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group"
-	echo "Creating [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet..."
+	echo "No [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet..."
 
 	# Create the network security group for the web app subnet
 	az network nsg create \
-		--name "$WEBAPP_SUBNET_NSG_NAME" \
+		--name "$WEB_APP_SUBNET_NSG_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
 		--only-show-errors 1>/dev/null
 
 	if [[ $? == 0 ]]; then
-		echo "[$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+		echo "[$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
-		echo "Failed to create [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet in the [$RESOURCE_GROUP_NAME] resource group"
+		echo "Failed to create [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet in the [$RESOURCE_GROUP_NAME] resource group"
 		exit 1
 	fi
 else
-	echo "[$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet already exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "[$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
 # Get the resource id of the network security group for the web app subnet
-echo "Getting [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-WEBAPP_SUBNET_NSG_ID=$(az network nsg show \
-	--name "$WEBAPP_SUBNET_NSG_NAME" \
+echo "Getting [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet resource id in the [$RESOURCE_GROUP_NAME] resource group..."
+WEB_APP_SUBNET_NSG_ID=$(az network nsg show \
+	--name "$WEB_APP_SUBNET_NSG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
 	--output tsv \
 	--only-show-errors)
 
-if [[ -n $WEBAPP_SUBNET_NSG_ID ]]; then
-	echo "[$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet resource id retrieved successfully: $WEBAPP_SUBNET_NSG_ID"
+if [[ -n $WEB_APP_SUBNET_NSG_ID ]]; then
+	echo "[$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet resource id retrieved successfully: $WEB_APP_SUBNET_NSG_ID"
 else
-	echo "Failed to retrieve [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet resource id in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Failed to retrieve [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet resource id in the [$RESOURCE_GROUP_NAME] resource group"
 	exit 1
 fi
 
@@ -362,8 +361,8 @@ if [[ $? != 0 ]]; then
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
 		--address-prefixes "$VIRTUAL_NETWORK_ADDRESS_PREFIX" \
-		--subnet-name "$WEBAPP_SUBNET_NAME" \
-		--subnet-prefix "$WEBAPP_SUBNET_PREFIX" \
+		--subnet-name "$WEB_APP_SUBNET_NAME" \
+		--subnet-prefix "$WEB_APP_SUBNET_PREFIX" \
 		--only-show-errors 1>/dev/null
 
 	if [[ $? == 0 ]]; then
@@ -374,21 +373,21 @@ if [[ $? != 0 ]]; then
 	fi
 
 	# Update the web app subnet to associate it with the NAT Gateway and the NSG
-	echo "Associating [$WEBAPP_SUBNET_NAME] subnet with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEBAPP_SUBNET_NSG_NAME] network security group..."
+	echo "Associating [$WEB_APP_SUBNET_NAME] subnet with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEB_APP_SUBNET_NSG_NAME] network security group..."
 
 	# Update the web app subnet to associate it with the NAT Gateway and the NSG
 	az network vnet subnet update \
-		--name "$WEBAPP_SUBNET_NAME" \
+		--name "$WEB_APP_SUBNET_NAME" \
 		--vnet-name "$VIRTUAL_NETWORK_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--nat-gateway "$NAT_GATEWAY_NAME" \
-		--network-security-group "$WEBAPP_SUBNET_NSG_NAME" \
+		--network-security-group "$WEB_APP_SUBNET_NSG_NAME" \
 		--only-show-errors 1>/dev/null
 
 	if [[ $? == 0 ]]; then
-		echo "[$WEBAPP_SUBNET_NAME] subnet successfully associated with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEBAPP_SUBNET_NSG_NAME] network security group"
+		echo "[$WEB_APP_SUBNET_NAME] subnet successfully associated with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEB_APP_SUBNET_NSG_NAME] network security group"
 	else
-		echo "Failed to associate [$WEBAPP_SUBNET_NAME] subnet with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEBAPP_SUBNET_NSG_NAME] network security group"
+		echo "Failed to associate [$WEB_APP_SUBNET_NAME] subnet with the [$NAT_GATEWAY_NAME] NAT Gateway and the [$WEB_APP_SUBNET_NSG_NAME] network security group"
 		exit 1
 	fi
 else
@@ -604,58 +603,58 @@ else
 fi
 
 # Create the web app
-echo "Creating web app [$WEBAPP_NAME]..."
+echo "Creating web app [$WEB_APP_NAME]..."
 az webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
-	--name "$WEBAPP_NAME" \
+	--name "$WEB_APP_NAME" \
 	--runtime "$RUNTIME:$RUNTIME_VERSION" \
 	--vnet "$VIRTUAL_NETWORK_NAME" \
-	--subnet "$WEBAPP_SUBNET_NAME" \
+	--subnet "$WEB_APP_SUBNET_NAME" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app [$WEBAPP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] created successfully."
 else
-	echo "Failed to create web app [$WEBAPP_NAME]."
-	exit 1
-fi
-
-# Enabling
-echo "Enabling forced tunneling for web app [$WEBAPP_NAME] to route all outbound traffic through the virtual network..."
-
-az resource update \
-	--ids "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP_NAME/providers/Microsoft.Web/sites/$WEBAPP_NAME" \
-	--set properties.outboundVnetRouting.allTraffic=true \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Forced tunneling enabled for web app [$WEBAPP_NAME]."
-else
-	echo "Failed to enable forced tunneling for web app [$WEBAPP_NAME]."
+	echo "Failed to create web app [$WEB_APP_NAME]."
 	exit 1
 fi
 
 # Get the web app resource id
-echo "Getting [$WEBAPP_NAME] web app resource id in the [$RESOURCE_GROUP_NAME] resource group..."
-WEBAPP_ID=$(az webapp show \
-	--name "$WEBAPP_NAME" \
+echo "Getting [$WEB_APP_NAME] web app resource id in the [$RESOURCE_GROUP_NAME] resource group..."
+WEB_APP_ID=$(az webapp show \
+	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query id \
 	--output tsv \
 	--only-show-errors)
 
-if [[ -n $WEBAPP_ID ]]; then
-	echo "[$WEBAPP_NAME] web app resource id retrieved successfully: $WEBAPP_ID"
+if [[ -n $WEB_APP_ID ]]; then
+	echo "[$WEB_APP_NAME] web app resource id retrieved successfully: $WEB_APP_ID"
 else
-	echo "Failed to retrieve [$WEBAPP_NAME] web app resource id in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Failed to retrieve [$WEB_APP_NAME] web app resource id in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
+# Enabling forced tunneling for web app [$WEB_APP_NAME] to route all outbound traffic through the virtual network...
+echo "Enabling forced tunneling for web app [$WEB_APP_NAME] to route all outbound traffic through the virtual network..."
+
+az resource update \
+	--ids "$WEB_APP_ID" \
+	--set properties.outboundVnetRouting.allTraffic=true \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Forced tunneling enabled for web app [$WEB_APP_NAME]."
+else
+	echo "Failed to enable forced tunneling for web app [$WEB_APP_NAME]."
 	exit 1
 fi
 
 # Set web app settings
-echo "Setting web app settings for [$WEBAPP_NAME]..."
+echo "Setting web app settings for [$WEB_APP_NAME]..."
 az webapp config appsettings set \
-	--name $WEBAPP_NAME \
+	--name $WEB_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
@@ -664,13 +663,13 @@ az webapp config appsettings set \
 	COSMOSDB_DATABASE_NAME="$MONGODB_DATABASE_NAME" \
 	COSMOSDB_COLLECTION_NAME="$COLLECTION_NAME" \
 	LOGIN_NAME="$LOGIN_NAME" \
-	WEBSITE_PORT="8000" \
+	WEBSITES_PORT="8000" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app settings for [$WEBAPP_NAME] set successfully."
+	echo "Web app settings for [$WEB_APP_NAME] set successfully."
 else
-	echo "Failed to set web app settings for [$WEBAPP_NAME]."
+	echo "Failed to set web app settings for [$WEB_APP_NAME]."
 	exit 1
 fi
 
@@ -706,20 +705,20 @@ else
 fi
 
 # Check whether the diagnostic settings for the web app already exist
-echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app already exist..."
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist..."
 az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
-	--resource "$WEBAPP_ID" \
+	--resource "$WEB_APP_ID" \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app actually exist"
-	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app..."
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app..."
 
 	# Create the diagnostic settings for the web app to send logs to the Log Analytics workspace
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
-		--resource "$WEBAPP_ID" \
+		--resource "$WEB_APP_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
 		--logs '[
 			{"category": "AppServiceHTTPLogs", "enabled": true},
@@ -737,13 +736,13 @@ if [[ $? != 0 ]]; then
 
 
 	if [[ $? == 0 ]]; then	
-		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app successfully created"
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app successfully created"
 	else
-		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app"
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app"
 		exit 1
 	fi
 else
-	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_NAME] web app already exist"
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist"
 fi
 
 # Check whether the diagnostic settings for the app service plan already exist
@@ -847,20 +846,20 @@ else
 fi
 
 # Check whether the diagnostic settings for the network security group for the web app subnet already exist
-echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet already exist..."
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet already exist..."
 az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
-	--resource "$WEBAPP_SUBNET_NSG_ID" \
+	--resource "$WEB_APP_SUBNET_NSG_ID" \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet actually exist"
-	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet..."
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet..."
 
 	# Create the diagnostic settings for the network security group for the web app subnet to send logs to the Log Analytics workspace
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
-		--resource "$WEBAPP_SUBNET_NSG_ID" \
+		--resource "$WEB_APP_SUBNET_NSG_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
 		--logs '[
 			{"category": "NetworkSecurityGroupEvent", "enabled": true},
@@ -869,13 +868,13 @@ if [[ $? != 0 ]]; then
 		--only-show-errors 1>/dev/null
 
 	if [[ $? == 0 ]]; then
-		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet successfully created"
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet successfully created"
 	else
-		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet"
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet"
 		exit 1
 	fi
 else
-	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEBAPP_SUBNET_NSG_NAME] network security group for the web app subnet already exist"
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet already exist"
 fi
 
 # Check whether the diagnostic settings for the network security group for the private endpoint subnet already exist
@@ -927,11 +926,11 @@ echo "Contents of the zip package [$ZIPFILE]:"
 unzip -l "$ZIPFILE"
 
 # Deploy the web app
-echo "Deploying web app [$WEBAPP_NAME] with zip file [$ZIPFILE]..."
+echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
 echo "Using standard az webapp deploy command for AzureCloud environment."
 az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEBAPP_NAME" \
+	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \
 	--type zip \
 	--async true 1>/dev/null

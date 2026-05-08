@@ -41,7 +41,7 @@ The Vacation Planner Web App supports two common approaches for accessing Azure 
  - [AZURE_CLIENT_SECRET](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.environmentcredential): One of the service principal's client secrets.
  - [AZURE_TENANT_ID](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.environmentcredential): The Microsoft Entra Tenant ID.
 
-This flexibility allows the app to run securely in Azure or in emulated environments like [LocalStack for Azure](https://azure.localstack.cloud/). The client code supports both authentication modes using [`ClientSecretCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.clientsecretcredential?view=azure-python) or [`DefaultAzureCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python) from the Azure SDK.
+This flexibility allows the app to run securely in Azure or in emulated environments like [LocalStack for Azure](https://docs.localstack.cloud/azure/). The client code supports both authentication modes using [`ClientSecretCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.clientsecretcredential?view=azure-python) or [`DefaultAzureCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python) from the Azure SDK.
 
 ## Azure Key Vault Integration
 The application integrates with Azure Key Vault for managing secrets and certificates:
@@ -131,4 +131,4 @@ e844433e-f36b-1410-88e7-0034efb7413b paolo                            Go to Mexi
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
 - [pyodbc](https://github.com/mkleehammer/pyodbc)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
-- [LocalStack for Azure](https://azure.localstack.cloud/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)

@@ -321,12 +321,6 @@ variable "nat_gateway_zones" {
   default     = ["1"]
 }
 
-variable "website_port" {
-  description = "(Optional) Specifies the port on which the Web App will listen. Defaults to 8000."
-  type        = number
-  default     = 8000
-}
-
 variable "queue_names" {
   description = "(Optional) Specifies the names of the queues to be created within the Service Bus Namespace."
   type        = set(string)

@@ -75,4 +75,4 @@ You can utilize **CosmosDB Data Explorer** to explore and manage your CosmosDB d
 - [Azure CosmosDB Documentation](https://learn.microsoft.com/en-us/azure/cosmos-db/)
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
-- [LocalStack for Azure](https://azure.localstack.cloud/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)

@@ -115,4 +115,4 @@ You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/sto
 - [What is Azure Blob storage?](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-overview)
 - [What is managed identities for Azure resources?](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview)
 - [How managed identities for Azure resources work with Azure virtual machines](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-managed-identities-work-vm)
-- [LocalStack for Azure](https://azure.localstack.cloud/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)

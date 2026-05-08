@@ -4,7 +4,6 @@ locals {
   suffix                      = lower(var.suffix)
   resource_group_name         = "${var.prefix}-rg"
   log_analytics_name          = "${local.prefix}-log-analytics-${local.suffix}"
-  storage_account_name        = "${local.prefix}datastore${local.suffix}"
   virtual_network_name        = "${local.prefix}-vnet-${local.suffix}"
   nat_gateway_name            = "${local.prefix}-nat-gateway-${local.suffix}"
   private_endpoint_name       = "${local.prefix}-mongodb-pe-${local.suffix}"
@@ -189,6 +188,6 @@ module "web_app" {
     COSMOSDB_DATABASE_NAME         = module.cosmosdb_mongodb.database_name
     COSMOSDB_COLLECTION_NAME       = var.cosmosdb_collection_name
     LOGIN_NAME                     = var.login_name
-    WEBSITE_PORT                   = var.website_port
+    WEBSITES_PORT                   = var.websites_port
   }
 }
