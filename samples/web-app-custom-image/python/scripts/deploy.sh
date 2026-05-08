@@ -168,8 +168,7 @@ if [[ $? != 0 ]]; then
 	az identity create \
 		--name "$MANAGED_IDENTITY_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
-		--location "$LOCATION" \
-		--subscription "$SUBSCRIPTION_ID" 1>/dev/null
+		--location "$LOCATION" 1>/dev/null
 
 	if [[ $? == 0 ]]; then
 		echo "[$MANAGED_IDENTITY_NAME] user-assigned managed identity successfully created in the [$RESOURCE_GROUP_NAME] resource group"

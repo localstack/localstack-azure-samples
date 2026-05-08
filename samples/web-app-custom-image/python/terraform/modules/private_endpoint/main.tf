@@ -9,7 +9,7 @@ resource "azurerm_private_endpoint" "example" {
     name                           = "${var.name}Connection"
     private_connection_resource_id = var.private_connection_resource_id
     is_manual_connection           = var.is_manual_connection
-    subresource_names              = try([var.subresource_name], null)
+    subresource_names              = var.subresource_name != null ? [var.subresource_name] : null
     request_message                = try(var.request_message, null)
   }
 

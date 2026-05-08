@@ -28,7 +28,8 @@ The solution is composed of the following Azure resources:
 
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
-- [Docker](https://docs.docker.com/get-docker/)udio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
+- [Docker](https://docs.docker.com/get-docker/)
+- [Bicep](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 - [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
