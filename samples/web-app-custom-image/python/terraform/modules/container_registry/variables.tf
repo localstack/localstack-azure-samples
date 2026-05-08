@@ -15,7 +15,7 @@ variable "location" {
 
 variable "admin_enabled" {
   description = "(Optional) Specifies whether the admin user is enabled. Defaults to false."
-  type        = string
+  type        = bool
   default     = false
 }
 
