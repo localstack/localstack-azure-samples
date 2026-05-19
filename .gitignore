@@ -179,7 +179,10 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+# Local environment files may contain credentials
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
