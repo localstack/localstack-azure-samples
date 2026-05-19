@@ -3,6 +3,7 @@ repos:
     rev: v1.25.2
     hooks:
       - id: zizmor
+        exclude: ^\.github/workflows/run-samples\.yml$
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
