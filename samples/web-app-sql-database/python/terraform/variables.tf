@@ -281,6 +281,7 @@ variable "python_version" {
 
   validation {
     condition = contains([
+      "3.13",
       "3.12",
       "3.11",
       "3.10",
@@ -347,6 +348,24 @@ variable "login_name" {
   description = "(Required) Specifies the login name for the application."
   type        = string
   default     = "paolo"
+}
+
+variable "secret_name" {
+  description = "(Optional) Specifies the name of the Key Vault secret for the SQL connection string."
+  type        = string
+  default     = "sql-connection-string"
+}
+
+variable "cert_name" {
+  description = "(Optional) Specifies the name of the Key Vault certificate."
+  type        = string
+  default     = "webapp-cert"
+}
+
+variable "cert_subject" {
+  description = "(Optional) Specifies the subject of the self-signed certificate."
+  type        = string
+  default     = "sample-web-app-sql"
 }
 
 variable "tags" {

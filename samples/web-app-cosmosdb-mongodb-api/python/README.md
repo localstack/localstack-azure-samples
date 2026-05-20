@@ -8,9 +8,23 @@ The following diagram illustrates the architecture of the solution:
 
 ![Architecture Diagram](./images/architecture.png)
 
-- **Azure Web App**: Hosts the Python Flask application
-- **Azure App Service Plan**: Provides compute resources for the web app
-- **Azure CosmosDB for MongoDB**: Stores activity data in a MongoDB collection
+The web app enables users to plan and manage vacation activities, with all data persisted in a CosmosDB-backed MongoDB collection. The solution is composed of the following Azure resources:
+
+1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): A logical container scoping all resources in this sample.
+2. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview): Hosts two subnets:
+	- *app-subnet*: Dedicated to [regional VNet integration](https://learn.microsoft.com/azure/azure-functions/functions-networking-options?tabs=azure-portal#outbound-networking-features) with the Function App.
+	- *pe-subnet*: Used for hosting Azure Private Endpoints.
+3. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone): Handles DNS resolution for the CosmosDB for MongoDB Private Endpoint within the virtual network.
+4. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): Secures network access to the CosmosDB for MongoDB account via a private IP within the VNet.
+5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Provides deterministic outbound connectivity for the Web App. Included for completeness; the sample app does not call any external services.
+6. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): Enforces inbound and outbound traffic rules across the virtual network's subnets.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution.
+8. [Azure Cosmos DB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction): A globally distributed database account optimized for MongoDB workloads, with multi-region failover enabled.
+9. [MongoDB Database](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `sampledb` database that holds all application data.
+10. [MongoDB Collection](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `activities` collection within `sampledb`, used to store vacation activity records.
+11. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
+12. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask single-page application (*Vacation Planner*), connected to CosmosDB for MongoDB via VNet integration.
+13. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
 
 ## Prerequisites
 
@@ -33,9 +47,16 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator by running:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
-   ```
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
+```
 
 Deploy the application to LocalStack for Azure using one of these methods:
 
@@ -61,211 +82,7 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 1. **Through the LocalStack for Azure emulator**: Call the web app via the emulator using its default host name. The emulator acts as a proxy to the web app.
 2. **Via localhost and host port mapped to the container's port**: Use `127.0.0.1` with the host port mapped to the container's port `80`.
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the web app from the Docker host machine.
-4. **Via Runtime Gateway**: Use the `{web_app_name}website.localhost.localstack.cloud:4566` URL to call the web app via the LocalStack runtime gateway.
-
-```bash
-#!/bin/bash
-
-get_docker_container_name_by_prefix() {
-	local app_prefix="$1"
-	local container_name
-
-	# Check if Docker is running
-	if ! docker info >/dev/null 2>&1; then
-		echo "Error: Docker is not running" >&2
-		return 1
-	fi
-
-	echo "Looking for containers with names starting with [$app_prefix]..." >&2
-
-	# Find the container using grep
-	container_name=$(docker ps --format "{{.Names}}" | grep "^${app_prefix}" | head -1)
-
-	if [ -z "$container_name" ]; then
-		echo "Error: No running container found with name starting with [$app_prefix]" >&2
-		return 1
-	fi
-
-	echo "Found matching container [$container_name]" >&2
-	echo "$container_name"
-}
-
-get_docker_container_ip_address_by_name() {
-	local container_name="$1"
-	local ip_address
-
-	if [ -z "$container_name" ]; then
-		echo "Error: Container name is required" >&2
-		return 1
-	fi
-
-	# Get IP address
-	ip_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name")
-
-	if [ -z "$ip_address" ]; then
-		echo "Error: Container [$container_name] has no IP address assigned" >&2
-		return 1
-	fi
-
-	echo "$ip_address"
-}
-
-get_docker_container_port_mapping() {
-	local container_name="$1"
-	local container_port="$2"
-	local host_port
-
-	if [ -z "$container_name" ] || [ -z "$container_port" ]; then
-		echo "Error: Container name and container port are required" >&2
-		return 1
-	fi
-
-	# Get host port mapping
-	host_port=$(docker inspect -f "{{(index (index .NetworkSettings.Ports \"${container_port}/tcp\") 0).HostPort}}" "$container_name")
-
-	if [ -z "$host_port" ]; then
-		echo "Error: No host port mapping found for container [$container_name] port [$container_port]" >&2
-		return 1
-	fi
-
-	echo "$host_port"
-}
-
-call_web_app() {
-	# Get the web app name
-	echo "Getting web app name..."
-	web_app_name=$(azlocal webapp list --query '[0].name' --output tsv)
-
-	if [ -n "$web_app_name" ]; then
-		echo "Web app [$web_app_name] successfully retrieved."
-	else
-		echo "Error: No web app found"
-		exit 1
-	fi
-
-	# Get the resource group name
-	echo "Getting resource group name for web app [$web_app_name]..."
-	resource_group_name=$(azlocal webapp list --query '[0].resourceGroup' --output tsv)
-
-	if [ -n "$resource_group_name" ]; then
-		echo "Resource group [$resource_group_name] successfully retrieved."
-	else
-		echo "Error: No resource group found for web app [$web_app_name]"
-		exit 1
-	fi
-
-	# Get the the default host name of the web app
-	echo "Getting the default host name of the web app [$web_app_name]..."
-	app_host_name=$(azlocal webapp show \
-		--name "$web_app_name" \
-		--resource-group "$resource_group_name" \
-		--query 'defaultHostName' \
-		--output tsv)
-
-	if [ -n "$app_host_name" ]; then
-		echo "Web app default host name [$app_host_name] successfully retrieved."
-	else
-		echo "Error: No web app default host name found"
-		exit 1
-	fi
-
-	# Get the Docker container name
-	echo "Finding container name with prefix [ls-$web_app_name]..."
-	container_name=$(get_docker_container_name_by_prefix "ls-$web_app_name")
-
-	if [ $? -eq 0 ] && [ -n "$container_name" ]; then
-		echo "Container [$container_name] found successfully"
-	else
-		echo "Failed to get container name"
-		exit 1
-	fi
-
-	# Get the container IP address
-	echo "Getting IP address for container [$container_name]..."
-	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-
-	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
-		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
-	else
-		echo "Failed to get container IP address"
-		exit 1
-	fi
-
-	# Get the mapped host port for web app HTTP trigger (internal port 80)
-	echo "Getting the host port mapped to internal port 80 in container [$container_name]..."
-	host_port=$(get_docker_container_port_mapping "$container_name" "80")
-	
-	if [ $? -eq 0 ] && [ -n "$host_port" ]; then
-		echo "Mapped host port [$host_port] retrieved successfully for container [$container_name]"
-	else
-		echo "Failed to get mapped host port for container [$container_name]"
-		exit 1
-	fi
-
-	# Retrieve LocalStack proxy port
-	proxy_port=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
-
-	if [ -n "$proxy_port" ]; then
-		# Call the web app via emulator proxy
-		echo "Calling web app [$web_app_name] via emulator..."
-		curl --proxy "http://localhost:$proxy_port/" -s "http://$app_host_name/" 1> /dev/null
-		
-		if [ $? == 0 ]; then
-			echo "Web app call via emulator proxy port [$proxy_port] succeeded."
-		else
-			echo "Web app call via emulator proxy port [$proxy_port] failed."
-		fi
-	else
-		echo "Failed to retrieve LocalStack proxy port"
-	fi
-	
-	if [ -n "$container_ip" ]; then
-		# Call the web app via the container IP address
-		echo "Calling web app [$web_app_name] via container IP address [$container_ip]..."
-		curl -s "http://$container_ip/" 1> /dev/null
-
-		if [ $? == 0 ]; then
-			echo "Web app call via container IP address [$container_ip] succeeded."
-		else
-			echo "Web app call via container IP address [$container_ip] failed."
-		fi
-	else
-		echo "Failed to retrieve container IP address"
-	fi
-
-	if [ -n "$host_port" ]; then
-		# Call the web app via the host port
-		echo "Calling web app [$web_app_name] via host port [$host_port]..."
-		curl -s "http://127.0.0.1:$host_port/" 1> /dev/null
-
-		if [ $? == 0 ]; then
-			echo "Web app call via host port [$host_port] succeeded."
-		else
-			echo "Web app call via host port [$host_port] failed."
-		fi
-	else
-		echo "Failed to retrieve host port"
-	fi
-
-	gateway_port=4566
-
-	if [ -n "$gateway_port" ]; then
-		# Call the web app via the runtime gateway
-		echo "Calling web app [$web_app_name] via runtime gateway on port [$gateway_port]..."
-		curl -s "http://${web_app_name}website.localhost.localstack.cloud:$gateway_port/" 1> /dev/null
-
-		if [ $? == 0 ]; then
-			echo "Web app call via runtime gateway on port [$gateway_port] succeeded."
-		else
-			echo "Web app call via runtime gateway on port [$gateway_port] failed."
-		fi
-	else
-		echo "Failed to retrieve runtime gateway port"
-	fi
-}
-
-call_web_app
-```
+4. **Via the default hostname**: Call the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
 
 ## MongoDB Tooling
 
@@ -333,4 +150,4 @@ sampledb> db.activities.find().pretty()
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
 - [Quickstart: CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/quickstart?tabs=azure-portal)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
-- [LocalStack for Azure](https://azure.localstack.cloud/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)

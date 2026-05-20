@@ -6,7 +6,7 @@ This folder contains Bash scripts for deploying an Azure Functions application w
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [.NET SDK](https://dotnet.microsoft.com/en-us/download): Required for building and publishing the C# Azure Functions application
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
@@ -116,7 +116,7 @@ The script configures the following application settings for the gaming system:
 
 ### LocalStack-Specific Commands
 
-1. `azlocal start_interception`:
+1. `azlocal start-interception`:
    - Redirects Azure CLI calls to LocalStack endpoints
    - Enables local development without Azure subscription
    - Maintains compatibility with standard Azure CLI syntax
@@ -126,7 +126,7 @@ The script configures the following application settings for the gaming system:
    - Wraps the Azure Functions Core Tools
    - Provides local testing environment for Azure Functions
 
-3. `azlocal stop_interception`:
+3. `azlocal stop-interception`:
    - Restores normal Azure CLI behavior
    - Cleans up LocalStack session state
    - Returns CLI to standard Azure cloud operations
@@ -139,53 +139,42 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
   --name local-rg \
   --output table
 
 # List resources
-$AZ resource list \
+az resource list \
   --resource-group local-rg \
   --output table
 
 # Check function app status
-$AZ functionapp show  \
+az functionapp show  \
   --name local-func-test \
   --resource-group local-rg \
   --output table
 
 # Check storage account properties
-$AZ storage account show \
+az storage account show \
   --name localstoragetest \
   --resource-group local-rg \
   --output table
 
 # List storage containers
-$AZ storage container list \
+az storage container list \
   --account-name localstoragetest \
   --output table \
   --only-show-errors
 
 # List storage queues
-$AZ storage queue list \
+az storage queue list \
   --account-name localstoragetest \
   --output table \
   --only-show-errors
 
 # List storage tables
-$AZ storage table list \
+az storage table list \
   --account-name localstoragetest \
   --output table \
   --only-show-errors
@@ -210,4 +199,4 @@ This will remove all Azure resources created by the CLI deployment script.
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
 - [Azure Functions CLI Documentation](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)
 - [Azure Functions Methods Documentation](../src/sample/Methods.md) - Detailed documentation of all implemented functions
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

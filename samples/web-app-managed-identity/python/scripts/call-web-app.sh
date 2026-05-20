@@ -68,7 +68,7 @@ get_docker_container_port_mapping() {
 call_web_app() {
 	# Get the web app name
 	echo "Getting web app name..."
-	web_app_name=$(azlocal webapp list --query '[0].name' --output tsv)
+	web_app_name=$(az webapp list --query '[0].name' --output tsv)
 
 	if [ -n "$web_app_name" ]; then
 		echo "Web app [$web_app_name] successfully retrieved."
@@ -79,7 +79,7 @@ call_web_app() {
 
 	# Get the resource group name
 	echo "Getting resource group name for web app [$web_app_name]..."
-	resource_group_name=$(azlocal webapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az webapp list --query '[0].resourceGroup' --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -90,7 +90,7 @@ call_web_app() {
 
 	# Get the the default host name of the web app
 	echo "Getting the default host name of the web app [$web_app_name]..."
-	app_host_name=$(azlocal webapp show \
+	app_host_name=$(az webapp show \
 		--name "$web_app_name" \
 		--resource-group "$resource_group_name" \
 		--query 'defaultHostName' \
@@ -181,20 +181,18 @@ call_web_app() {
 		echo "Failed to retrieve host port"
 	fi
 
-	gateway_port=4566
-
-	if [ -n "$gateway_port" ]; then
-		# Call the web app via the runtime gateway
-		echo "Calling web app [$web_app_name] via runtime gateway on port [$gateway_port]..."
-		curl -s "http://${web_app_name}website.localhost.localstack.cloud:$gateway_port/" 1> /dev/null
+	if [ -n "$app_host_name" ]; then
+		# Call the web app via the default hostname
+		echo "Calling web app [$web_app_name] via default hostname [$app_host_name]..."
+		curl -s "http://$app_host_name/" 1> /dev/null
 
 		if [ $? == 0 ]; then
-			echo "Web app call via runtime gateway on port [$gateway_port] succeeded."
+			echo "Web app call via default hostname [$app_host_name] succeeded."
 		else
-			echo "Web app call via runtime gateway on port [$gateway_port] failed."
+			echo "Web app call via default hostname [$app_host_name] failed."
 		fi
 	else
-		echo "Failed to retrieve runtime gateway port"
+		echo "Failed to retrieve web app hostname"
 	fi
 }
 

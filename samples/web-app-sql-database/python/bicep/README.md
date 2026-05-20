@@ -6,7 +6,7 @@ This directory contains the Bicep template and a deployment script for provision
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
@@ -49,8 +49,15 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 Navigate to the `bicep` folder:
@@ -79,41 +86,30 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
 --name local-rg \
 --output table
 
 # List resources
-$AZ resource list \
+az resource list \
 --resource-group local-rg \
 --output table
 
 # Check Azure Web App
-$AZ webapp show \
+az webapp show \
 --name local-webapp-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Server
-$AZ sql server show \
+az sql server show \
 --name local-sqlserver-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Database
-$AZ sql db show \
+az sql db show \
 --name PlannerDB \
 --server local-sqlserver-test \
 --resource-group local-rg \
@@ -138,4 +134,4 @@ This will remove all Azure resources created by the CLI deployment script.
 
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

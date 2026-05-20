@@ -28,8 +28,15 @@ You can start the Azure emulator using one of the following methods:
 Make sure the `localstack` CLI is installed (`pip install localstack` or `brew install localstack/tap/localstack`).
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 This:

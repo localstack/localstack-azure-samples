@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Azure Web App for Containers</p>
+      <h1>{{ app_name }}</h1>
+      <p class="lede">This Flask app is running from a custom Docker image on an emulated Azure Web App.</p>
+    </section>
+
+    <section class="details" aria-label="Deployment details">
+      <article>
+        <span>Image</span>
+        <strong>{{ image_name }}</strong>
+      </article>
+      <article>
+        <span>Host</span>
+        <strong>{{ hostname }}</strong>
+      </article>
+      <article>
+        <span>Status endpoint</span>
+        <strong>/api/status</strong>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

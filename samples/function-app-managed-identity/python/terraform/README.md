@@ -6,7 +6,7 @@ This directory contains Terraform modules and a deployment script for provisioni
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads): Infrastructure as Code tool for provisioning Azure resources
 - [Python](https://www.python.org/downloads/): Python runtime (version 3.13 or above)
@@ -42,7 +42,7 @@ For more information on the sample application, see [Azure Functions App with Ma
 The [deploy.sh](deploy.sh) script automates the deployment of all Azure resources and the sample application in a single step. Before running the script, customize the variable values based on your needs. In particular, use the `MANAGED_IDENTITY_TYPE` variable to specify the type of managed identity to provision: `SystemAssigned` or `UserAssigned`.
 
 > **Note**  
-> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. Likewise, the `tflocal` is a local replacement for the standard `terraform` CLI, allowing you to run Terraform commands against LocalStack's Azure emulation environment. For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
+> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start-interception` to automatically intercept and redirect all `az` commands to LocalStack. Likewise, the `tflocal` is a local replacement for the standard `terraform` CLI, allowing you to run Terraform commands against LocalStack's Azure emulation environment. For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
 
 The [deploy.sh](deploy.sh) script executes the following steps:
 
@@ -88,8 +88,15 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 Navigate to the `terraform` folder:
@@ -118,41 +125,30 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
   --name local-rg \
   --output table
 
 # List resources
-$AZ resource list \
+az resource list \
   --resource-group local-rg \
   --output table
 
 # Check function app status
-$AZ functionapp show  \
+az functionapp show  \
   --name local-func-test \
   --resource-group local-rg \
   --output table
 
 # Check storage account properties
-$AZ storage account show \
+az storage account show \
   --name localstoragetest \
   --resource-group local-rg \
   --output table
 
 # List storage containers
-$AZ storage container list \
+az storage container list \
   --account-name localstoragetest \
   --output table \
   --only-show-errors
@@ -175,4 +171,4 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

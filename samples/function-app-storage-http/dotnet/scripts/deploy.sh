@@ -8,7 +8,7 @@ FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 RUNTIME="DOTNET-ISOLATED"
-RUNTIME_VERSION="9"
+RUNTIME_VERSION="10"
 PLAYER_NAMES="Alice,Anastasia,Paolo,Leo,Mia"
 INPUT_STORAGE_CONTAINER_NAME="input" 
 OUTPUT_STORAGE_CONTAINER_NAME="output" 
@@ -24,26 +24,17 @@ ENVIRONMENT=$(az account show --query environmentName --output tsv)
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-	FUNC="funclocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-	FUNC="func"
-fi
+FUNC="func"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1>/dev/null
@@ -60,14 +51,14 @@ fi
 
 # Create a storage account
 echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ storage account show \
+az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
 	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ storage account create \
+	az storage account create \
 		--name $STORAGE_ACCOUNT_NAME \
 		--location $LOCATION \
 		--resource-group $RESOURCE_GROUP_NAME \
@@ -85,7 +76,7 @@ fi
 
 # Get the storage account key
 echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "[0].value" \
@@ -100,7 +91,7 @@ fi
 
 # Create the function app
 echo "Creating function app [$FUNCTION_APP_NAME]..."
-$AZ functionapp create \
+az functionapp create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--consumption-plan-location $LOCATION \
 	--runtime $RUNTIME \
@@ -128,7 +119,7 @@ STORAGE_CONNECTION_STRING=$($AZ storage account show-connection-string \
 
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
-$AZ functionapp config appsettings set \
+az functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \

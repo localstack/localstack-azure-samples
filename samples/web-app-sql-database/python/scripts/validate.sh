@@ -1,55 +1,59 @@
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
+PREFIX='local'
+SUFFIX='test'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+SQL_SERVER_NAME="${PREFIX}-sqlserver-${SUFFIX}"
+SQL_DATABASE_NAME='PlannerDB'
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
+KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
+SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 
 # Check resource group
-$AZ group show \
---name local-rg \
---output table
-
-# List resources
-$AZ resource list \
---resource-group local-rg \
+echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
+az group show \
+--name "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Azure Web App
-$AZ webapp show \
---name local-webapp-test \
---resource-group local-rg \
+echo -e "\n[$WEB_APP_NAME] web app:\n"
+az webapp show \
+--name "$WEB_APP_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "{name:name, state:state, defaultHostName:defaultHostName}" \
 --output table
 
 # Check Azure SQL Server
-$AZ sql server show \
---name local-sqlserver-test \
---resource-group local-rg \
+echo -e "\n[$SQL_SERVER_NAME] SQL server:\n"
+az sql server show \
+--name "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Azure SQL Database
-$AZ sql db show \
---name PlannerDB \
---server local-sqlserver-test \
---resource-group local-rg \
+echo -e "\n[$SQL_DATABASE_NAME] SQL database:\n"
+az sql db show \
+--name "$SQL_DATABASE_NAME" \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Azure Key Vault
-$AZ keyvault show \
---name local-kv-test \
---resource-group local-rg \
+echo -e "\n[$KEY_VAULT_NAME] Key Vault:\n"
+az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Key Vault secret
-$AZ keyvault secret show \
---vault-name local-kv-test \
---name local-secret-test \
+echo -e "\n[$SECRET_NAME] Key Vault secret:\n"
+az keyvault secret show \
+--vault-name "$KEY_VAULT_NAME" \
+--name "$SECRET_NAME" \
 --query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
 --output table
+
+# Print the list of resources in the resource group
+echo -e "\nListing resources in resource group [$RESOURCE_GROUP_NAME]...\n"
+az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table 

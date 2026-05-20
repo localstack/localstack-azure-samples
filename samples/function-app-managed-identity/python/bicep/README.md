@@ -6,7 +6,7 @@ This directory contains the Bicep template and a deployment script for provision
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
@@ -55,7 +55,7 @@ param runtimeVersion = '3.13'
 The [deploy.sh](deploy.sh) script automates the deployment of all Azure resources and the sample application in a single step. Before running the script, customize the variable values based on your needs. In particular, use the `MANAGED_IDENTITY_TYPE` variable to specify the type of managed identity to provision: `SystemAssigned` or `UserAssigned`.
 
 > **Note**  
-> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start_interception` to automatically intercept and redirect all `az` commands to LocalStack. For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
+> You can use the `azlocal` CLI as a drop-in replacement for the `az` CLI to direct all commands to the LocalStack for Azure emulator. Alternatively, run `azlocal start-interception` to automatically intercept and redirect all `az` commands to LocalStack. For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
 
 The [deploy.sh](deploy.sh) script executes the following steps:
 
@@ -83,8 +83,15 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 Navigate to the `bicep` folder:
@@ -113,41 +120,30 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
   --name local-rg \
   --output table
 
 # List resources
-$AZ resource list \
+az resource list \
   --resource-group local-rg \
   --output table
 
 # Check function app status
-$AZ functionapp show  \
+az functionapp show  \
   --name local-func-test \
   --resource-group local-rg \
   --output table
 
 # Check storage account properties
-$AZ storage account show \
+az storage account show \
   --name localstoragetest \
   --resource-group local-rg \
   --output table
 
 # List storage containers
-$AZ storage container list \
+az storage container list \
   --account-name localstoragetest \
   --output table \
   --only-show-errors
@@ -171,4 +167,4 @@ This will remove all Azure resources created by the CLI deployment script.
 
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

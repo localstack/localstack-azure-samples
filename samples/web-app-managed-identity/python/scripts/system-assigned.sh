@@ -14,7 +14,6 @@ RUNTIME_VERSION="3.13"
 CONTAINER_NAME='activities'
 ZIPFILE="webapp_app.zip"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RETRY_COUNT=3
 SLEEP=5
@@ -22,25 +21,16 @@ SLEEP=5
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
-$AZ group show --name $RESOURCE_GROUP_NAME &>/dev/null
+az group show --name $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]"
 	echo "Creating resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]..."
 
 	# Create the resource group
-	$AZ group create \
+	az group create \
 		--name $RESOURCE_GROUP_NAME \
 		--location $LOCATION \
 		--only-show-errors 1>/dev/null
@@ -57,14 +47,14 @@ fi
 
 # Create a storage account
 echo "Checking if storage account [$STORAGE_ACCOUNT_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
-$AZ storage account show \
+az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No storage account [$STORAGE_ACCOUNT_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
 	echo "Creating storage account [$STORAGE_ACCOUNT_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
-	$AZ storage account create \
+	az storage account create \
 		--name $STORAGE_ACCOUNT_NAME \
 		--location $LOCATION \
 		--resource-group $RESOURCE_GROUP_NAME \
@@ -82,7 +72,7 @@ fi
 
 # Get the storage account key
 echo "Getting storage account key for [$STORAGE_ACCOUNT_NAME]..."
-STORAGE_ACCOUNT_KEY=$($AZ storage account keys list \
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "[0].value" \
@@ -96,7 +86,7 @@ else
 fi
 
 # Get the storage account resource ID
-STORAGE_ACCOUNT_RESOURCE_ID=$($AZ storage account show \
+STORAGE_ACCOUNT_RESOURCE_ID=$(az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "id" \
@@ -111,7 +101,7 @@ else
 fi
 
 # Get the storage account blob primary endpoint
-AZURE_STORAGE_ACCOUNT_URL=$($AZ storage account show \
+AZURE_STORAGE_ACCOUNT_URL=$(az storage account show \
 	--name $STORAGE_ACCOUNT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--query "primaryEndpoints.blob" \
@@ -127,7 +117,7 @@ fi
 
 # Create blob container
 echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
-$AZ storage container create \
+az storage container create \
 	--name $CONTAINER_NAME \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--account-key "$STORAGE_ACCOUNT_KEY" \
@@ -142,7 +132,7 @@ fi
 
 # Create App Service Plan
 echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-$AZ appservice plan create \
+az appservice plan create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$APP_SERVICE_PLAN_NAME" \
 	--location "$LOCATION" \
@@ -159,7 +149,7 @@ fi
 
 # Create the web app
 echo "Creating web app [$WEB_APP_NAME]..."
-$AZ webapp create \
+az webapp create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--plan "$APP_SERVICE_PLAN_NAME" \
 	--name "$WEB_APP_NAME" \
@@ -175,7 +165,7 @@ else
 fi
 
 # Retrieve the principalId of the system-assigned managed identity
-MANAGED_IDENTITY_PRINCIPAL_ID=$($AZ webapp identity show \
+MANAGED_IDENTITY_PRINCIPAL_ID=$(az webapp identity show \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query principalId \
@@ -191,7 +181,7 @@ fi
 # Assign the Storage Blob Data Contributor role to the managed identity with the storage account as scope
 ROLE="Storage Blob Data Contributor"
 echo "Checking if the managed identity with principal ID [$MANAGED_IDENTITY_PRINCIPAL_ID] has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$($AZ role assignment list \
+current=$(az role assignment list \
 	--assignee "$MANAGED_IDENTITY_PRINCIPAL_ID" \
 	--scope "$STORAGE_ACCOUNT_RESOURCE_ID" \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
@@ -205,7 +195,7 @@ else
 	ATTEMPT=1
 	while [ $ATTEMPT -le $RETRY_COUNT ]; do
 		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		$AZ role assignment create \
+		az role assignment create \
 			--assignee "$MANAGED_IDENTITY_PRINCIPAL_ID" \
 			--role "$ROLE" \
 			--scope "$STORAGE_ACCOUNT_RESOURCE_ID" 1>/dev/null
@@ -231,7 +221,7 @@ fi
 
 # Set web app settings
 echo "Setting web app settings for [$WEB_APP_NAME]..."
-$AZ webapp config appsettings set \
+az webapp config appsettings set \
 	--name $WEB_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
@@ -262,7 +252,7 @@ zip -r "$ZIPFILE" app.py requirements.txt static templates
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \

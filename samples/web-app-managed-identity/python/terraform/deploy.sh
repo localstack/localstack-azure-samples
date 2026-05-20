@@ -1,25 +1,15 @@
 #!/bin/bash
 
 # Variables
-PREFIX='webmi'
+PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 MANAGED_IDENTITY_TYPE='SystemAssigned' # SystemAssigned or UserAssigned
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 echo "Initializing Terraform..."
 terraform init -upgrade
@@ -66,7 +56,7 @@ zip -r "$ZIPFILE" app.py activities.py database.py static templates requirements
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-$AZ webapp deploy \
+az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$ZIPFILE" \

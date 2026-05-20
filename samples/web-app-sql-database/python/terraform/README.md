@@ -2,13 +2,11 @@
 
 This directory contains Terraform modules and a deployment script for provisioning Azure services in LocalStack for Azure. Refer to the [Azure Web App with Azure SQL Database](../README.md) guide for details about the sample application.
 
-> **NOTE**: Terraform modules do not install Azure Key Vault. This will be fixed soon.
-
 ## Prerequisites
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads): Infrastructure as Code tool for provisioning Azure resources
 - [Python 3.11+](https://www.python.org/downloads/): Required for running the Flask web application
@@ -32,13 +30,12 @@ For more information, see [Get started with the az tool on LocalStack](https://a
 The [main.tf](main.tf) Terraform module creates the following Azure resources:
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all resources in the sample.
-1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all resources
 2. [Azure SQL Server](https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview): Logical server hosting one or more Azure SQL Databases.
 3. [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/): The `PlannerDB` database storing relational vacation activity data.
 4. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
 5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to Azure SQL Database.
-6. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
-7. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret.
+6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string as a secret and a self-signed certificate for HTTPS.
+7. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
 
 The system implements a Vacation Planner web application that stores and retrieves activity data from Azure SQL Database. For more information, see [Azure Web App with Azure SQL Database](../README.md).
 
@@ -76,8 +73,15 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 Navigate to the `terraform` folder:
@@ -106,41 +110,30 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
 --name local-rg \
 --output table
 
 # List resources
-$AZ resource list \
+az resource list \
 --resource-group local-rg \
 --output table
 
 # Check Azure Web App
-$AZ webapp show \
+az webapp show \
 --name local-webapp-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Server
-$AZ sql server show \
+az sql server show \
 --name local-sqlserver-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure SQL Database
-$AZ sql db show \
+az sql db show \
 --name PlannerDB \
 --server local-sqlserver-test \
 --resource-group local-rg \
@@ -164,4 +157,4 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

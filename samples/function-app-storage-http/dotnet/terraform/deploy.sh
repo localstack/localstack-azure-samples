@@ -1,24 +1,14 @@
 #!/bin/bash
 
 # Variables
-PREFIX='funchttp' #system or user
+PREFIX='local' #system or user
 SUFFIX='test'
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-# Run terraform init and apply
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard terraform and az for AzureCloud environment."
-	AZ="az"
-fi
 
 echo "Initializing Terraform..."
 terraform init -upgrade
@@ -64,7 +54,7 @@ cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-if $AZ functionapp deploy \
+if az functionapp deploy \
     --resource-group "$RESOURCE_GROUP_NAME" \
     --name "$FUNCTION_APP_NAME" \
     --src-path $ZIPFILE \

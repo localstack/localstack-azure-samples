@@ -6,7 +6,7 @@ This directory includes Bash scripts designed for deploying and testing the samp
 
 Before deploying this solution, ensure you have the following tools installed:
 
-- [LocalStack for Azure](https://azure.localstack.cloud/): Local Azure cloud emulator for development and testing
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
@@ -35,8 +35,15 @@ docker pull localstack/localstack-azure-alpha
 Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
 
 ```bash
+# Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+azlocal start-interception
 ```
 
 Navigate to the `scripts` folder:
@@ -65,35 +72,24 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	echo "Using azlocal for LocalStack emulator environment."
-	AZ="azlocal"
-else
-	echo "Using standard az for AzureCloud environment."
-	AZ="az"
-fi
-
 # Check resource group
-$AZ group show \
+az group show \
 --name local-rg \
 --output table
 
 # List resources
-$AZ resource list \
+az resource list \
 --resource-group local-rg \
 --output table
 
 # Check Azure Web App
-$AZ webapp show \
+az webapp show \
 --name local-webapp-nosql-test \
 --resource-group local-rg \
 --output table
 
 # Check Azure CosmosDB account
-$AZ cosmosdb show \
+az cosmosdb show \
 --name local-webapp-nosql-test \
 --resource-group local-rg \
 --output table
@@ -116,4 +112,4 @@ This will remove all Azure resources created by the CLI deployment script.
 ## Related Documentation
 
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
-- [LocalStack for Azure Documentation](https://azure.localstack.cloud/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)

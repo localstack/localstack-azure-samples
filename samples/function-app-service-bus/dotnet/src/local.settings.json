@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=regmanaged100;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://regmanaged100blob.localhost.localstack.cloud:4566;QueueEndpoint=http://regmanaged100queue.localhost.localstack.cloud:4566;TableEndpoint=http://regmanaged100table.localhost.localstack.cloud:4566",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "SERVICE_BUS_CONNECTION_STRING": "",
+    "INPUT_QUEUE_NAME": "input",
+    "OUTPUT_QUEUE_NAME": "output",
+    "NAMES": "Alice,Paolo,Leo,Mia",
+    "TIMER_SCHEDULE": "*/10 * * * * *"
+  }
+}
