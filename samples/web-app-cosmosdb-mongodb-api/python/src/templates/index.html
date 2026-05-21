@@ -1,69 +1,260 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Vacation Planner</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vacation Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}" />
+  <script>
+    (function () {
+      try {
+        var dark = localStorage.getItem('vp_dark');
+        if (dark === 'true' || (dark === null && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch (_) {}
+    })();
+  </script>
 </head>
-<body style="background: linear-gradient(135deg, #fff 0%, #a2d4f7 100%); min-height: 100vh;">
-    <div class="container py-4 my-5 bg-white bg-opacity-75 rounded-4 shadow-lg" style="max-width:600px;">
-        <img src="{{ url_for('static', filename='summer_banner.jpg') }}" alt="Summer Banner" class="img-fluid rounded mb-3 w-100" style="max-height:180px; object-fit:cover;">
-        <h1 class="display-9 fw-bold sea-title mb-4">Vacation Planner</h1>
-        <form method="post" class="sea-form mb-4" style="max-width: 600px; margin: 0 auto;">
-            <div style="display: flex; width: 100%;">
-                <input type="hidden" name="row_id" value="{{ edit_id or '' }}">
-                <input id="activityInput" type="text" name="activity" class="form-control sea-input" placeholder="Enter a vacation activity..." value="{{ edit_activity or '' }}" required autofocus>
-                <button type="submit" class="sea-btn">{{ 'Update' if edit_id else 'Add' }}</button>
-            </div>
-        </form>
-        <div class="table-responsive" style="width: 100%;">
-            <table class="table sea-table align-middle" style="width: 100%; margin: 0;">
-                <thead>
-                    <tr>
-                        <th class="text-start">Activity</th>
-                        <th class="text-start align-middle action-col" style="width: 200px;" colspan="2">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for activity in activities %}
-                    <tr>
-                        <td class="text-start">{{ activity[1] }}</td>
-                        <td class="text-start align-middle action-col" style="width: 100px;">
-                            <a href="{{ url_for('update', activity_id=loop.index0) }}" class="sea-btn d-inline-block text-center text-decoration-none" style="width: 90px; line-height: 38px;">Edit</a>
-                        </td>
-                        <td class="text-start align-middle action-col" style="width: 100px;">
-                            <form method="post" action="{{ url_for('delete', activity_id=loop.index0) }}" class="d-inline">
-                                <input type="hidden" name="row_id" value="{{ activity[0] }}">
-                                <button type="submit" class="sea-btn" style="width: 90px;">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="3" class="text-center text-muted fst-italic">No vacation plans yet!</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="header-left">
+    <h1>&#127796; Vacation Planner</h1>
+    <p id="count-label">{{ activities|length }} activit{{ 'ies' if activities|length != 1 else 'y' }} planned</p>
+  </div>
+  <div class="header-right">
+    <button id="btn-dark-mode" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg id="icon-dark" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/>
+      </svg>
+      <svg id="icon-light" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+    <button id="btn-add">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Activity
+    </button>
+  </div>
+</header>
+
+<!-- Activity Table -->
+<div class="content">
+  <table id="activity-table">
+    <thead>
+      <tr>
+        <th>Activity</th>
+        <th class="col-actions" colspan="2">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for activity in activities %}
+      <tr data-id="{{ activity[0] | e }}" data-activity="{{ activity[1] | e }}">
+        <td>{{ activity[1] }}</td>
+        <td class="col-btn">
+          <button class="btn-edit" title="Edit activity" aria-label="Edit {{ activity[1] | e }}">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Edit
+          </button>
+        </td>
+        <td class="col-btn">
+          <form method="post" action="{{ url_for('delete', activity_id=loop.index0) }}" class="delete-form">
+            <button type="button" class="btn-delete" title="Delete activity" aria-label="Delete {{ activity[1] | e }}">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+              Delete
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr id="empty-row">
+        <td colspan="3" class="empty-cell">No vacation plans yet — add your first activity!</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Add / Edit Activity Modal -->
+<div id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <h2 id="modal-title">&#127796; Add Activity</h2>
+      <button id="btn-close-modal" aria-label="Close">&times;</button>
     </div>
-    <script>
-        // Ensure focus behavior across browsers and place cursor at the end when editing
-        (function () {
-            const input = document.getElementById('activityInput');
-            if (!input) return;
-            // If value exists (editing), place caret at the end and select for quick overwrite
-            if (input.value && input.value.length > 0) {
-                input.focus();
-                // Move caret to end; selection optional for convenience
-                const len = input.value.length;
-                input.setSelectionRange(len, len);
-            } else {
-                input.focus();
-            }
-        })();
-    </script>
+    <form id="activity-form" method="post" action="/" novalidate>
+      <input type="hidden" id="f-row-id" name="row_id" value="" />
+      <div class="field">
+        <label for="f-activity">Activity <span style="color:#ef4444">*</span></label>
+        <input id="f-activity" name="activity" type="text" placeholder="e.g. Snorkelling at Coral Bay" required />
+      </div>
+    </form>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-cancel">Cancel</button>
+      <button class="btn-primary" id="btn-save">Save Activity</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+    <div class="modal-header">
+      <h2 id="delete-modal-title">&#127796; Delete Activity</h2>
+      <button id="btn-close-delete-modal" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="delete-confirm-msg">Are you sure you want to delete this activity?</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-cancel-delete">Cancel</button>
+      <button class="btn-primary" id="btn-confirm-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  // ── Dark mode ────────────────────────────────────────────
+  function applyDark(dark) {
+    document.documentElement.dataset.theme = dark ? 'dark' : '';
+    document.getElementById('icon-dark').style.display  = dark ? 'none' : '';
+    document.getElementById('icon-light').style.display = dark ? ''     : 'none';
+  }
+  (function () {
+    var dark = localStorage.getItem('vp_dark');
+    var isDark = dark === 'true' || (dark === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    applyDark(isDark);
+  })();
+  document.getElementById('btn-dark-mode').addEventListener('click', function () {
+    var isDark = document.documentElement.dataset.theme === 'dark';
+    applyDark(!isDark);
+    localStorage.setItem('vp_dark', String(!isDark));
+  });
+
+  // ── Toast ────────────────────────────────────────────────
+  var flashMessages = {{ get_flashed_messages() | tojson }};
+  var toastTimer;
+  function showToast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2400);
+  }
+  if (flashMessages.length) showToast(flashMessages[0]);
+
+  // ── Activity Modal ───────────────────────────────────────
+  var overlay = document.getElementById('overlay');
+
+  function openActivityModal(data) {
+    var titleEl = document.getElementById('modal-title');
+    var saveEl  = document.getElementById('btn-save');
+    var rowId   = document.getElementById('f-row-id');
+    var input   = document.getElementById('f-activity');
+
+    if (data) {
+      titleEl.textContent = '\uD83C\uDF34 Edit Activity';
+      saveEl.textContent  = 'Save Changes';
+      rowId.value         = data.id;
+      input.value         = data.activity;
+    } else {
+      titleEl.textContent = '\uD83C\uDF34 Add Activity';
+      saveEl.textContent  = 'Save Activity';
+      rowId.value         = '';
+      input.value         = '';
+    }
+    overlay.classList.add('open');
+    input.focus();
+    var len = input.value.length;
+    input.setSelectionRange(len, len);
+  }
+
+  function closeActivityModal() {
+    overlay.classList.remove('open');
+    document.getElementById('activity-form').reset();
+    document.getElementById('f-row-id').value = '';
+    document.getElementById('modal-title').textContent = '\uD83C\uDF34 Add Activity';
+    document.getElementById('btn-save').textContent    = 'Save Activity';
+  }
+
+  document.getElementById('btn-add').addEventListener('click', function () { openActivityModal(null); });
+  document.getElementById('btn-close-modal').addEventListener('click', closeActivityModal);
+  document.getElementById('btn-cancel').addEventListener('click', closeActivityModal);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) closeActivityModal(); });
+
+  document.getElementById('btn-save').addEventListener('click', function () {
+    var val = document.getElementById('f-activity').value.trim();
+    if (!val) { showToast('Activity cannot be empty.'); return; }
+    document.getElementById('activity-form').submit();
+  });
+
+  document.getElementById('f-activity').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-save').click(); }
+  });
+
+  // Edit buttons on rows
+  document.querySelectorAll('.btn-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = btn.closest('tr');
+      openActivityModal({ id: row.dataset.id, activity: row.dataset.activity });
+    });
+  });
+
+  // ── Delete confirmation modal ────────────────────────────
+  var deleteOverlay = document.getElementById('delete-overlay');
+  var pendingDeleteForm = null;
+
+  function openDeleteModal(form, activityName) {
+    pendingDeleteForm = form;
+    var msg = document.getElementById('delete-confirm-msg');
+    msg.textContent = 'Are you sure you want to delete "' + activityName + '"?';
+    deleteOverlay.classList.add('open');
+    document.getElementById('btn-confirm-delete').focus();
+  }
+
+  function closeDeleteModal() {
+    deleteOverlay.classList.remove('open');
+    pendingDeleteForm = null;
+  }
+
+  document.querySelectorAll('.btn-delete').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = btn.closest('tr');
+      var form = btn.closest('form');
+      openDeleteModal(form, row.dataset.activity);
+    });
+  });
+
+  document.getElementById('btn-confirm-delete').addEventListener('click', function () {
+    if (pendingDeleteForm) pendingDeleteForm.submit();
+  });
+
+  document.getElementById('btn-cancel-delete').addEventListener('click', closeDeleteModal);
+  document.getElementById('btn-close-delete-modal').addEventListener('click', closeDeleteModal);
+  deleteOverlay.addEventListener('click', function (e) { if (e.target === deleteOverlay) closeDeleteModal(); });
+
+  // ── Escape closes any open modal ─────────────────────────
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeActivityModal(); closeDeleteModal(); }
+  });
+</script>
 </body>
 </html>

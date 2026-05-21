@@ -2,11 +2,12 @@ import os
 import datetime
 import logging
 import hashlib
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, flash, render_template, request, redirect, url_for
 from cosmosdb_client import CosmosDbClient
 
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 app.debug = True
 
 logging.basicConfig(
@@ -84,10 +85,12 @@ def index():
                     username=username,
                     updates={"activity": activity}
                 )
+                flash('Activity updated.')
             else:
                 doc = create_document(activity)
                 get_cosmos().insert_document(doc)
                 get_activities().add((doc["id"], activity))
+                flash('Activity added.')
 
         return redirect(url_for('index'))
     
@@ -107,6 +110,7 @@ def delete(activity_id: str):
     
     # Direct deletion using the ID passed in the URL
     get_cosmos().delete_document_by_id(activity_id, username)
+    flash('Activity deleted.')
     
     return redirect(url_for('index'))
 
