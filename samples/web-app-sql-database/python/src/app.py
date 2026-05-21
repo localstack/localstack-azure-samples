@@ -5,10 +5,11 @@ from typing import List, Tuple
 
 from activities import ActivitiesHelper
 from certificates import get_certificate_info, get_ssl_context_from_keyvault
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +77,7 @@ def index():
 
                     updated_activity = activities_helper.update_activity_by_id(row_id, activity_text)
                     if updated_activity:
+                        flash('Activity updated.')
                         logger.info(f"Activity updated: {row_id}")
                 else:
                     # Create an activity document with the activity text provided
@@ -87,6 +89,7 @@ def index():
                     if inserted_activity:
                         # Append the activity to the in-memory list
                         activities.append((inserted_activity["id"], inserted_activity["activity"]))
+                        flash('Activity added.')
                         logger.info(f"Activity created: {inserted_activity['id']}")
             except (ConnectionError, ValueError) as e:
                 logger.error("Error creating/updating activity: %s", e)
@@ -114,6 +117,7 @@ def delete(activity_id: int):
             rows_deleted = activities_helper.delete_activity_by_id(db_activity_id)
             
             if rows_deleted > 0:
+                flash('Activity deleted.')
                 logger.info(f"Activity deleted: {db_activity_id}")
             else:
                 logger.warning(f"No activity found with ID: {db_activity_id}")

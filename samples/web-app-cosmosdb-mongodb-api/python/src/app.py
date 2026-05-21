@@ -3,12 +3,13 @@ import os
 import datetime
 import logging
 from typing import List, Tuple
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, flash, render_template, request, redirect, url_for
 from mongodb import MongoDbClient
 import hashlib
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24))
 
 # Configure logging
 logging.basicConfig(
@@ -68,10 +69,6 @@ def read_documents(username: str | None = None) -> List[dict]:
 @app.route('/', methods=['GET', 'POST'])
 def index():
     """Handle the main page for viewing and adding activities."""
-    # Get edit data from query parameters (if any)
-    edit_id = request.args.get('edit_id')
-    edit_activity = request.args.get('edit_activity')
-    
     if request.method == 'POST':
         activity = request.form.get('activity')
         if activity:
@@ -85,6 +82,7 @@ def index():
                     updated_activity = mongodb_client.update_document_by_id(row_id, {"activity": activity})
                     if updated_activity:
                         logger.info(f"Activity updated: {row_id}")
+                        flash("Activity updated!")
                 else:
                     # Create a document with the activity provided
                     document: dict = create_document(activity)
@@ -93,6 +91,7 @@ def index():
                     # Append the activity to the activities list
                     activities.append((document["_id"], activity))
                     logger.info(f"Activity added: {activity}")
+                    flash("Activity added!")
 
             except (ConnectionError, ValueError) as e:
                 logger.error("Error creating document: %s", e)
@@ -102,7 +101,7 @@ def index():
     # Always reload activities from Cosmos DB on GET (refresh)
     read_documents(username)
 
-    return render_template('index.html', activities=activities, username=username, edit_id=edit_id, edit_activity=edit_activity)
+    return render_template('index.html', activities=activities, username=username)
 
 @app.route('/favicon.ico')
 def favicon():
@@ -115,20 +114,7 @@ def delete(activity_id: int):
     if 0 <= activity_id < len(activities):
         # Delete the document from MongoDB
         mongodb_client.delete_document_by_id(activities[activity_id][0])
-
-    return redirect(url_for('index'))
-
-@app.route('/update/<int:activity_id>', methods=['GET'])
-def update(activity_id: int):
-    """Handle updating of an activity by its index in the list."""
-    try:
-        if 0 <= activity_id < len(activities):
-            db_activity_id = activities[activity_id][0]
-            activity_text = activities[activity_id][1]
-            # Redirect to index with edit parameters
-            return redirect(url_for('index', edit_id=db_activity_id, edit_activity=activity_text))
-    except (ConnectionError, ValueError) as e:
-        logger.error("Error preparing activity for update: %s", e)
+        flash("Activity deleted.")
 
     return redirect(url_for('index'))
 
