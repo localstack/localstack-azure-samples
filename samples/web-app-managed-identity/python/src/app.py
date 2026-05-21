@@ -5,10 +5,11 @@ from typing import List, Tuple
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, flash, render_template, request, redirect, url_for
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24))
 
 client_id: str | None
 client_secret: str | None
@@ -197,28 +198,51 @@ def delete_blob(name: str):
     except Exception as ex:
         print(f"An error occurred while deleting the blob: {ex}")
 
+def update_blob(name: str, content: str):
+    """Update the content of an existing blob (overwrite in place)."""
+    global blob_service_client, container_name
+    if not name or not content:
+        raise ValueError("Both 'name' and 'content' must be provided.")
+    try:
+        if not blob_service_client:
+            raise ValueError("BlobServiceClient is not initialized.")
+        if not container_name:
+            raise ValueError("Container name is not set.")
+        container_client = blob_service_client.get_container_client(container_name)
+        blob_client = container_client.get_blob_client(name)
+        print(f"Updating blob '{name}' in container '{container_name}'.")
+        with io.BytesIO(content.encode("utf-8")) as content_stream:
+            blob_client.upload_blob(content_stream, blob_type="BlockBlob", overwrite=True)
+        print(f"Blob '{name}' updated successfully.")
+    except ValueError as ve:
+        print(f"Configuration Error: {ve}")
+    except Exception as ex:
+        print(f"An error occurred while updating the blob: {ex}")
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        activity = request.form.get('activity')
+        row_id = request.form.get('row_id', '').strip()
+        activity = request.form.get('activity', '').strip()
         if activity:
-            # Generate a unique blob name with a timestamp
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-            name = f"{timestamp}-activity.txt"
-
-            try:
-                # Create a blob with the name provided
+            if row_id:
+                # Update existing blob content in place
+                update_blob(row_id, activity)
+                for i, act in enumerate(activities):
+                    if act[0] == row_id:
+                        activities[i] = (row_id, activity)
+                        break
+                flash('Activity updated successfully.')
+            else:
+                # Generate a unique blob name with a timestamp
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+                name = f"{timestamp}-activity.txt"
                 create_blob_if_not_exists(name, activity)
-
-                # Append the activity to the activities list
                 activities.append((name, activity))
-                
-            except Exception as e:
-                print(f"Error creating blob: {e}")
-
+                flash('Activity added successfully.')
         return redirect(url_for('index'))
-    
-    # Always reload activities from blob storage on GET (refresh)
+
+    # Always reload activities from blob storage on GET
     activities.clear()
     read_blobs_from_container()
     return render_template('index.html', activities=activities)
@@ -226,11 +250,9 @@ def index():
 @app.route('/delete/<int:activity_id>', methods=['POST'])
 def delete(activity_id):
     if 0 <= activity_id < len(activities):
-        # Delete the blob associated with the activity
         delete_blob(activities[activity_id][0])
-
-        # Remove the activity from the list
         activities.pop(activity_id)
+        flash('Activity deleted successfully.')
     return redirect(url_for('index'))
 
 # Initialize the application and Azure services when the module is loaded.
