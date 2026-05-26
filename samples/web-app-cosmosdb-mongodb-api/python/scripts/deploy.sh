@@ -919,7 +919,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py mongodb.py static templates requirements.txt
+zip -r "$ZIPFILE" app.py mongodb.py gunicorn.conf.py static templates requirements.txt
 
 # List the contents of the zip package
 echo "Contents of the zip package [$ZIPFILE]:"
