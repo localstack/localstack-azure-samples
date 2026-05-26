@@ -129,7 +129,7 @@ fi
 
 # Create the zip package of the web app
 echo "Creating zip package of the web app..."
-zip -r "$ZIPFILE" app.py requirements.txt static templates
+zip -r "$ZIPFILE" app.py gunicorn.conf.py requirements.txt static templates
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
