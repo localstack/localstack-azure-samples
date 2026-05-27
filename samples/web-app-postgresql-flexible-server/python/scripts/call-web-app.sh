@@ -66,6 +66,9 @@ get_docker_container_port_mapping() {
 }
 
 call_web_app() {
+	# Web app port
+	local web_app_port=8000
+
 	# Get the web app name
 	echo "Getting web app name..."
 	web_app_name=$(az webapp list --query '[0].name' --output tsv)
@@ -125,9 +128,9 @@ call_web_app() {
 		exit 1
 	fi
 
-	# Get the mapped host port for web app HTTP trigger (internal port 80)
-	echo "Getting the host port mapped to internal port 80 in container [$container_name]..."
-	host_port=$(get_docker_container_port_mapping "$container_name" "80")
+	# Get the mapped host port for web app HTTP trigger (internal port 8000)
+	echo "Getting the host port mapped to internal port $web_app_port in container [$container_name]..."
+	host_port=$(get_docker_container_port_mapping "$container_name" "$web_app_port")
 	
 	if [ $? -eq 0 ] && [ -n "$host_port" ]; then
 		echo "Mapped host port [$host_port] retrieved successfully for container [$container_name]"
@@ -155,7 +158,7 @@ call_web_app() {
 	if [ -n "$container_ip" ]; then
 		# Call the web app via the container IP address
 		echo "Calling web app [$web_app_name] via container IP address [$container_ip]..."
-		curl -s "http://$container_ip/" 1> /dev/null
+		curl -s "http://$container_ip:$web_app_port/" 1> /dev/null
 
 		if [ $? == 0 ]; then
 			echo "Web app call via container IP address [$container_ip] succeeded."
