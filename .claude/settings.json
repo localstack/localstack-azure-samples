@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/home/paolo/localstack/localstack-pro/localstack-pro-azure"
+    ],
+    "allow": [
+      "Read(/home/paolo/localstack/localstack-pro/localstack-pro-azure/**)",
+      "Edit(/home/paolo/localstack/localstack-pro/localstack-pro-azure/**)",
+      "Write(/home/paolo/localstack/localstack-pro/localstack-pro-azure/**)",
+      "Bash(cd /home/paolo/localstack/localstack-pro/localstack-pro-azure:*)",
+      "Bash(/home/paolo/localstack/localstack-pro/localstack-pro-azure/**)"
+    ]
+  }
+}
