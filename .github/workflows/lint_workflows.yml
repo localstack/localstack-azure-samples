@@ -1,0 +1,40 @@
+name: Lint GitHub Actions workflows
+
+# Lints the repo's own GitHub Actions workflows:
+#   - actionlint: workflow syntax, expression and runner-label checks, plus shellcheck on run: blocks
+#   - zizmor: workflow security (also enforced locally via the pre-commit hook)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+
+permissions: {}
+
+jobs:
+  lint_workflows:
+    name: "Run linters"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2.1.2
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        with:
+          # Don't integrate with GitHub Advanced Security
+          advanced-security: false
