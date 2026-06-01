@@ -25,26 +25,35 @@ on:
 env:
   DEFAULT_RUN_MODE: changed
 
+# Least-privilege default: no permissions unless a job explicitly opts in.
+permissions: {}
+
 jobs:
   # Lightweight job that builds the dynamic test matrix for the main test jobs
   setup:
     name: "Build Test Matrix"
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
       has_tests: ${{ steps.build-matrix.outputs.has_tests }}
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0  # Full history needed for git diff in "changed" mode
+          persist-credentials: false
 
       - name: Build dynamic matrix
         id: build-matrix
+        env:
+          # Untrusted dispatch input routed via env, not interpolated into the shell (template-injection)
+          RUN_MODE_INPUT: ${{ github.event.inputs.run_mode }}
         run: |
           # Pick run mode: manual dispatch uses the dropdown, PRs use the env default
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            RUN_MODE="${{ github.event.inputs.run_mode }}"
+            RUN_MODE="${RUN_MODE_INPUT}"
           else
             RUN_MODE="${{ env.DEFAULT_RUN_MODE }}"
           fi
@@ -72,29 +81,36 @@ jobs:
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ubuntu-22.04
 
+    permissions:
+      contents: read
+
     env:
       IMAGE_NAME: localstack/localstack-azure-alpha
       DEFAULT_TAG: latest
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Set up environment
-        run: echo "AZURE_CONFIG_DIR=${{ runner.temp }}/azure-cli" >> $GITHUB_ENV
+        env:
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        run: echo "AZURE_CONFIG_DIR=${RUNNER_TEMP_DIR}/azure-cli" >> "$GITHUB_ENV"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
           cache: 'pip'
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0'
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: 'temurin'
           java-version: '25'
@@ -110,7 +126,7 @@ jobs:
           find . -name "*.sh" -exec chmod +x {} +
 
       - name: Install Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "1.5.0"
           terraform_wrapper: false
@@ -123,7 +139,7 @@ jobs:
       - name: Login to Docker Hub
         # Mandatory login to Docker Hub to benefit from higher rate limits for authenticated pulls.
         # This prevents '429 Too Many Requests' errors during the pull of large emulator images.
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
@@ -178,16 +194,19 @@ jobs:
         run: |
           sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
-          curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          curl "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
-          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
 
       - name: "Run: ${{ matrix.name }}"
         # Each job runs exactly one test. SPLITS equals the total test count, and SHARD
         # is the 1-based index of this specific test, so run-samples.sh executes only it.
-        run: make test SHARD=${{ matrix.shard }} SPLITS=${{ matrix.splits }}
+        run: make test SHARD="${SHARD}" SPLITS="${SPLITS}"
         env:
+          # Dynamic matrix values routed via env, not interpolated into the shell (template-injection)
+          SHARD: ${{ matrix.shard }}
+          SPLITS: ${{ matrix.splits }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
 
       - name: Get LocalStack Logs
