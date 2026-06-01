@@ -28,7 +28,7 @@ The following diagram illustrates the architecture of the solution:
 
 ```bash
 # Start the LocalStack Azure emulator
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator

@@ -85,7 +85,7 @@ jobs:
       contents: read
 
     env:
-      IMAGE_NAME: localstack/localstack-azure-alpha
+      IMAGE_NAME: localstack/localstack-azure
       DEFAULT_TAG: latest
 
     steps:
