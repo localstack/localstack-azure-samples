@@ -69,7 +69,7 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
 1. **Start the LocalStack Azure emulator**
   ```bash
   # Start the LocalStack Azure emulator
-  IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+  IMAGE_NAME=localstack/localstack-azure localstack start -d
   localstack wait -t 60
 
   # Route all Azure CLI calls to the LocalStack Azure emulator

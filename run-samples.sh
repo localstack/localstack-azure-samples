@@ -109,7 +109,7 @@ fi
 # 4. Start LocalStack
 if ! localstack status | grep -q "running"; then
   echo "Starting LocalStack Azure emulator..."
-  IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+  IMAGE_NAME=localstack/localstack-azure localstack start -d
   localstack wait -t 60
 else
   echo "LocalStack is already running."

@@ -12,7 +12,7 @@ Refer to the LocalStack Auth Token documentation (e.g. the [Auth Token guide](ht
 
 ## 1. Pull the Azure Image
 ```bash
-docker pull localstack/localstack-azure-alpha
+docker pull localstack/localstack-azure
 ```
 
 ## 2. Choose a Startup Method
@@ -32,7 +32,7 @@ Make sure the `localstack` CLI is installed (`pip install localstack` or `brew i
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
 
 # Start the LocalStack Azure emulator
-IMAGE_NAME=localstack/localstack-azure-alpha localstack start -d
+IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
@@ -61,7 +61,7 @@ docker run \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v ~/.localstack/volume:/var/lib/localstack \
   -e LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:?} \
-  localstack/localstack-azure-alpha
+  localstack/localstack-azure
 ```
 
 Notes:
@@ -81,7 +81,7 @@ version: "3.8"
 services:
   localstack:
     container_name: localstack-main
-    image: localstack/localstack-azure-alpha
+    image: localstack/localstack-azure
     ports:
       - "127.0.0.1:4566:4566"
     environment:
