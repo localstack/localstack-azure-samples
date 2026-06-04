@@ -43,7 +43,7 @@ param storageSizeGB int = 32
 param backupRetentionDays int = 7
 
 @description('Specifies the name of the database to create on the server.')
-param databaseName string = 'PlannerDB'
+param databaseName string = 'plannerdb'
 
 @description('Specifies the database charset.')
 param databaseCharset string = 'utf8mb4'

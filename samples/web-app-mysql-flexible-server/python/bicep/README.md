@@ -29,7 +29,7 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 5. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
 6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
 7. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create mysql bootstrap.
-8. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `PlannerDB` (utf8mb4 / `utf8mb4_unicode_ci`).
+8. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb` (utf8mb4 / `utf8mb4_unicode_ci`).
 9. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
 10. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `MYSQL_HOST`, `MYSQL_PORT`, and `MYSQL_DATABASE` on the Web App but **does not** set `MYSQL_USER` or `MYSQL_PASSWORD` — those are written by `deploy.sh` after the mysql client creates the application user.
 
@@ -44,7 +44,7 @@ param prefix = 'local'
 param suffix = 'test'
 param runtimeName = 'python'
 param runtimeVersion = '3.13'
-param databaseName = 'PlannerDB'
+param databaseName = 'plannerdb'
 param username = 'paolo'
 
 param mysqlAdminLogin = 'myadmin'
@@ -82,7 +82,7 @@ The script will:
 ## Verification
 
 ```bash
-MYSQL_PWD='TestP@ssw0rd123' mysql -h <fqdn> -P <port> -u testuser PlannerDB \
+MYSQL_PWD='TestP@ssw0rd123' mysql -h <fqdn> -P <port> -u testuser plannerdb \
   -e "SELECT id, username, activity, created_at FROM activities;"
 ```
 

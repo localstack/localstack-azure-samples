@@ -96,7 +96,7 @@ param mysqlStorageSizeGB int = 32
 param mysqlBackupRetentionDays int = 7
 
 @description('Name of the application database to create on the MySQL flexible server.')
-param databaseName string = 'PlannerDB'
+param databaseName string = 'plannerdb'
 
 //
 // Networking

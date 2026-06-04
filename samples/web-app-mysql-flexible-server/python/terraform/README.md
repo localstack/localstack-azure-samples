@@ -30,7 +30,7 @@ The Terraform configuration provisions:
 6. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
 7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
 8. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. A permissive firewall rule (`AllowAllIPs`, `0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-apply mysql bootstrap.
-9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `PlannerDB`.
+9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb`.
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
 11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration. `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` are written by Terraform; `MYSQL_USER` and `MYSQL_PASSWORD` are written by `deploy.sh` after the mysql client creates the application user.
 
@@ -58,6 +58,6 @@ Override any of the variables in [`variables.tf`](variables.tf) by editing [`ter
 | `mysql_sku_name`              | `B_Standard_B1ms` | Compute SKU                              |
 | `mysql_storage_size_gb`       | `32`              | Storage size in GB                       |
 | `mysql_backup_retention_days` | `7`               | Backup retention                         |
-| `mysql_database_name`         | `PlannerDB`       | Application database                     |
+| `mysql_database_name`         | `plannerdb`       | Application database                     |
 
 For non-dev deployments, set `mysql_admin_password` via env var: `MYSQL_ADMIN_PASSWORD=... bash deploy.sh`.

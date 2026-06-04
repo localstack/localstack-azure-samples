@@ -1,6 +1,6 @@
 # Azure Web App with Azure Database for MySQL flexible server
 
-This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in the `activities` table of the `PlannerDB` database on an [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview). The server is reached through a [Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (group `mysqlServer`) with the `privatelink.mysql.database.azure.com` Private DNS Zone, while a permissive server-level firewall rule lets the deploy machine run the post-create mysql bootstrap that creates the application user and seeds the schema.
+This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in the `activities` table of the `plannerdb` database on an [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview). The server is reached through a [Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (group `mysqlServer`) with the `privatelink.mysql.database.azure.com` Private DNS Zone, while a permissive server-level firewall rule lets the deploy machine run the post-create mysql bootstrap that creates the application user and seeds the schema.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ flowchart LR
         nat["NAT Gateway"]
         dns["Private DNS Zone<br/>privatelink.mysql.database.azure.com"]
         asp["App Service Plan<br/>S1 · Linux"]
-        mysql[("MySQL Flexible Server<br/>8.0.21 · Burstable B1ms<br/>DB: PlannerDB")]
+        mysql[("MySQL Flexible Server<br/>8.0.21 · Burstable B1ms<br/>DB: plannerdb")]
 
         subgraph vnet["Virtual Network 10.0.0.0/8"]
             direction TB
@@ -49,13 +49,13 @@ The web app enables users to plan and manage vacation activities; all data is pe
 5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Deterministic outbound connectivity for both subnets.
 6. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): One NSG per subnet.
 7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics.
-8. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): Public-access server hosting the `PlannerDB` database. Burstable `Standard_B1ms`, version 8.0.21, 32 GiB storage, 7-day backup retention, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) is created so the deploy machine can run the post-create mysql bootstrap; the Web App itself reaches the server through the Private Endpoint.
-9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `PlannerDB`: Created at provisioning time; the post-deploy mysql step creates the `activities` table and seeds the demo rows.
+8. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): Public-access server hosting the `plannerdb` database. Burstable `Standard_B1ms`, version 8.0.21, 32 GiB storage, 7-day backup retention, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) is created so the deploy machine can run the post-create mysql bootstrap; the Web App itself reaches the server through the Private Endpoint.
+9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb`: Created at provisioning time; the post-deploy mysql step creates the `activities` table and seeds the demo rows.
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
 11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask *Vacation Planner* app with regional VNet integration into *app-subnet*. The Web App connects to MySQL using a dedicated application user (`testuser`) — the server-admin login is never used at runtime.
 12. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
 
-The deploy scripts follow the same pattern as the sibling [`web-app-postgresql-flexible-server`](../../web-app-postgresql-flexible-server/python/) sample: after provisioning, they (i) connect as the server admin via the public endpoint + firewall rule, (ii) create the application user `testuser` with its own password, (iii) grant privileges on `PlannerDB`, (iv) create the `activities` table, (v) seed sample rows, and (vi) write `MYSQL_USER=testuser` + `MYSQL_PASSWORD` onto the Web App's app settings. The server-admin login is never written into the Web App's runtime configuration.
+The deploy scripts follow the same pattern as the sibling [`web-app-postgresql-flexible-server`](../../web-app-postgresql-flexible-server/python/) sample: after provisioning, they (i) connect as the server admin via the public endpoint + firewall rule, (ii) create the application user `testuser` with its own password, (iii) grant privileges on `plannerdb`, (iv) create the `activities` table, (v) seed sample rows, and (vi) write `MYSQL_USER=testuser` + `MYSQL_PASSWORD` onto the Web App's app settings. The server-admin login is never written into the Web App's runtime configuration.
 
 ## Prerequisites
 
@@ -117,14 +117,14 @@ You can use [MySQL Workbench](https://www.mysql.com/products/workbench/) to expl
 | -------- | ------------------------------------------------------------------------------ |
 | Host     | `localhost`                                                                    |
 | Port     | (see `docker ps` for the host-mapped port of the backing `mysql:8` container)  |
-| Database | `PlannerDB`                                                                    |
+| Database | `plannerdb`                                                                    |
 | Username | `testuser` *(or `myadmin` for admin operations)*                               |
 | Password | `TestP@ssw0rd123` *(or `P@ssw0rd1234!` for the admin)*                          |
 
 Or use the [`mysql`](https://dev.mysql.com/doc/refman/8.0/en/mysql.html) command-line client:
 
 ```bash
-MYSQL_PWD='TestP@ssw0rd123' mysql -h localhost -P <port> -u testuser PlannerDB
+MYSQL_PWD='TestP@ssw0rd123' mysql -h localhost -P <port> -u testuser plannerdb
 mysql> SELECT id, username, activity, created_at FROM activities;
 ```
 

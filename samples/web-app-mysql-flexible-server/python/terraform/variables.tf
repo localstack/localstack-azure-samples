@@ -74,7 +74,7 @@ variable "mysql_backup_retention_days" {
 variable "mysql_database_name" {
   description = "Name of the application database to create on the MySQL flexible server."
   type        = string
-  default     = "PlannerDB"
+  default     = "plannerdb"
 }
 
 # -----------------------------------------------------------------------------

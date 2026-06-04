@@ -14,7 +14,7 @@ PRIVATE_ENDPOINT_NAME="${PREFIX}-mysql-pe-${SUFFIX}"
 APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 MYSQL_SERVER_NAME="${PREFIX}-mysqlflex-${SUFFIX}"
-MYSQL_DATABASE_NAME="PlannerDB"
+MYSQL_DATABASE_NAME="plannerdb"
 FIREWALL_RULE_NAME="AllowAllIPs"
 
 # Check resource group

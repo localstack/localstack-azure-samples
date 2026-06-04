@@ -27,10 +27,10 @@ pip install azlocal
    - *app-subnet*: delegated to `Microsoft.Web/serverFarms` (with NAT gateway).
    - *pe-subnet*: hosts the Private Endpoint (no delegation; `disable-private-endpoint-network-policies=true`).
 6. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, `Burstable / Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. With a permissive `AllowAllIPs` firewall rule.
-7. The `PlannerDB` [database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases).
+7. The `plannerdb` [database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases).
 8. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone) `privatelink.mysql.database.azure.com`, linked to the VNet.
 9. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) targeting the MySQL server with group `mysqlServer`, plus the DNS-zone group that auto-registers the A record.
-10. A separate application user (`testuser`) created via the `mysql` client, with privileges on `PlannerDB`.
+10. A separate application user (`testuser`) created via the `mysql` client, with privileges on `plannerdb`.
 11. The `activities` table and the seeded rows.
 12. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
 13. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*, configured with `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER=testuser`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `LOGIN_NAME`, `WEBSITES_PORT`.
@@ -58,7 +58,7 @@ bash validate.sh
 | --------------------- | ------------------ | --------------------------------------------- |
 | `MYSQL_ADMIN_USER`    | `myadmin`          | Server administrator login                     |
 | `MYSQL_ADMIN_PASSWORD`| `P@ssw0rd1234!`    | Server administrator password (sensitive)      |
-| `MYSQL_DATABASE_NAME` | `PlannerDB`        | Application database                           |
+| `MYSQL_DATABASE_NAME` | `plannerdb`        | Application database                           |
 | `MYSQL_APP_USER`      | `testuser`         | Application user used by the Web App            |
 | `MYSQL_APP_PASSWORD`  | `TestP@ssw0rd123`  | Password for the application user              |
 

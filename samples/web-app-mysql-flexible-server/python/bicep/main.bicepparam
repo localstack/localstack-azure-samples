@@ -4,7 +4,7 @@ param prefix = 'local'
 param suffix = 'test'
 param runtimeName = 'python'
 param runtimeVersion = '3.13'
-param databaseName = 'PlannerDB'
+param databaseName = 'plannerdb'
 param username = 'paolo'
 
 // MySQL flexible server

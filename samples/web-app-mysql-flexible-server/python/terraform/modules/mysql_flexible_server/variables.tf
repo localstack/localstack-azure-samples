@@ -42,7 +42,7 @@ variable "backup_retention_days" {
 
 variable "database_name" {
   type    = string
-  default = "PlannerDB"
+  default = "plannerdb"
 }
 
 variable "database_charset" {
