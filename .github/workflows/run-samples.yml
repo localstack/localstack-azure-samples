@@ -208,6 +208,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
           SPLITS: ${{ matrix.splits }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          PURGE_DOCKER: "1"
 
       - name: Get LocalStack Logs
         # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
