@@ -27,6 +27,8 @@ if [ -f .env ]; then
   set +a
 fi
 
+PURGE_DOCKER="${PURGE_DOCKER:-0}"
+
 # 1. Define Samples (placed before tool checks so --list works without dependencies)
 SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
@@ -203,10 +205,12 @@ for (( i=START; i<START+COUNT; i++ )); do
     fi
   fi
 
-  # Cleanup Docker resources after each test to free up disk space
-  echo "Cleaning up Docker resources..."
-  docker system prune -af --volumes || true
-  echo ""
+  if [[ ${PURGE_DOCKER} == "1" ]]; then
+    # Cleanup Docker resources after each test to free up disk space
+    echo "Cleaning up Docker resources..."
+    docker system prune -af --volumes || true
+    echo ""
+  fi
 done
 
 echo "All samples completed successfully!"
