@@ -31,11 +31,11 @@ MYSQL_SKU_NAME="Standard_B1ms"
 MYSQL_SKU_TIER="Burstable"
 MYSQL_STORAGE_SIZE_GB=32
 MYSQL_BACKUP_RETENTION_DAYS=7
-MYSQL_DATABASE_NAME="plannerdb"
-MYSQL_ADMIN_USER="myadmin"
-MYSQL_ADMIN_PASSWORD="P@ssw0rd1234!"
-MYSQL_APP_USER="testuser"
-MYSQL_APP_PASSWORD="TestP@ssw0rd123"
+MYSQL_DATABASE_NAME="${MYSQL_DATABASE_NAME:-plannerdb}"
+MYSQL_ADMIN_USER="${MYSQL_ADMIN_USER:-myadmin}"
+MYSQL_ADMIN_PASSWORD="${MYSQL_ADMIN_PASSWORD:-P@ssw0rd1234!}"
+MYSQL_APP_USER="${MYSQL_APP_USER:-testuser}"
+MYSQL_APP_PASSWORD="${MYSQL_APP_PASSWORD:-TestP@ssw0rd123}"
 FIREWALL_RULE_NAME="AllowAllIPs"
 RUNTIME="python"
 RUNTIME_VERSION="3.13"
@@ -582,6 +582,29 @@ if [[ -z $NAME ]]; then
 	fi
 else
 	echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint already exists"
+fi
+
+echo "Waiting for the [$MYSQL_SERVER_NAME] MySQL flexible server to accept connections..."
+MYSQL_READY=0
+for attempt in $(seq 1 30); do
+	if MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
+		--host="$MYSQL_FQDN" \
+		--port="$MYSQL_PORT" \
+		--user="$MYSQL_ADMIN_USER" \
+		--protocol=TCP \
+		--connect-timeout=5 \
+		-e "SELECT 1;" &>/dev/null; then
+		MYSQL_READY=1
+		echo "MySQL flexible server is accepting connections (attempt $attempt/30)"
+		break
+	fi
+	echo "MySQL flexible server not ready yet (attempt $attempt/30)..."
+	sleep 2
+done
+
+if [ "$MYSQL_READY" -ne 1 ]; then
+	echo "MySQL flexible server did not become reachable after 30 attempts. Exiting."
+	exit 1
 fi
 
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server

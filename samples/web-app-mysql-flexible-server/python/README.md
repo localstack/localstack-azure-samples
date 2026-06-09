@@ -4,39 +4,7 @@ This sample demonstrates a Python Flask single-page web application called *Vaca
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    user([User])
-
-    subgraph rg["Resource Group: local-rg"]
-        direction LR
-        law["Log Analytics<br/>Workspace"]
-        nat["NAT Gateway"]
-        dns["Private DNS Zone<br/>privatelink.mysql.database.azure.com"]
-        asp["App Service Plan<br/>S1 · Linux"]
-        mysql[("MySQL Flexible Server<br/>8.0.21 · Burstable B1ms<br/>DB: plannerdb")]
-
-        subgraph vnet["Virtual Network 10.0.0.0/8"]
-            direction TB
-            subgraph appsub["app-subnet 10.0.0.0/24 — delegated to Microsoft.Web/serverFarms"]
-                webapp["Web App<br/>Vacation Planner<br/>Flask + gunicorn"]
-            end
-            subgraph pesub["pe-subnet 10.0.1.0/24"]
-                pe["Private Endpoint<br/>group: mysqlServer"]
-            end
-        end
-    end
-
-    user -->|HTTP| webapp
-    webapp -->|"MYSQL_HOST:MYSQL_PORT<br/>(resolved via Private DNS)"| pe
-    pe -->|Private Link| mysql
-    dns -.->|A record| pe
-    dns -.->|linked| vnet
-    appsub -->|outbound| nat
-    webapp -.->|hosted on| asp
-    webapp -.->|diagnostics| law
-    mysql -.->|diagnostics| law
-```
+![Architecture Diagram](./images/architecture.png)
 
 The web app enables users to plan and manage vacation activities; all data is persisted in MySQL. The solution is composed of the following Azure resources:
 
