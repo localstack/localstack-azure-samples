@@ -134,29 +134,6 @@ else
 fi
 echo "PostgreSQL host = $POSTGRES_FQDN, port = $POSTGRES_PORT"
 
-echo "Waiting for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server to accept connections..."
-POSTGRES_READY=0
-for attempt in $(seq 1 30); do
-	if PGPASSWORD="$PG_ADMIN_PASSWORD" PGCONNECT_TIMEOUT=5 psql \
-		--host="$POSTGRES_FQDN" \
-		--port="$POSTGRES_PORT" \
-		--username="$PG_ADMIN_USER" \
-		--dbname=postgres \
-		--no-password \
-		-c "SELECT 1;" &>/dev/null; then
-		POSTGRES_READY=1
-		echo "PostgreSQL flexible server is accepting connections (attempt $attempt/30)"
-		break
-	fi
-	echo "PostgreSQL flexible server not ready yet (attempt $attempt/30)..."
-	sleep 2
-done
-
-if [ "$POSTGRES_READY" -ne 1 ]; then
-	echo "PostgreSQL flexible server did not become reachable after 30 attempts. Exiting."
-	exit 1
-fi
-
 # Create application role [$PG_APP_USER] on the PostgreSQL flexible server
 echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 PGPASSWORD="$PG_ADMIN_PASSWORD" psql \

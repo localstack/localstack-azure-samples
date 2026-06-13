@@ -134,29 +134,6 @@ else
 fi
 echo "MySQL host = $MYSQL_FQDN, port = $MYSQL_PORT"
 
-echo "Waiting for the [$MYSQL_SERVER_NAME] MySQL flexible server to accept connections..."
-MYSQL_READY=0
-for attempt in $(seq 1 30); do
-	if MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
-		--host="$MYSQL_FQDN" \
-		--port="$MYSQL_PORT" \
-		--user="$MYSQL_ADMIN_USER" \
-		--protocol=TCP \
-		--connect-timeout=5 \
-		-e "SELECT 1;" &>/dev/null; then
-		MYSQL_READY=1
-		echo "MySQL flexible server is accepting connections (attempt $attempt/30)"
-		break
-	fi
-	echo "MySQL flexible server not ready yet (attempt $attempt/30)..."
-	sleep 2
-done
-
-if [ "$MYSQL_READY" -ne 1 ]; then
-	echo "MySQL flexible server did not become reachable after 30 attempts. Exiting."
-	exit 1
-fi
-
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
 echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
 MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \

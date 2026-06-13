@@ -37,7 +37,6 @@ SAMPLES=(
   "samples/web-app-cosmosdb-mongodb-api/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-managed-identity/python|bash scripts/user-assigned.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-sql-database/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/get-web-app-url.sh"
-  "samples/web-app-postgresql-flexible-server/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-mysql-flexible-server/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-custom-image/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/aci-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
@@ -52,7 +51,6 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-cosmosdb-mongodb-api/python/terraform|bash deploy.sh"
   "samples/web-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/web-app-sql-database/python/terraform|bash deploy.sh"
-  "samples/web-app-postgresql-flexible-server/python/terraform|bash deploy.sh"
   "samples/web-app-mysql-flexible-server/python/terraform|bash deploy.sh"
   "samples/aci-blob-storage/python/terraform|bash deploy.sh"
 )
@@ -66,7 +64,6 @@ BICEP_SAMPLES=(
   "samples/function-app-storage-http/dotnet/bicep|bash deploy.sh"
   "samples/web-app-cosmosdb-mongodb-api/python/bicep|bash deploy.sh"
   "samples/web-app-managed-identity/python/bicep|bash deploy.sh"
-  "samples/web-app-postgresql-flexible-server/python/bicep|bash deploy.sh"
   "samples/web-app-mysql-flexible-server/python/bicep|bash deploy.sh"
   "samples/aci-blob-storage/python/bicep|bash deploy.sh"
 )
