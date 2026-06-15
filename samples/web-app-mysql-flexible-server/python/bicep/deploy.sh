@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='bicep'
+PREFIX='local'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
