@@ -266,5 +266,6 @@ for attempt in $(seq 1 12); do
 done
 
 if [ "$HTTP_CODE" != "200" ]; then
-	echo "Warning: the web app did not return HTTP 200 after 12 attempts (last code: $HTTP_CODE)."
+	echo "Web app did not return HTTP 200 after 12 attempts (last code: $HTTP_CODE). Deployment verification failed."
+	exit 1
 fi
