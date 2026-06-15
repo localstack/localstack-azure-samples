@@ -100,7 +100,7 @@ variable "sku_name" {
 variable "python_version" {
   description = "Python runtime version for the Web App."
   type        = string
-  default     = "3.12"
+  default     = "3.13"
 
   validation {
     condition     = contains(["3.13", "3.12", "3.11", "3.10", "3.9", "3.8", "3.7"], var.python_version)

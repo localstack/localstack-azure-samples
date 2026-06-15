@@ -544,7 +544,7 @@ NAME=$(az network private-endpoint dns-zone-group show \
 	--name "$PRIVATE_DNS_ZONE_GROUP_NAME" \
 	--query name \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors 2>/dev/null)
 
 if [[ -z $NAME ]]; then
 	echo "No private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint actually exists"

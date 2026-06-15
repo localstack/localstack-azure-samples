@@ -37,6 +37,7 @@ echo -e "\n[$WEB_APP_NAME] web app:\n"
 az webapp show \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,State:state,Location:location,DefaultHostName:defaultHostName}' \
 	--output table \
 	--only-show-errors
 

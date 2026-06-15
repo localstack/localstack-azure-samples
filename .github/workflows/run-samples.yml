@@ -120,9 +120,13 @@ jobs:
         # jq: for parsing JSON responses from Azure CLI.
         # zip: for packaging function/web apps.
         # unixodbc-dev & libsnappy-dev: required for Python database drivers (pyodbc, pymongo).
+        # default-mysql-client: provides the `mysql` CLI used by the MySQL flexible-server sample
+        #   to create the application user and seed the database schema in the local emulator.
+        # postgresql-client: provides the `psql` CLI used by the PostgreSQL flexible-server sample
+        #   to create the application role and seed the database schema in the local emulator.
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev
+          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev default-mysql-client postgresql-client
           find . -name "*.sh" -exec chmod +x {} +
 
       - name: Install Terraform
