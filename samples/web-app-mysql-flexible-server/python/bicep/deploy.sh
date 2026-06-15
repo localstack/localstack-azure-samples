@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX='bicep'
 SUFFIX='test'
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
@@ -133,6 +133,13 @@ else
 	MYSQL_PORT=3306
 fi
 echo "MySQL host = $MYSQL_FQDN, port = $MYSQL_PORT"
+
+# Check if the MySQL CLI is installed
+MYSQL_CHECK=$(command -v mysql)
+if [[ -z "$MYSQL_CHECK" ]]; then
+	echo "[mysql] CLI is not installed. Install it with: sudo apt install -y mysql-client" >&2
+	exit 1
+fi
 
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
 echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."

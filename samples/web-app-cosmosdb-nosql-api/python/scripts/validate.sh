@@ -1,38 +1,49 @@
 #!/bin/bash
 
-# Check resource group
-az group show \
---name local-rg \
---output table
+# Variables
+PREFIX='local'
+SUFFIX='test'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+WEB_APP_NAME="${PREFIX}-webapp-nosql-${SUFFIX}"
+APP_SERVICE_PLAN_NAME="${WEB_APP_NAME}"
+COSMOSDB_ACCOUNT_NAME="${WEB_APP_NAME}"
 
-# List resources
-az resource list \
---resource-group local-rg \
---output table
+# Check resource group
+echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
+az group show \
+	--name "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check App Service Plan
+echo -e "\n[$APP_SERVICE_PLAN_NAME] app service plan:\n"
+az appservice plan show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--output table \
+	--only-show-errors
 
 # Check Azure Web App
+echo -e "\n[$WEB_APP_NAME] web app:\n"
 az webapp show \
---name local-webapp-nosql-test \
---resource-group local-rg \
---output table
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,State:state,Location:location,DefaultHostName:defaultHostName}' \
+	--output table \
+	--only-show-errors
 
-# Check Azure CosmosDB account
+# Check Azure Cosmos DB account
+echo -e "\n[$COSMOSDB_ACCOUNT_NAME] cosmos db account:\n"
 az cosmosdb show \
---name local-webapp-nosql-test \
---resource-group local-rg \
---output table
+	--name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,DocumentEndpoint:documentEndpoint,Kind:kind}' \
+	--output table \
+	--only-show-errors
 
-# Check database (not implemented yet)
-# az database show \
-# --name sampledb \
-# --account-name local-webapp-nosqltest \
-# --resource-group local-rg \
-# --output table
-
-# Check collection (not impleented yet)
-# az cosmosdb collection show \
-# --name activities \
-# --database-name sampledb \
-# --account-name local-webapp-nosql-test \
-# --resource-group local-rg \
-# --output table
+# List resources
+echo -e "\n[$RESOURCE_GROUP_NAME] all resources:\n"
+az resource list \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors

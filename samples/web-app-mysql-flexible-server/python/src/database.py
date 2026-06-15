@@ -15,6 +15,7 @@ MySQL container is spun up on first server creation).
 
 import logging
 import os
+import ssl
 import time
 
 import pymysql
@@ -54,12 +55,14 @@ class MySQLClient:
         user: str,
         password: str,
         database: str,
+        ssl_enabled: bool = True,
     ) -> None:
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.database = database
+        self.ssl_enabled = ssl_enabled
 
     @classmethod
     def from_env(cls) -> "MySQLClient":
@@ -73,12 +76,20 @@ class MySQLClient:
             raise RuntimeError(
                 f"Missing required environment variable: {exc.args[0]}. "
                 "Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD (and optionally MYSQL_PORT, "
-                "MYSQL_DATABASE)."
+                "MYSQL_DATABASE, MYSQL_SSL)."
             ) from exc
-        return cls(host=host, port=port, user=user, password=password, database=database)
+        ssl_enabled = os.environ.get("MYSQL_SSL", "true").lower() in ("true", "1", "yes")
+        return cls(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            ssl_enabled=ssl_enabled,
+        )
 
     def _connect(self):
-        return pymysql.connect(
+        kwargs = dict(
             host=self.host,
             port=self.port,
             user=self.user,
@@ -88,6 +99,17 @@ class MySQLClient:
             connect_timeout=10,
             autocommit=False,
         )
+        if self.ssl_enabled:
+            # Azure MySQL Flexible Server defaults to require_secure_transport=ON (the LocalStack
+            # emulator mirrors this), so the connection must use TLS or the server rejects it with
+            # error 3159. The server certificate is publicly trusted on Azure but self-signed under
+            # LocalStack, so we enable TLS without certificate verification — the same code path
+            # works against both targets. Set MYSQL_SSL=false to disable.
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            kwargs["ssl"] = ssl_ctx
+        return pymysql.connect(**kwargs)
 
     def init_schema(self, retries: int = 30, delay: float = 2.0) -> None:
         """Wait for MySQL to accept connections, then create the activities table."""

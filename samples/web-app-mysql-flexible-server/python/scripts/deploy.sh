@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX='ciao'
 SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
@@ -559,7 +559,7 @@ NAME=$(az network private-endpoint dns-zone-group show \
 	--name "$PRIVATE_DNS_ZONE_GROUP_NAME" \
 	--query name \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors 2>/dev/null)
 
 if [[ -z $NAME ]]; then
 	echo "No private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint actually exists"
@@ -592,6 +592,7 @@ for attempt in $(seq 1 30); do
 		--port="$MYSQL_PORT" \
 		--user="$MYSQL_ADMIN_USER" \
 		--protocol=TCP \
+		--ssl-mode=REQUIRED \
 		--connect-timeout=5 \
 		-e "SELECT 1;" &>/dev/null; then
 		MYSQL_READY=1
@@ -607,6 +608,13 @@ if [ "$MYSQL_READY" -ne 1 ]; then
 	exit 1
 fi
 
+# Check if the MySQL CLI is installed
+MYSQL_CHECK=$(command -v mysql)
+if [[ -z "$MYSQL_CHECK" ]]; then
+	echo "[mysql] CLI is not installed. Install it with: sudo apt install -y mysql-client" >&2
+	exit 1
+fi
+
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
 echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
 MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
@@ -614,6 +622,7 @@ MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 	--port="$MYSQL_PORT" \
 	--user="$MYSQL_ADMIN_USER" \
 	--protocol=TCP \
+	--ssl-mode=REQUIRED \
 	-e "CREATE USER IF NOT EXISTS '$MYSQL_APP_USER'@'%' IDENTIFIED BY '$MYSQL_APP_PASSWORD';
 		GRANT ALL PRIVILEGES ON \`$MYSQL_DATABASE_NAME\`.* TO '$MYSQL_APP_USER'@'%';
 		FLUSH PRIVILEGES;"
@@ -632,6 +641,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--port="$MYSQL_PORT" \
 	--user="$MYSQL_APP_USER" \
 	--protocol=TCP \
+	--ssl-mode=REQUIRED \
 	--database="$MYSQL_DATABASE_NAME" \
 	-e "SELECT CURRENT_USER() AS user_name, DATABASE() AS db_name, NOW() AS server_time;"
 
@@ -649,6 +659,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--port="$MYSQL_PORT" \
 	--user="$MYSQL_APP_USER" \
 	--protocol=TCP \
+	--ssl-mode=REQUIRED \
 	--database="$MYSQL_DATABASE_NAME" \
 	-e "CREATE TABLE IF NOT EXISTS activities (
 			id           VARCHAR(32)  NOT NULL,
@@ -674,6 +685,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--port="$MYSQL_PORT" \
 	--user="$MYSQL_APP_USER" \
 	--protocol=TCP \
+	--ssl-mode=REQUIRED \
 	--database="$MYSQL_DATABASE_NAME" \
 	-e "INSERT IGNORE INTO activities (id, username, activity) VALUES
 			(MD5('paolo_pisa_seed'), 'paolo', 'Visit the Leaning Tower in Pisa'),
@@ -700,6 +712,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--port="$MYSQL_PORT" \
 	--user="$MYSQL_APP_USER" \
 	--protocol=TCP \
+	--ssl-mode=REQUIRED \
 	--database="$MYSQL_DATABASE_NAME" \
 	-e "SELECT * FROM activities;"
 
@@ -807,6 +820,7 @@ az webapp config appsettings set \
 	MYSQL_USER="$MYSQL_APP_USER" \
 	MYSQL_PASSWORD="$MYSQL_APP_PASSWORD" \
 	MYSQL_DATABASE="$MYSQL_DATABASE_NAME" \
+	MYSQL_SSL="true" \
 	LOGIN_NAME="$LOGIN_NAME" \
 	WEBSITES_PORT="8000" \
 	--only-show-errors 1>/dev/null

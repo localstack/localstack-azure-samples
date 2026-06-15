@@ -179,6 +179,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     MYSQL_HOST: mysqlHost
     MYSQL_PORT: mysqlPort
     MYSQL_DATABASE: mysqlDatabase
+    MYSQL_SSL: 'true'
     WEBSITES_PORT: '8000'
     LOGIN_NAME: username
   }
