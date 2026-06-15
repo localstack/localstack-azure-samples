@@ -1089,3 +1089,30 @@ fi
 # Print the list of resources in the resource group
 echo "Listing resources in resource group [$RESOURCE_GROUP_NAME]..."
 az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table
+
+# Ping the web app to confirm the deployment is reachable
+echo "Getting the default hostname of the [$WEB_APP_NAME] web app..."
+WEB_APP_HOSTNAME=$(az webapp show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query defaultHostName \
+	--output tsv \
+	--only-show-errors)
+WEB_APP_URL="http://${WEB_APP_HOSTNAME}"
+echo "You can visit your app at: $WEB_APP_URL"
+
+echo "Pinging [$WEB_APP_URL] to verify the web app responds..."
+HTTP_CODE="000"
+for attempt in $(seq 1 12); do
+	HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$WEB_APP_URL" || echo "000")
+	if [ "$HTTP_CODE" = "200" ]; then
+		echo "Web app responded with HTTP 200. Deployment verified successfully."
+		break
+	fi
+	echo "Web app not ready yet (attempt $attempt/12, HTTP $HTTP_CODE)..."
+	sleep 5
+done
+
+if [ "$HTTP_CODE" != "200" ]; then
+	echo "Warning: the web app did not return HTTP 200 after 12 attempts (last code: $HTTP_CODE)."
+fi
