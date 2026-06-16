@@ -110,7 +110,7 @@ for ((i=1; i<=n; i++)); do
 
 	if [ "$BLOB_EXISTS" == "true" ]; then
 		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
-		TEMP_OUTPUT_FILE=$(mktemp)
+		TEMP_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/processed-output.XXXXXX")" || { echo "Failed to create temporary file." >&2; exit 1; }
 
 		az storage blob download \
 			--container-name "$OUTPUT_CONTAINER_NAME" \
