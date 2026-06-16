@@ -8,6 +8,15 @@ INPUT_CONTAINER_NAME="input"
 OUTPUT_CONTAINER_NAME="output"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMP_OUTPUT_FILE=""
+
+cleanup() {
+	if [ -n "$TEMP_OUTPUT_FILE" ] && [ -f "$TEMP_OUTPUT_FILE" ]; then
+		rm -f "$TEMP_OUTPUT_FILE"
+	fi
+}
+
+trap cleanup EXIT
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -101,6 +110,23 @@ for ((i=1; i<=n; i++)); do
 
 	if [ "$BLOB_EXISTS" == "true" ]; then
 		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
+		TEMP_OUTPUT_FILE=$(mktemp)
+
+		az storage blob download \
+			--container-name "$OUTPUT_CONTAINER_NAME" \
+			--name "$BLOB_NAME" \
+			--file "$TEMP_OUTPUT_FILE" \
+			--account-name "$STORAGE_ACCOUNT_NAME" \
+			--auth-mode login 1>/dev/null
+
+		echo "Input file [$FILE_PATH]:"
+		cat "$FILE_PATH"
+
+		echo ""
+		echo "Processed output file [$BLOB_NAME]:"
+		cat "$TEMP_OUTPUT_FILE"
+		echo ""
+
 		exit 0
 	fi
 
