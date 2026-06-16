@@ -117,7 +117,7 @@ for ((i=1; i<=n; i++)); do
 			--name "$BLOB_NAME" \
 			--file "$TEMP_OUTPUT_FILE" \
 			--account-name "$STORAGE_ACCOUNT_NAME" \
-			--auth-mode login 1>/dev/null
+			--auth-mode login 1>/dev/null || { echo "Failed to download processed blob [$BLOB_NAME] from container [$OUTPUT_CONTAINER_NAME]." >&2; exit 1; }
 
 		echo "Input file [$FILE_PATH]:"
 		cat "$FILE_PATH"
