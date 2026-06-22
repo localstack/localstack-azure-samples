@@ -85,7 +85,7 @@ if [[ $? != 0 ]]; then
 		--admin-user $PG_ADMIN_USER \
 		--admin-password "$PG_ADMIN_PASSWORD" \
 		--public-access Enabled \
-		--high-availability Disabled \
+		--zonal-resiliency Disabled \
 		--yes \
 		--tags environment=test iac=az-cli \
 		--only-show-errors 1>/dev/null
