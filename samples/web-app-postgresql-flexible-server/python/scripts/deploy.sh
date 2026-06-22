@@ -146,9 +146,9 @@ echo "PostgreSQL host = $POSTGRES_FQDN, port = $POSTGRES_PORT"
 # Check if the server-level firewall rule already exists
 echo "Checking if [$FIREWALL_RULE_NAME] firewall rule already exists on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 az postgres flexible-server firewall-rule show \
-	--name $POSTGRES_SERVER_NAME \
+	--server-name $POSTGRES_SERVER_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
-	--rule-name $FIREWALL_RULE_NAME \
+	--name $FIREWALL_RULE_NAME \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
@@ -157,9 +157,9 @@ if [[ $? != 0 ]]; then
 
 	# Create a permissive firewall rule so the deploy machine can run the psql bootstrap
 	az postgres flexible-server firewall-rule create \
-		--name $POSTGRES_SERVER_NAME \
+		--server-name $POSTGRES_SERVER_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
-		--rule-name $FIREWALL_RULE_NAME \
+		--name $FIREWALL_RULE_NAME \
 		--start-ip-address "0.0.0.0" \
 		--end-ip-address "255.255.255.255" \
 		--only-show-errors 1>/dev/null
@@ -179,7 +179,7 @@ echo "Checking if [$POSTGRES_DATABASE_NAME] database already exists on the [$POS
 az postgres flexible-server db show \
 	--server-name $POSTGRES_SERVER_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
-	--database-name $POSTGRES_DATABASE_NAME \
+	--name $POSTGRES_DATABASE_NAME \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
@@ -190,7 +190,7 @@ if [[ $? != 0 ]]; then
 	az postgres flexible-server db create \
 		--server-name $POSTGRES_SERVER_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
-		--database-name $POSTGRES_DATABASE_NAME \
+		--name $POSTGRES_DATABASE_NAME \
 		--charset UTF8 \
 		--collation en_US.utf8 \
 		--only-show-errors 1>/dev/null

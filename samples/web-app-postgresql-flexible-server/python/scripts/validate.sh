@@ -55,7 +55,7 @@ echo -e "\n[$POSTGRES_DATABASE_NAME] PostgreSQL database:\n"
 az postgres flexible-server db show \
 	--server-name "$POSTGRES_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--database-name "$POSTGRES_DATABASE_NAME" \
+	--name "$POSTGRES_DATABASE_NAME" \
 	--query '{Name:name,ResourceGroup:resourceGroup,Charset:charset,Collation:collation}' \
 	--output table \
 	--only-show-errors
@@ -63,9 +63,9 @@ az postgres flexible-server db show \
 # Check PostgreSQL firewall rule
 echo -e "\n[$FIREWALL_RULE_NAME] PostgreSQL firewall rule:\n"
 az postgres flexible-server firewall-rule show \
-	--name "$POSTGRES_SERVER_NAME" \
+	--server-name "$POSTGRES_SERVER_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--rule-name "$FIREWALL_RULE_NAME" \
+	--name "$FIREWALL_RULE_NAME" \
 	--output table \
 	--only-show-errors
 
