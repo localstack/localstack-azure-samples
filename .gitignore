@@ -223,6 +223,7 @@ cython_debug/
 .idea/
 ## Terraform
 .terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 tfplan
@@ -230,3 +231,8 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+## Sample deployment artifacts
+# Written by a sample's deploy.sh and read back by its other scripts. It holds live
+# connection strings, so it must never be committed.
+.deployment-env

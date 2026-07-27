@@ -36,7 +36,7 @@ az deployment group validate \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--template-file main.bicep \
 	--parameters main.bicepparam \
-	--only-show-errors 1>/dev/null || echo "WARNING: validation reported issues; continuing to the deployment."
+	--only-show-errors 1>/dev/null || fail "the Bicep template did not pass validation"
 
 echo ""
 echo "=== Deploying the template ==="

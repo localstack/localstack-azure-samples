@@ -128,6 +128,12 @@ Both provision the same topology and then publish the same application packages.
    and its records printed - the cold path, with no consumer code.
 6. **Point at the dashboard** for the live view.
 
+Each step asserts its own result rather than reporting it: the script exits non-zero (and
+prints the Function App's container logs) if the hub does not grow by the events that were
+published, if no alert arrives, if the processor replays instead of resuming, or if Capture
+writes nothing decodable. A run that completes is evidence the pipeline works, which is
+what makes it usable as a CI test.
+
 ## Application
 
 ### Producers (`src/producers/`)

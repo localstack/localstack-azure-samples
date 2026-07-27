@@ -20,12 +20,17 @@ locals {
     "TableEndpoint=${azurerm_storage_account.main.primary_table_endpoint}",
   ])
 
-  prefix                  = lower(var.prefix)
-  suffix                  = lower(var.suffix)
+  prefix = lower(var.prefix)
+  suffix = lower(var.suffix)
+  # Storage and Key Vault names take only the first four characters of the suffix, matching
+  # `${SUFFIX:0:4}` in scripts/deploy.sh and `take(suffix, 4)` in the Bicep template, so all
+  # three deployment paths produce the same names and scripts/validate.sh applies to each.
+  suffix_short = substr(local.suffix, 0, min(4, length(local.suffix)))
+
   resource_group_name     = "${local.prefix}-eventhubs-rg"
   eventhub_namespace_name = "${local.prefix}-ehns-${local.suffix}"
-  storage_account_name    = substr(replace("${local.prefix}ehstorage${local.suffix}", "-", ""), 0, 24)
-  key_vault_name          = substr(replace("${local.prefix}ehkv${local.suffix}", "-", ""), 0, 24)
+  storage_account_name    = substr(replace("${local.prefix}ehstorage${local.suffix_short}", "-", ""), 0, 24)
+  key_vault_name          = substr(replace("${local.prefix}ehkv${local.suffix_short}", "-", ""), 0, 24)
   workspace_name          = "${local.prefix}-eh-logs"
   app_insights_name       = "${local.prefix}-eh-insights"
   function_app_name       = "${local.prefix}-eh-fraud-func"

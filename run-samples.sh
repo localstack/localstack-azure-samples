@@ -49,7 +49,7 @@ SAMPLES=(
 # 1a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
   "samples/servicebus/java/terraform|bash deploy.sh"
-  "samples/eventhubs/python/terraform|bash deploy.sh"
+  "samples/eventhubs/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
@@ -64,7 +64,7 @@ TERRAFORM_SAMPLES=(
 # 1b. Define Bicep Samples
 BICEP_SAMPLES=(
   "samples/servicebus/java/bicep|bash deploy.sh"
-  "samples/eventhubs/python/bicep|bash deploy.sh"
+  "samples/eventhubs/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/bicep|bash deploy.sh"
@@ -89,15 +89,19 @@ if [[ "${1:-}" == "--list" ]]; then
     IFS='|' read -r path _ _ <<< "${ALL_SAMPLES[$i]}"
 
     if [[ "$path" == */terraform || "$path" == */bicep ]]; then
-      watch=("$path" "$(dirname "$path")/src")
+      # An IaC sample deploys from its own folder, but its test command may run the
+      # sample's shared scripts, so a change there has to re-run it too. Folders that do
+      # not exist simply never match a changed file.
+      watch=("$path" "$(dirname "$path")/src" "$(dirname "$path")/scripts")
       name="${path#samples/}"
     else
       watch=("$path/scripts" "$path/src")
       name="${path#samples/}/scripts"
     fi
 
-    printf '  {"shard":%d,"splits":%d,"name":"%s","watch_folders":["%s","%s"]}' \
-      $((i+1)) "$TOTAL" "$name" "${watch[0]}" "${watch[1]}"
+    folders=$(printf '"%s",' "${watch[@]}")
+    printf '  {"shard":%d,"splits":%d,"name":"%s","watch_folders":[%s]}' \
+      $((i+1)) "$TOTAL" "$name" "${folders%,}"
     (( i < TOTAL-1 )) && echo "," || echo ""
   done
   echo "]"

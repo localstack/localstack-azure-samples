@@ -121,7 +121,7 @@ if ! az monitor app-insights component show \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--application-type web \
 		--workspace "$WORKSPACE_ID" \
-		--only-show-errors 1>/dev/null || echo "WARNING: Application Insights could not be created; continuing."
+		--only-show-errors 1>/dev/null || fail "could not create Application Insights"
 	echo "Created Application Insights [$APP_INSIGHTS_NAME]."
 else
 	echo "Application Insights [$APP_INSIGHTS_NAME] already exists."
@@ -485,7 +485,7 @@ az webapp config set \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--startup-file "gunicorn --config gunicorn.conf.py app:app" \
-	--only-show-errors 1>/dev/null || echo "WARNING: could not set the startup command."
+	--only-show-errors 1>/dev/null || fail "could not set the dashboard startup command"
 
 cd "$SRC_DIR/dashboard" || fail "missing src/dashboard"
 rm -f "$CURRENT_DIR/$WEB_APP_ZIP"
