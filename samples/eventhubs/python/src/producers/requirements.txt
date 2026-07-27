@@ -1,0 +1,4 @@
+azure-eventhub==5.15.0
+azure-identity==1.19.0
+confluent-kafka==2.8.0
+requests==2.32.3

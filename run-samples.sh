@@ -32,6 +32,7 @@ PURGE_DOCKER="${PURGE_DOCKER:-0}"
 # 1. Define Samples (placed before tool checks so --list works without dependencies)
 SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
+  "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
@@ -48,6 +49,7 @@ SAMPLES=(
 # 1a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
   "samples/servicebus/java/terraform|bash deploy.sh"
+  "samples/eventhubs/python/terraform|bash deploy.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
@@ -62,6 +64,7 @@ TERRAFORM_SAMPLES=(
 # 1b. Define Bicep Samples
 BICEP_SAMPLES=(
   "samples/servicebus/java/bicep|bash deploy.sh"
+  "samples/eventhubs/python/bicep|bash deploy.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/bicep|bash deploy.sh"
