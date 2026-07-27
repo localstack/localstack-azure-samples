@@ -3,4 +3,4 @@ azure-mgmt-cosmosdb==9.9.0
 azure-cosmos==4.15.0
 gunicorn==26.0.0
 python-dotenv==1.2.2
-setuptools==82.0.1
+setuptools==83.0.0
