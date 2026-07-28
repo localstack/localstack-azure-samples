@@ -126,14 +126,17 @@ if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
 fi
 
 if command -v lstk >/dev/null 2>&1; then
-  echo "[DEBUG] lstk command found, attempting login..."
-  lstk az login || true
   echo "[DEBUG] Starting lstk az interception..."
   lstk az start-interception
+  # With interception active, the standard az CLI targets the emulator directly.
+  # The `lstk az` proxy is intentionally not used below: it requires a one-time
+  # Azure CLI integration setup that is not available on headless CI runners.
+  echo "[DEBUG] Logging in..."
+  az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
   echo "[DEBUG] Setting default subscription..."
-  lstk az account set --subscription "00000000-0000-0000-0000-000000000000" || true
-  echo "[DEBUG] Checking lstk az account status..."
-  lstk az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] lstk az account show failed"
+  az account set --subscription "00000000-0000-0000-0000-000000000000" || true
+  echo "[DEBUG] Checking az account status..."
+  az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
 else
   echo "[DEBUG] lstk not found, using standard az login with service principal..."
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
@@ -193,12 +196,13 @@ for (( i=START; i<START+COUNT; i++ )); do
   # Clean up Azure resources to prevent state pollution between tests
   echo "Cleaning up Azure resources in LocalStack..."
   if command -v lstk >/dev/null 2>&1; then
-    RG_LIST=$(lstk az group list --query "[].name" -o tsv 2>/dev/null || echo "")
+    # Interception is active (started above), so plain az targets the emulator.
+    RG_LIST=$(az group list --query "[].name" -o tsv 2>/dev/null || echo "")
     if [[ -n "$RG_LIST" ]]; then
       echo "$RG_LIST" | while read -r rg; do
         if [[ -n "$rg" ]]; then
           echo "  - Deleting resource group: $rg"
-          lstk az group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+          az group delete --name "$rg" --yes --no-wait 2>/dev/null || true
         fi
       done
       sleep 2
