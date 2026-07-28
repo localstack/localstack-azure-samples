@@ -172,6 +172,19 @@ resource alertSendRule 'Microsoft.EventHub/namespaces/eventhubs/authorizationRul
   }
 }
 
+// The dashboard reads both hubs plus partition runtime metadata, which no single
+// entity-level rule covers. That calls for a namespace-wide Listen rule, not the namespace
+// Manage key - a reader should never hold Send or Manage.
+resource dashboardListenRule 'Microsoft.EventHub/namespaces/authorizationRules@2024-01-01' = {
+  parent: namespace
+  name: 'dashboard-listen'
+  properties: {
+    rights: [
+      'Listen'
+    ]
+  }
+}
+
 // The contract producers and consumers agree on, versioned by the registry.
 resource schemaGroup 'Microsoft.EventHub/namespaces/schemagroups@2024-01-01' = {
   parent: namespace

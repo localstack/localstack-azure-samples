@@ -31,6 +31,7 @@ WEB_APP_NAME="${PREFIX}-eh-dashboard"
 PARTITION_COUNT=4
 
 # Bonus resources, created and removed by this script
+DR_LOCATION="${DR_LOCATION:-northeurope}"
 DR_NAMESPACE_NAME="${PREFIX}-ehns-${SUFFIX}-dr"
 DR_ALIAS_NAME="${PREFIX}-payments-alias"
 APPLICATION_GROUP_NAME='pos-terminals'
@@ -215,11 +216,16 @@ echo ""
 # =============================================================================
 
 echo "[10] Application group with a throttling policy"
+# Emulator-only: real Azure offers application groups on the Premium and Dedicated tiers
+# only, so this check cannot pass against the Standard namespace this sample deploys.
+# Bumping the tier for one bonus check is not worth it, so the deviation is documented.
+# https://learn.microsoft.com/en-us/azure/event-hubs/resource-governance-overview
+# The identifier names a namespace-level SAS key, which is what the property expects.
 if az eventhubs namespace application-group create \
 	--name "$APPLICATION_GROUP_NAME" \
 	--namespace-name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--client-app-group-identifier "NamespaceSASKeyName=$SEND_RULE_NAME" \
+	--client-app-group-identifier "NamespaceSASKeyName=RootManageSharedAccessKey" \
 	--is-enabled true \
 	--throttling-policy-config name=limit-ingress metric-id=IncomingMessages rate-limit-threshold=10000 \
 	--only-show-errors &>/dev/null; then
@@ -237,9 +243,13 @@ echo ""
 
 echo "[11] Geo-disaster recovery pairing"
 echo -n "  Creating the secondary namespace... "
+# Real Azure pairs namespaces across regions - the documented setup puts the secondary in a
+# different region from the primary - so the sample does the same. Regions are nominal on
+# the emulator, which is why a distinct DR region costs nothing here.
+# https://learn.microsoft.com/en-us/azure/event-hubs/configure-geo-disaster-recovery
 if az eventhubs namespace create \
 	--name "$DR_NAMESPACE_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" --sku Standard --only-show-errors &>/dev/null; then
+	--location "$DR_LOCATION" --sku Standard --only-show-errors &>/dev/null; then
 	pass "secondary namespace created"
 else
 	fail "could not create the secondary namespace"

@@ -18,6 +18,7 @@ Run locally:  python app.py       (or gunicorn, as the Web App does)
 import io
 import json
 import os
+import threading
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -34,7 +35,11 @@ ALERT_HUB_NAME = os.environ.get("ALERT_HUB_NAME", "fraud-alerts")
 FRAUD_CONSUMER_GROUP = os.environ.get("FRAUD_CONSUMER_GROUP", "fraud-detector")
 CAPTURE_CONTAINER = os.environ.get("CAPTURE_CONTAINER_NAME", "payments-archive")
 SCHEMA_GROUP = os.environ.get("SCHEMA_GROUP_NAME", "payments-schemas")
+# The contract src/producers/schema_register.py publishes.
+SCHEMA_NAME = os.environ.get("SCHEMA_NAME", "PaymentEvent")
 API_VERSION = "2023-07-01"
+# Upper bound on a single alerts read, so a page refresh can never hang the worker thread.
+ALERT_READ_TIMEOUT_SECONDS = 15
 
 
 def eventhub_connection() -> str:
@@ -123,31 +128,50 @@ def recent_alerts(limit: int = 25) -> list[dict]:
     conn = eventhub_connection()
     if not conn:
         return []
-    alerts: list[dict] = []
     client = EventHubConsumerClient.from_connection_string(
         conn, consumer_group="$Default", eventhub_name=ALERT_HUB_NAME
     )
-    with client:
-        for partition_id in client.get_partition_ids():
-            try:
-                batch = client._client  # noqa: SLF001 - not used; kept for clarity below
-            except Exception:
-                batch = None
-            del batch
-        # receive_batch with a short wait is the bounded way to poll a hub for a UI.
-        def collect(partition_context, events):
+    alerts: list[dict] = []
+    lock = threading.Lock()
+    drained: set[str] = set()
+    caught_up = threading.Event()
+    try:
+        partitions = set(client.get_partition_ids())
+    except Exception:
+        partitions = set()
+
+    def collect(partition_context, events):
+        if not events:
+            # An empty batch after max_wait_time means this partition is drained. Every
+            # partition has to report in before returning, otherwise the page would show
+            # only the alerts that happened to land on the first one to finish.
+            drained.add(partition_context.partition_id)
+            if partitions and partitions <= drained:
+                caught_up.set()
+            return
+        with lock:
             for event in events:
                 try:
                     alerts.append(json.loads(event.body_as_str()))
                 except ValueError:
                     continue
 
-        client.receive_batch(
+    # receive_batch() returns only once the client is closed, so it runs on a worker thread
+    # and this thread does the closing - the pattern scripts/roundtrip_check.py already uses.
+    # Calling it inline would deadlock the request: the close can never be reached.
+    receiver = threading.Thread(
+        target=lambda: client.receive_batch(
             on_event_batch=collect,
             starting_position="-1",
             max_wait_time=3,
             max_batch_size=limit,
-        )
+        ),
+        daemon=True,
+    )
+    receiver.start()
+    caught_up.wait(timeout=ALERT_READ_TIMEOUT_SECONDS)
+    client.close()
+    receiver.join(timeout=5)
     return alerts[-limit:][::-1]
 
 
@@ -218,16 +242,24 @@ def schema_snapshot() -> list[dict]:
             token = DefaultAzureCredential().get_token("https://eventhubs.azure.net/.default").token
         except Exception:
             return []
+    # Listing a group's schemas is not part of the Schema Registry data plane. The 2023-07-01
+    # spec exposes the versions of a *named* schema, so the panel asks about the contract this
+    # sample registers - which keeps it working against real Azure, not just the emulator.
     try:
         response = requests.get(
-            f"https://{host}/$schemaGroups/{SCHEMA_GROUP}/schemas?api-version={API_VERSION}",
+            f"https://{host}/$schemaGroups/{SCHEMA_GROUP}/schemas/{SCHEMA_NAME}/versions"
+            f"?api-version={API_VERSION}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
-            verify=False,
+            # Only the emulator's certificate is self-signed; against real Azure this stays on.
+            verify="localhost.localstack.cloud" not in host,
         )
         if not response.ok:
             return []
-        return [{"group": SCHEMA_GROUP, "name": name} for name in response.json().get("Value", [])]
+        versions = response.json().get("Value", [])
+        if not versions:
+            return []
+        return [{"group": SCHEMA_GROUP, "name": SCHEMA_NAME, "versions": len(versions)}]
     except Exception:
         return []
 

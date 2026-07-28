@@ -67,12 +67,17 @@ def main() -> None:
                 # Custom headers are delivered as user properties on the event.
                 "source": "atm-gateway",
                 "protocol": "http",
-                # BrokerProperties routes the event by partition key, mirroring the
-                # partition_key the AMQP and Kafka producers use.
+                # BrokerProperties routes the event by partition key on the emulator,
+                # mirroring the partition_key the AMQP and Kafka producers use. Note that
+                # this header is not part of the documented Event Hubs REST contract, so
+                # against real Azure verify the routing or use the "Send partition event"
+                # endpoint when placement has to be explicit.
                 "BrokerProperties": '{"PartitionKey": "%s"}' % payment["account_id"],
             },
             timeout=30,
-            verify=False,  # the emulator serves a self-signed certificate locally
+            # Only the emulator's certificate is self-signed. Scoping the exception to it
+            # means running this against real Azure still validates the certificate.
+            verify="localhost.localstack.cloud" not in endpoint,
         )
         if response.status_code not in (200, 201):
             raise SystemExit(f"HTTP send failed: {response.status_code} {response.text[:200]}")

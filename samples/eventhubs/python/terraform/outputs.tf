@@ -23,6 +23,11 @@ output "consumer_groups" {
   value       = [for group in azurerm_eventhub_consumer_group.groups : group.name]
 }
 
+output "fraud_consumer_group" {
+  description = "Consumer group the fraud detector reads from."
+  value       = local.fraud_consumer_group
+}
+
 output "schema_group_name" {
   description = "Schema Registry group holding the payment contract."
   value       = azurerm_eventhub_namespace_schema_group.payments.name
@@ -70,8 +75,14 @@ output "eventhub_listen_connection_string" {
   sensitive   = true
 }
 
+output "eventhub_alert_send_connection_string" {
+  description = "Send-only connection string for the fraud-alerts hub."
+  value       = azurerm_eventhub_authorization_rule.alerts_send.primary_connection_string
+  sensitive   = true
+}
+
 output "eventhub_namespace_connection_string" {
-  description = "Namespace-level connection string used by the dashboard and the Kafka producer."
+  description = "Namespace-level connection string used by the demo scripts (Kafka publishing and reading both hubs)."
   value       = azurerm_eventhub_namespace.main.default_primary_connection_string
   sensitive   = true
 }

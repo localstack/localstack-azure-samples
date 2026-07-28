@@ -104,6 +104,13 @@ LISTEN_CONNECTION=$(az eventhubs eventhub authorization-rule keys list --name pa
 ALERT_SEND_CONNECTION=$(az eventhubs eventhub authorization-rule keys list --name alerts-send \
 	--eventhub-name "$ALERT_HUB_NAME" --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --query primaryConnectionString -o tsv --only-show-errors)
+# The dashboard is a pure reader, so it gets the namespace-wide Listen rule rather than
+# RootManageSharedAccessKey.
+DASHBOARD_LISTEN_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
+	--name dashboard-listen --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --query primaryConnectionString -o tsv --only-show-errors)
+# Not given to any workload - the demo scripts need it to publish over Kafka and to read
+# both hubs, and it is written to scripts/.deployment-env below.
 NAMESPACE_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 	--name RootManageSharedAccessKey --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --query primaryConnectionString -o tsv --only-show-errors)
@@ -124,7 +131,7 @@ az functionapp config appsettings set --name "$FUNCTION_APP_NAME" --resource-gro
 	--only-show-errors 1>/dev/null || fail "could not set the function app settings"
 
 az webapp config appsettings set --name "$WEB_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
-	--settings "EVENTHUB_LISTEN_CONNECTION_STRING=$NAMESPACE_CONNECTION" \
+	--settings "EVENTHUB_LISTEN_CONNECTION_STRING=$DASHBOARD_LISTEN_CONNECTION" \
 	"STORAGE_CONNECTION_STRING=$STORAGE_CONNECTION_STRING" \
 	--only-show-errors 1>/dev/null || fail "could not set the web app settings"
 echo "Configured both workloads."
@@ -170,7 +177,31 @@ az eventhubs eventhub show \
 	--query "{name:name, partitions:partitionCount, capture:captureDescription.enabled}" \
 	--output table --only-show-errors || fail "the payments hub is not readable"
 
+# -----------------------------------------------------------------------------
+# Mirror what scripts/deploy.sh writes, so the end-to-end demo runs after a Bicep
+# deployment too - the topology is identical, and every value it needs is already here.
+# -----------------------------------------------------------------------------
+cat >"$CURRENT_DIR/../scripts/.deployment-env" <<EOF
+export RESOURCE_GROUP_NAME='$RESOURCE_GROUP_NAME'
+export EVENTHUB_NAMESPACE_NAME='$EVENTHUB_NAMESPACE_NAME'
+export EVENT_HUB_NAME='$EVENT_HUB_NAME'
+export ALERT_HUB_NAME='$ALERT_HUB_NAME'
+export FRAUD_CONSUMER_GROUP='$FRAUD_CONSUMER_GROUP'
+export SCHEMA_GROUP_NAME='$SCHEMA_GROUP_NAME'
+export STORAGE_ACCOUNT_NAME='$STORAGE_ACCOUNT_NAME'
+export CAPTURE_CONTAINER_NAME='$CAPTURE_CONTAINER_NAME'
+export KEY_VAULT_NAME='$KEY_VAULT_NAME'
+export FUNCTION_APP_NAME='$FUNCTION_APP_NAME'
+export WEB_APP_NAME='$WEB_APP_NAME'
+export EVENTHUB_SEND_CONNECTION_STRING='$SEND_CONNECTION'
+export EVENTHUB_LISTEN_CONNECTION_STRING='$LISTEN_CONNECTION'
+export EVENTHUB_ALERT_SEND_CONNECTION_STRING='$ALERT_SEND_CONNECTION'
+export EVENTHUB_NAMESPACE_CONNECTION_STRING='$NAMESPACE_CONNECTION'
+export STORAGE_CONNECTION_STRING='$STORAGE_CONNECTION_STRING'
+EOF
+
 echo ""
 echo "Dashboard: $DASHBOARD_URL"
 echo ""
-echo "Deployment complete. Run 'bash ../scripts/validate.sh' to exercise every capability."
+echo "Deployment complete. Run 'bash ../scripts/validate.sh' to exercise every capability,"
+echo "then 'bash ../scripts/run-pipeline.sh' for the end-to-end demo."

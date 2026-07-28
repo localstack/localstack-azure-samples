@@ -39,9 +39,10 @@ def main() -> None:
     hub = event_hub_name()
     bootstrap = namespace_endpoint(conn_str)
 
-    # Topic == event hub. Against Azure you would add
-    # security.protocol=SASL_SSL / sasl.mechanism=PLAIN with the connection string as the
-    # password; the emulator serves Kafka in plaintext (a documented deviation).
+    # Topic == event hub. Against Azure you would add security.protocol=SASL_SSL,
+    # sasl.mechanism=PLAIN, sasl.username='$ConnectionString' (the literal string - Azure
+    # expects it verbatim) and the full connection string as sasl.password; the emulator
+    # serves Kafka in plaintext (a documented deviation).
     producer = Producer(
         {
             "bootstrap.servers": bootstrap,

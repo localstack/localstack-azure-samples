@@ -52,7 +52,7 @@ def require_env(name: str) -> str:
     if not value:
         raise SystemExit(
             f"Environment variable {name} is not set. "
-            f"Run 'source scripts/export-connection-info.sh' (or scripts/deploy.sh) first."
+            f"Run 'source scripts/.deployment-env' (written by scripts/deploy.sh) first."
         )
     return value
 
@@ -80,7 +80,9 @@ def namespace_endpoint(conn_str: str) -> str:
             break
     parsed = urlparse(endpoint)
     host = parsed.hostname or "localhost"
-    port = parsed.port or (9093 if "servicebus.windows.net" not in host else 9093)
+    # Azure's Kafka endpoint is always {namespace}.servicebus.windows.net:9093 and carries no
+    # explicit port; the emulator embeds its own, which parsed.port already picks up.
+    port = parsed.port or 9093
     return f"{host}:{port}"
 
 

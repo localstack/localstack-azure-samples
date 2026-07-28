@@ -38,6 +38,7 @@ AUDIT_CONSUMER_GROUP='audit'
 SEND_RULE_NAME='payments-send'
 LISTEN_RULE_NAME='payments-listen'
 ALERT_SEND_RULE_NAME='alerts-send'
+DASHBOARD_LISTEN_RULE_NAME='dashboard-listen'
 SCHEMA_GROUP_NAME='payments-schemas'
 
 STORAGE_ACCOUNT_NAME="${PREFIX}ehstorage${SUFFIX:0:4}"
@@ -322,6 +323,23 @@ else
 	echo "Authorization rule [$LISTEN_RULE_NAME] already exists."
 fi
 
+# The dashboard reads both hubs plus partition runtime metadata, which an entity-level rule
+# on one hub cannot cover - but that is a reason for a namespace-level *Listen* rule, not for
+# handing a reader the namespace Manage key.
+if ! az eventhubs namespace authorization-rule show \
+	--name "$DASHBOARD_LISTEN_RULE_NAME" --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	az eventhubs namespace authorization-rule create \
+		--name "$DASHBOARD_LISTEN_RULE_NAME" \
+		--namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--rights Listen \
+		--only-show-errors 1>/dev/null || fail "could not create rule [$DASHBOARD_LISTEN_RULE_NAME]"
+	echo "Created namespace-wide listen-only rule [$DASHBOARD_LISTEN_RULE_NAME] for the dashboard."
+else
+	echo "Authorization rule [$DASHBOARD_LISTEN_RULE_NAME] already exists."
+fi
+
 # -----------------------------------------------------------------------------
 step "[8/12] Schema Registry group"
 # -----------------------------------------------------------------------------
@@ -359,8 +377,18 @@ EVENTHUB_NAMESPACE_CONNECTION_STRING=$(az eventhubs namespace authorization-rule
 	--name RootManageSharedAccessKey --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query primaryConnectionString --output tsv --only-show-errors)
+DASHBOARD_LISTEN_CONNECTION_STRING=$(az eventhubs namespace authorization-rule keys list \
+	--name "$DASHBOARD_LISTEN_RULE_NAME" --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query primaryConnectionString --output tsv --only-show-errors)
 
+# Every one of these is a credential something downstream depends on, so an empty value has
+# to stop the deployment here rather than surface as a puzzling runtime failure later.
+[[ -n "$EVENTHUB_SEND_CONNECTION_STRING" ]] || fail "could not read the send connection string"
+[[ -n "$EVENTHUB_LISTEN_CONNECTION_STRING" ]] || fail "could not read the listen connection string"
+[[ -n "$EVENTHUB_ALERT_SEND_CONNECTION_STRING" ]] || fail "could not read the alerts send connection string"
 [[ -n "$EVENTHUB_NAMESPACE_CONNECTION_STRING" ]] || fail "could not read the namespace connection string"
+[[ -n "$DASHBOARD_LISTEN_CONNECTION_STRING" ]] || fail "could not read the dashboard listen connection string"
 
 if ! az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
 	az keyvault create \
@@ -471,7 +499,7 @@ az webapp config appsettings set \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--settings \
-	"EVENTHUB_LISTEN_CONNECTION_STRING=$EVENTHUB_NAMESPACE_CONNECTION_STRING" \
+	"EVENTHUB_LISTEN_CONNECTION_STRING=$DASHBOARD_LISTEN_CONNECTION_STRING" \
 	"STORAGE_CONNECTION_STRING=$STORAGE_CONNECTION_STRING" \
 	"EVENT_HUB_NAME=$EVENT_HUB_NAME" \
 	"ALERT_HUB_NAME=$ALERT_HUB_NAME" \

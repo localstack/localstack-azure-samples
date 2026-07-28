@@ -177,6 +177,19 @@ resource "azurerm_eventhub_authorization_rule" "alerts_send" {
   manage = false
 }
 
+# The dashboard reads both hubs plus partition runtime metadata, which no single
+# entity-level rule covers. That calls for a namespace-wide Listen rule, not the namespace
+# Manage key - a reader should never hold Send or Manage.
+resource "azurerm_eventhub_namespace_authorization_rule" "dashboard_listen" {
+  name                = "dashboard-listen"
+  namespace_name      = azurerm_eventhub_namespace.main.name
+  resource_group_name = azurerm_resource_group.main.name
+
+  listen = true
+  send   = false
+  manage = false
+}
+
 # The versioned contract producers and consumers agree on.
 resource "azurerm_eventhub_namespace_schema_group" "payments" {
   name                 = var.schema_group_name
@@ -212,9 +225,12 @@ resource "azurerm_key_vault_secret" "eventhub_listen" {
   key_vault_id = azurerm_key_vault.main.id
 }
 
+# Stores the explicit-endpoint form, the same as the CLI and Bicep paths: the provider's
+# primary_connection_string uses EndpointSuffix, which the Functions host cannot parse when
+# the suffix carries a port.
 resource "azurerm_key_vault_secret" "storage" {
   name         = "storage-connection"
-  value        = azurerm_storage_account.main.primary_connection_string
+  value        = local.storage_connection_string
   key_vault_id = azurerm_key_vault.main.id
 }
 
@@ -287,7 +303,7 @@ resource "azurerm_linux_web_app" "dashboard" {
 
   app_settings = {
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "true"
-    EVENTHUB_LISTEN_CONNECTION_STRING     = azurerm_eventhub_namespace.main.default_primary_connection_string
+    EVENTHUB_LISTEN_CONNECTION_STRING     = azurerm_eventhub_namespace_authorization_rule.dashboard_listen.primary_connection_string
     STORAGE_CONNECTION_STRING             = local.storage_connection_string
     EVENT_HUB_NAME                        = azurerm_eventhub.payments.name
     ALERT_HUB_NAME                        = azurerm_eventhub.alerts.name

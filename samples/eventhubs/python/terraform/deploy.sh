@@ -99,7 +99,31 @@ az eventhubs eventhub show \
 	--query "{name:name, partitions:partitionCount, capture:captureDescription.enabled}" \
 	--output table --only-show-errors || fail "the payments hub is not readable"
 
+# -----------------------------------------------------------------------------
+# Mirror what scripts/deploy.sh writes, so the end-to-end demo runs after a Terraform
+# deployment too - the topology is identical, and every value it needs is an output.
+# -----------------------------------------------------------------------------
+cat >"$CURRENT_DIR/../scripts/.deployment-env" <<EOF
+export RESOURCE_GROUP_NAME='$RESOURCE_GROUP_NAME'
+export EVENTHUB_NAMESPACE_NAME='$EVENTHUB_NAMESPACE_NAME'
+export EVENT_HUB_NAME='$EVENT_HUB_NAME'
+export ALERT_HUB_NAME='$(terraform output -raw alert_hub_name)'
+export FRAUD_CONSUMER_GROUP='$(terraform output -raw fraud_consumer_group)'
+export SCHEMA_GROUP_NAME='$(terraform output -raw schema_group_name)'
+export STORAGE_ACCOUNT_NAME='$(terraform output -raw storage_account_name)'
+export CAPTURE_CONTAINER_NAME='$(terraform output -raw capture_container_name)'
+export KEY_VAULT_NAME='$(terraform output -raw key_vault_name)'
+export FUNCTION_APP_NAME='$FUNCTION_APP_NAME'
+export WEB_APP_NAME='$WEB_APP_NAME'
+export EVENTHUB_SEND_CONNECTION_STRING='$(terraform output -raw eventhub_send_connection_string)'
+export EVENTHUB_LISTEN_CONNECTION_STRING='$(terraform output -raw eventhub_listen_connection_string)'
+export EVENTHUB_ALERT_SEND_CONNECTION_STRING='$(terraform output -raw eventhub_alert_send_connection_string)'
+export EVENTHUB_NAMESPACE_CONNECTION_STRING='$(terraform output -raw eventhub_namespace_connection_string)'
+export STORAGE_CONNECTION_STRING='$(terraform output -raw storage_connection_string)'
+EOF
+
 echo ""
 echo "Dashboard: $(terraform output -raw dashboard_url)"
 echo ""
-echo "Deployment complete. Run 'bash ../scripts/validate.sh' to exercise every capability."
+echo "Deployment complete. Run 'bash ../scripts/validate.sh' to exercise every capability,"
+echo "then 'bash ../scripts/run-pipeline.sh' for the end-to-end demo."

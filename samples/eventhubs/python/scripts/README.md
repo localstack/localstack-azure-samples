@@ -57,6 +57,7 @@ than a description of what it should have done. It fails if:
   Later runs reuse it.
 - `deploy.sh` is idempotent: every resource is created only when it does not already
   exist, so you can re-run it after a partial failure.
-- The producers need `src/producers/requirements.txt` installed (`azure-eventhub`,
-  `confluent-kafka`, `requests`, `azure-identity`). Set `PYTHON_BIN` if the interpreter
-  holding them is not `python3`.
+- These scripts need `src/producers/requirements.txt` installed (`azure-eventhub`,
+  `azure-identity`, `azure-storage-blob`, `confluent-kafka`, `fastavro`, `requests`). The
+  last two are for `read_capture.py`, which decodes a Capture archive in the final step of
+  `run-pipeline.sh`. Set `PYTHON_BIN` if the interpreter holding them is not `python3`.

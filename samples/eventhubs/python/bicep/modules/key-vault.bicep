@@ -25,7 +25,11 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     }
     tenantId: subscription().tenantId
     enableRbacAuthorization: true
-    enableSoftDelete: false
+    // Soft delete is on by default in Azure and cannot be turned off once enabled, so the
+    // template states it explicitly rather than asking for something Azure would refuse.
+    // It also matches the Terraform path, which sets a 7-day retention.
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
     publicNetworkAccess: 'Enabled'
   }
 }

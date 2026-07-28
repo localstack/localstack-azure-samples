@@ -49,18 +49,24 @@ def main() -> None:
 
     base = registry_base()
     session = requests.Session()
-    session.verify = False  # self-signed certificate locally
+    # Only the emulator's certificate is self-signed; against real Azure this stays on.
+    session.verify = "localhost.localstack.cloud" not in base
     session.headers["Authorization"] = f"Bearer {get_token()}"
 
     if args.show:
         response = session.get(f"{base}/$schemaGroups?api-version={API_VERSION}", timeout=30)
         response.raise_for_status()
         progress(f"schema groups: {json.dumps(response.json().get('Value', []))}")
+        # Listing a group's schemas is not part of the data plane; the spec exposes the
+        # versions of a named schema, so ask about the contract this script registers.
         response = session.get(
-            f"{base}/$schemaGroups/{SCHEMA_GROUP}/schemas?api-version={API_VERSION}", timeout=30
+            f"{base}/$schemaGroups/{SCHEMA_GROUP}/schemas/{SCHEMA_NAME}/versions"
+            f"?api-version={API_VERSION}",
+            timeout=30,
         )
         if response.ok:
-            progress(f"schemas in '{SCHEMA_GROUP}': {json.dumps(response.json().get('Value', []))}")
+            versions = response.json().get("Value", [])
+            progress(f"'{SCHEMA_NAME}' in '{SCHEMA_GROUP}': versions {json.dumps(versions)}")
         return
 
     # Register (or re-register - the call is idempotent and returns the existing id when the

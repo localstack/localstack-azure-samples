@@ -236,3 +236,5 @@ override.tf.json
 # Written by a sample's deploy.sh and read back by its other scripts. It holds live
 # connection strings, so it must never be committed.
 .deployment-env
+# Application packages the deploy scripts build on the fly before publishing them.
+*.zip
