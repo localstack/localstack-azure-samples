@@ -4,4 +4,4 @@ azure-eventhub==5.15.0
 azure-storage-blob==12.24.0
 azure-identity==1.19.0
 fastavro==1.10.0
-requests==2.32.3
+requests==2.33.0
