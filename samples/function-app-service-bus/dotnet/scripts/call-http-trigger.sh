@@ -140,7 +140,7 @@ call_http_trigger_function() {
 	if [ -n "$function_host_name" ]; then
 		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via the function hostname
 		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via function hostname [$function_host_name]..."
-		curl -s "http://$function_host_name/api/greetings?count=$greeting_count" | jq
+		curl --max-time 10 -s "http://$function_host_name/api/greetings?count=$greeting_count" | jq
 	else
 		echo "Failed to retrieve function hostname"
 	fi
@@ -148,7 +148,7 @@ call_http_trigger_function() {
 	if [ -n "$container_ip" ]; then
 		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via the container IP address
 		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via container IP address [$container_ip]..."
-		curl -s "http://$container_ip/api/greetings?count=$greeting_count" | jq
+		curl --max-time 10 -s "http://$container_ip/api/greetings?count=$greeting_count" | jq
 	else
 		echo "Failed to retrieve container IP address"
 	fi
@@ -156,7 +156,7 @@ call_http_trigger_function() {
 	if [ -n "$host_port" ]; then
 		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via the host port
 		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via host port [$host_port]..."
-		curl -s "http://localhost:$host_port/api/greetings?count=$greeting_count" | jq
+		curl --max-time 10 -s "http://localhost:$host_port/api/greetings?count=$greeting_count" | jq
 	else
 		echo "Failed to retrieve host port"
 	fi

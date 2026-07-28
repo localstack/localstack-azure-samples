@@ -7,13 +7,13 @@ This directory contains Terraform modules and a deployment script for provisioni
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) (1.5+)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [MySQL client (`mysql`)](https://dev.mysql.com/downloads/)
 - [`jq`](https://jqlang.org/)
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -61,3 +61,9 @@ Override any of the variables in [`variables.tf`](variables.tf) by editing [`ter
 | `mysql_database_name`         | `plannerdb`       | Application database                     |
 
 For non-dev deployments, set `mysql_admin_password` via env var: `MYSQL_ADMIN_PASSWORD=... bash deploy.sh`.
+
+## Related Documentation
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

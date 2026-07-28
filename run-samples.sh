@@ -5,14 +5,12 @@ set -euo pipefail
 # Requirements:
 # - Docker
 # - Python 3.12+
-# - .NET 9.0+
+# - .NET 10.0+
 # - Node.js & npm
 # - Azure CLI (az)
 # - LocalStack CLI
 # - Terraform CLI
-# - azlocal & terraform-local (pip install azlocal terraform-local)
-# - Azure Functions Core Tools (func)
-# - Azure Functions Core Tools (func)
+# - lstk CLI (https://github.com/localstack/lstk)
 # - jq & zip (sudo apt-get install jq zip)
 # - MSSQL Tools (sqlcmd)
 # - LOCALSTACK_AUTH_TOKEN environment variable
@@ -104,10 +102,8 @@ fi
 # 3. Check for required tools
 command -v localstack >/dev/null 2>&1 || { echo >&2 "localstack CLI is required but not installed. Aborting."; exit 1; }
 command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installed. Aborting."; exit 1; }
-command -v azlocal >/dev/null 2>&1 || { echo >&2 "azlocal is required but not installed. Run 'pip install azlocal'. Aborting."; exit 1; }
-#command -v tflocal >/dev/null 2>&1 || { echo >&2 "tflocal is required but not installed. Run 'pip install terraform-local'. Aborting."; exit 1; }
+command -v lstk >/dev/null 2>&1 || { echo >&2 "lstk is required but not installed. See https://github.com/localstack/lstk#installation. Aborting."; exit 1; }
 command -v terraform >/dev/null 2>&1 || { echo >&2 "terraform CLI is required but not installed. Aborting."; exit 1; }
-command -v func >/dev/null 2>&1 || { echo >&2 "Azure Functions Core Tools (func) is required but not installed. Aborting."; exit 1; }
 
 if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
   echo "Error: LOCALSTACK_AUTH_TOKEN is not set. It is required for the Azure emulator."
@@ -129,17 +125,17 @@ if [ -n "${AZURE_CONFIG_DIR:-}" ]; then
   mkdir -p "$AZURE_CONFIG_DIR"
 fi
 
-if command -v azlocal >/dev/null 2>&1; then
-  echo "[DEBUG] azlocal command found, attempting login..."
-  azlocal login || true
-  echo "[DEBUG] Starting azlocal interception..."
-  azlocal start-interception
+if command -v lstk >/dev/null 2>&1; then
+  echo "[DEBUG] lstk command found, attempting login..."
+  lstk az login || true
+  echo "[DEBUG] Starting lstk az interception..."
+  lstk az start-interception
   echo "[DEBUG] Setting default subscription..."
-  azlocal account set --subscription "00000000-0000-0000-0000-000000000000" || true
-  echo "[DEBUG] Checking azlocal account status..."
-  azlocal account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] azlocal account show failed"
+  lstk az account set --subscription "00000000-0000-0000-0000-000000000000" || true
+  echo "[DEBUG] Checking lstk az account status..."
+  lstk az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] lstk az account show failed"
 else
-  echo "[DEBUG] azlocal not found, using standard az login with service principal..."
+  echo "[DEBUG] lstk not found, using standard az login with service principal..."
   az login --service-principal -u any-app -p any-pass --tenant any-tenant || true
   echo "[DEBUG] Checking az account status..."
   az account show --query "{Environment:environmentName, Subscription:id}" --output json 2>&1 || echo "[DEBUG] az account show failed"
@@ -196,13 +192,13 @@ for (( i=START; i<START+COUNT; i++ )); do
 
   # Clean up Azure resources to prevent state pollution between tests
   echo "Cleaning up Azure resources in LocalStack..."
-  if command -v azlocal >/dev/null 2>&1; then
-    RG_LIST=$(azlocal group list --query "[].name" -o tsv 2>/dev/null || echo "")
+  if command -v lstk >/dev/null 2>&1; then
+    RG_LIST=$(lstk az group list --query "[].name" -o tsv 2>/dev/null || echo "")
     if [[ -n "$RG_LIST" ]]; then
       echo "$RG_LIST" | while read -r rg; do
         if [[ -n "$rg" ]]; then
           echo "  - Deleting resource group: $rg"
-          azlocal group delete --name "$rg" --yes --no-wait 2>/dev/null || true
+          lstk az group delete --name "$rg" --yes --no-wait 2>/dev/null || true
         fi
       done
       sleep 2

@@ -11,7 +11,7 @@ This repository contains comprehensive sample projects demonstrating how to deve
 ### Required Tools
 - [Docker](https://docs.docker.com/get-docker/): Container runtime for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
 - [jq](https://jqlang.org/): JSON processor for scripting
 
 ### Infrastructure as Code
@@ -79,12 +79,13 @@ Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./doc
 ## Documentation
 
 - [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
-- [Azure CLI with LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)
 - [Supported Azure Services](https://azure.localstack.cloud/references/coverage/)
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting pull requests.
+Contributions are welcome!
 
 1. Fork the repository
 2. Create a feature branch

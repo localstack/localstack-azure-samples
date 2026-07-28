@@ -1,18 +1,18 @@
 # Azure CLI Deployment
 
-This directory contains Bash scripts for deploying and validating the sample using the `azlocal` CLI. For details about the sample application, see [Azure Web App with Azure Database for MySQL flexible server](../README.md).
+This directory contains Bash scripts for deploying and validating the sample using the `lstk` CLI. For details about the sample application, see [Azure Web App with Azure Database for MySQL flexible server](../README.md).
 
 ## Prerequisites
 
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [MySQL client (`mysql`)](https://dev.mysql.com/downloads/)
 - [`jq`](https://jqlang.org/)
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -63,3 +63,9 @@ bash validate.sh
 | `MYSQL_APP_PASSWORD`  | `TestP@ssw0rd123`  | Password for the application user              |
 
 The script uses [`call-web-app.sh`](call-web-app.sh) (unchanged from the source sample) to demonstrate four ways of hitting the Web App from outside the emulator.
+
+## Related Documentation
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

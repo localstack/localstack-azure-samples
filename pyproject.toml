@@ -18,8 +18,6 @@ dependencies = [
     "azure-core",
     "python-dotenv",
     "localstack",
-    "azlocal",
-    "terraform-local",
 ]
 
 [project.optional-dependencies]

@@ -7,13 +7,13 @@ This directory contains the Bicep template and a deployment script for provision
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [Visual Studio Code](https://code.visualstudio.com/) + [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [PostgreSQL client (`psql`)](https://www.postgresql.org/download/)
 - [`jq`](https://jqlang.org/)
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -29,7 +29,7 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 5. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
 6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
 7. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create psql bootstrap.
-8. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-server-and-database) `sampledb` (UTF8 / `en_US.utf8`).
+8. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `sampledb` (UTF8 / `en_US.utf8`).
 9. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
 10. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `PG_HOST`, `PG_PORT`, and `PG_DATABASE` on the Web App but **does not** set `PG_USER` or `PG_PASSWORD` — those are written by `deploy.sh` after psql creates the application role.
 
@@ -93,3 +93,9 @@ az postgres flexible-server show \
   --resource-group local-rg --name local-pgflex-test \
   --query fullyQualifiedDomainName --output tsv
 ```
+
+## Related Documentation
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

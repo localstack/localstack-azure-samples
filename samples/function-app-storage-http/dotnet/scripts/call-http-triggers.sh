@@ -141,11 +141,11 @@ call_http_trigger_functions() {
 	if [ -n "$function_host_name" ]; then
 		# Call the GET HTTP trigger function that returns a player status in a specified game session via the function hostname
 		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via function hostname [$function_host_name]..."
-		curl  -s "http://$function_host_name/api/player/$game_session/$player_name/status" | jq
+		curl --max-time 10 -s "http://$function_host_name/api/player/$game_session/$player_name/status" | jq
 
 		# Call the POST HTTP trigger function that returns the game session details via the function hostname
 		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via function hostname [$function_host_name]..."
-		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$function_host_name/api/game/session" | jq
+		curl --max-time 10 -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$function_host_name/api/game/session" | jq
 	else
 		echo "Failed to retrieve function hostname"
 	fi
@@ -153,11 +153,11 @@ call_http_trigger_functions() {
 	if [ -n "$container_ip" ]; then
 		# Call the GET HTTP trigger function that returns a player status in a specified game session via the container IP address
 		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via container IP address [$container_ip]..."
-		curl -s "http://$container_ip/api/player/$game_session/$player_name/status" | jq
+		curl --max-time 10 -s "http://$container_ip/api/player/$game_session/$player_name/status" | jq
 
 		# Call the POST HTTP trigger function that returns the game session details via the container IP address
 		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via container IP address [$container_ip]..."
-		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$container_ip/api/game/session" | jq
+		curl --max-time 10 -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://$container_ip/api/game/session" | jq
 	else
 		echo "Failed to retrieve container IP address"
 	fi
@@ -165,11 +165,11 @@ call_http_trigger_functions() {
 	if [ -n "$host_port" ]; then
 		# Call the GET HTTP trigger function that returns a player status in a specified game session via the host port
 		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via host port [$host_port]..."
-		curl -s "http://localhost:$host_port/api/player/$game_session/$player_name/status" | jq
+		curl --max-time 10 -s "http://localhost:$host_port/api/player/$game_session/$player_name/status" | jq
 
 		# Call the POST HTTP trigger function that returns the game session details via the host port
 		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via host port [$host_port]..."
-		curl -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://localhost:$host_port/api/game/session" | jq
+		curl --max-time 10 -s -X POST -H "Content-Type: application/json" -d "{\"gameId\": $game_session}" "http://localhost:$host_port/api/game/session" | jq
 	else
 		echo "Failed to retrieve host port"
 	fi

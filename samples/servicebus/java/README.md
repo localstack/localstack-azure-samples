@@ -20,7 +20,7 @@ The solution is composed of the following Azure resources:
 
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
-- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
 - [Java 21+](https://learn.microsoft.com/en-us/java/openjdk/download)
 - [Maven 3.8+](https://maven.apache.org/download.cgi)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to deploy the sample via Terraform.
@@ -45,14 +45,14 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Deploy the application to LocalStack for Azure using one of these methods:
 
-- [Azure CLI Deployment](./java/scripts/deploy.sh)
-- [Bicep Deployment](./java/bicep/deploy.sh)
-- [Terraform Deployment](./java/terraform/deploy.sh)
+- [Azure CLI Deployment](./scripts/deploy.sh)
+- [Bicep Deployment](./bicep/deploy.sh)
+- [Terraform Deployment](./terraform/deploy.sh)
 
 All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
 
@@ -83,5 +83,5 @@ The application then:
 - [Azure Service Bus Queues](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-queues-topics-subscriptions)
 - [Spring Boot Starter for Azure Service Bus](https://learn.microsoft.com/en-us/azure/developer/java/spring-framework/spring-cloud-azure)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
-   
- 
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

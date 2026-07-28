@@ -7,13 +7,13 @@ This directory contains the Bicep template and a deployment script for provision
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [Visual Studio Code](https://code.visualstudio.com/) + [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [MySQL client (`mysql`)](https://dev.mysql.com/downloads/)
 - [`jq`](https://jqlang.org/)
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -93,3 +93,9 @@ az mysql flexible-server show \
   --resource-group local-rg --name local-mysqlflex-test \
   --query fullyQualifiedDomainName --output tsv
 ```
+
+## Related Documentation
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

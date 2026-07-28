@@ -21,7 +21,7 @@ The following diagram illustrates the architecture of the solution:
 - [LocalStack](https://docs.localstack.cloud/getting-started/installation/)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-- [azlocal](https://pypi.org/project/azlocal/) (`pip install azlocal`)
+- [lstk](https://github.com/localstack/lstk) (`brew install localstack/tap/lstk` or `npm install -g @localstack/lstk`)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) (optional, for Terraform deployment)
 
 ## Quick Start
@@ -32,10 +32,10 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 
 # Deploy all services
-cd python
+cd samples/aci-blob-storage/python
 bash scripts/deploy.sh
 
 # Validate the deployment (includes stop/start/restart lifecycle tests)
@@ -47,14 +47,14 @@ bash scripts/validate.sh
 ### Bicep
 
 ```bash
-cd python
+cd samples/aci-blob-storage/python
 bash bicep/deploy.sh
 ```
 
 ### Terraform
 
 ```bash
-cd python
+cd samples/aci-blob-storage/python
 bash terraform/deploy.sh
 ```
 
@@ -111,3 +111,9 @@ The Vacation Planner is a Flask web application with a Bootstrap UI that lets us
 | Container logs | validate.sh |
 | Container exec | validate.sh |
 | Stop / Start / Restart | validate.sh |
+
+## References
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

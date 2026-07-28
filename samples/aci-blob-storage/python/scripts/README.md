@@ -1,18 +1,18 @@
 # Azure CLI Deployment
 
-This directory includes Bash scripts for deploying and testing the ACI Vacation Planner sample using the `azlocal` CLI. Refer to the [ACI Blob Storage](../README.md) guide for details about the sample application.
+This directory includes Bash scripts for deploying and testing the ACI Vacation Planner sample using the `lstk` CLI. Refer to the [ACI Blob Storage](../README.md) guide for details about the sample application.
 
 ## Prerequisites
 
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
 
-### Installing azlocal CLI
+### Installing lstk CLI
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -49,3 +49,5 @@ bash scripts/cleanup.sh
 
 - [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
 - [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

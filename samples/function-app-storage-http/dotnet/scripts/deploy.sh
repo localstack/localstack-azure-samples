@@ -17,14 +17,12 @@ OUTPUT_QUEUE_NAME="output"
 TRIGGER_QUEUE_NAME="trigger" 
 INPUT_TABLE_NAME="scoreboards" 
 OUTPUT_TABLE_NAME="winners" 
+ZIPFILE="function_app.zip"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
-ENVIRONMENT=$(az account show --query environmentName --output tsv)
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-
-FUNC="func"
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
@@ -43,7 +41,7 @@ if [[ $? != 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
 	else
 		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
-		exit
+		exit 1
 	fi
 else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
@@ -141,10 +139,28 @@ fi
 # CD into the function app directory
 cd ../src/sample || exit
 
-echo "Publishing function app [$FUNCTION_APP_NAME]..."
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	# Disable proxy for NuGet during build to avoid proxy interference
-	NO_PROXY="api.nuget.org,*.nuget.org" no_proxy="api.nuget.org,*.nuget.org" $FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated #--verbose --debug
+# Clean and build the project in Release configuration
+dotnet clean
+dotnet build -c Release
+
+# Publish the project to a publish directory
+dotnet publish -c Release -o publish || exit 1
+
+# Create deployment zip from the published output
+rm -f $ZIPFILE
+cd publish || exit
+zip -r ../$ZIPFILE .
+cd .. || exit
+
+# Deploy the function app using the zip file
+echo "Deploying function app [$FUNCTION_APP_NAME]..."
+if az functionapp deploy \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$FUNCTION_APP_NAME" \
+	--src-path $ZIPFILE \
+	--type zip 1> /dev/null; then
+	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
 else
-	$FUNC azure functionapp publish $FUNCTION_APP_NAME --dotnet-isolated #--verbose --debug
+	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."
+	exit 1
 fi

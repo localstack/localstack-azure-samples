@@ -1,6 +1,6 @@
 # Bicep Deployment
 
-This directory contains a Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Service Bus with Spring Boot](../../README.md).
+This directory contains a Bicep template and a deployment script for provisioning Azure services in LocalStack for Azure. For further details about the sample application, refer to the [Azure Service Bus with Spring Boot](../README.md).
 
 ## Prerequisites
 
@@ -11,20 +11,26 @@ Before deploying this solution, ensure you have the following tools installed:
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
 - [Java 21+](https://learn.microsoft.com/en-us/java/openjdk/download): Java runtime for compiling and running the sample application
 - [Maven 3.8+](https://maven.apache.org/download.cgi): Build tool for managing Java project dependencies and compilation
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
-### Installing azlocal CLI
+### Installing lstk CLI
 
-The [deploy.sh](deploy.sh) Bash script uses the `azlocal` CLI instead of the standard Azure CLI to work with LocalStack. Install it using:
+Deploying to LocalStack requires the `lstk` CLI, which routes Azure CLI commands to the emulator (run `lstk az start-interception` before deploying). Install it using Homebrew:
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk
 ```
 
-For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
+or npm:
+
+```bash
+npm install -g @localstack/lstk
+```
+
+Alternatively, download a pre-built binary from the [lstk releases page](https://github.com/localstack/lstk/releases). For more information, see the [lstk CLI documentation](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) and the [lstk GitHub repository](https://github.com/localstack/lstk).
 
 ## Architecture Overview
 
@@ -34,7 +40,7 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 2. [Azure Service Bus Namespace](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview): The messaging namespace that hosts the queue used by the application.
 3. [Azure Service Bus Queue](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-queues-topics-subscriptions#queues): The `myqueue` queue used to send and receive messages.
 
-The Spring Boot sample application connects to the Service Bus namespace, sends a test message to the sample queue, receives it back, and exits. For more information on the sample application, see [Azure Service Bus with Spring Boot](../../README.md).
+The Spring Boot sample application connects to the Service Bus namespace, sends a test message to the sample queue, receives it back, and exits. For more information on the sample application, see [Azure Service Bus with Spring Boot](../README.md).
 
 ## Configuration
 
@@ -83,7 +89,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Navigate to the `bicep` folder:
@@ -117,15 +123,6 @@ SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SERVICEBUS_NAMESPACE_NAME="${PREFIX}-sb-ns-${SUFFIX}"
 SERVICEBUS_QUEUE_NAME="myqueue"
-
-# Choose the appropriate CLI based on the environment
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-  echo "Using azlocal for LocalStack emulator environment."
-  AZ="azlocal"
-else
-  echo "Using standard az for AzureCloud environment."
-  AZ="az"
-fi
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -180,3 +177,5 @@ This will remove all Azure resources created by the Bicep deployment script.
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
 - [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

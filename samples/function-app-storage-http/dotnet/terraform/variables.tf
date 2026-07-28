@@ -161,15 +161,16 @@ variable "runtime_name" {
 variable "dotnet_version" {
   description = "(Optional) Specifies the .NET version for the Azure Functions App."
   type        = string
-  default     = "9.0"
+  default     = "10.0"
 
   validation {
     condition = contains([
       "6.0",
       "8.0",
-      "9.0"
+      "9.0",
+      "10.0"
     ], var.dotnet_version)
-    error_message = "The dotnet_version must be one of the supported versions: 6.0, 8.0, 9.0."
+    error_message = "The dotnet_version must be one of the supported versions: 6.0, 8.0, 9.0, 10.0."
   }
 }
 

@@ -1,6 +1,6 @@
 # Azure Function App and Azure Front Door (Azure CLI)
 
-This sample creates a minimal Python Azure Function App that responds to `/{name}` and configures Azure Front Door (Standard SKU) to route traffic to it. It can target real Azure or LocalStack's Azure emulation via `azlocal` interception.
+This sample creates a minimal Python Azure Function App that responds to `/{name}` and configures Azure Front Door (Standard SKU) to route traffic to it. It can target real Azure or LocalStack's Azure emulation via `lstk az` interception.
 
 ## Overview
 
@@ -23,7 +23,7 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
 
 ### Multi-Origin (Priority/Weight)
   
-![Multi-origin (priority/weight)](./images/nulti.png)
+![Multi-origin (priority/weight)](./images/multi.png)
 
 **What to notice:** Two Origins in a single Origin Group with explicit `priority` and `weight`. A group-level health probe (HEAD `/`, 120s) gates origin eligibility; selection prefers the lowest priority and distributes by weight among equally prioritized healthy origins.
 
@@ -56,13 +56,8 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
 
 - Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
 - Azure CLI installed and logged in (`az login`) for real Azure
-- **Optional**: `azlocal` (LocalStack's Azure interception helper) in PATH to target the emulator
+- **Optional**: `lstk` (LocalStack CLI) in PATH to target the emulator via `lstk az` interception
 - `zip` utility in PATH (used for zip deploy to Azure)
-- **For LocalStack**: `funclocal` and Azure Functions Core Tools (`func`) for publishing
-
-## Quick Start
-
-1. 
 
 ## Quick Start
 
@@ -73,7 +68,7 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
   localstack wait -t 60
 
   # Route all Azure CLI calls to the LocalStack Azure emulator
-  azlocal start-interception
+  lstk az start-interception
   ```
 
 2. **Deploy against real Azure** (eastus by default):
@@ -89,20 +84,6 @@ The following diagrams visualize each scenario provisioned by `deploy_all.sh`. T
 The script prints:
 - Resource group name
 - AFD endpoint hostnames for each scenario and sample URLs (e.g., `https://<endpoint>.z01.azurefd.net/john`)
-
-## Cleanup
-
-Delete the resource group created by the deploy script:
-
-```bash
-bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env
-```
-
-or
-
-```bash
-bash ./scripts/cleanup_all.sh --resource-group <rg-name>
-```
 
 ## Scenarios Deployed by deploy_all.sh
 
@@ -143,7 +124,7 @@ az afd endpoint update -g <RG> --profile-name <PROFILE> --endpoint-name <ENDPOIN
   - Rules: a rules engine Rule Set attached to the endpoint’s route (three rules listed above)
   - State: an endpoint to toggle Enabled/Disabled
 - Creates the necessary Function App(s): one main app for Basic/Spec/Rules/State, and two apps (A/B) for Multi.
-- Publishes the function code (zip deploy for Azure; `funclocal` + `func` for LocalStack).
+- Publishes the function code with zip deploy (`az functionapp deployment source config-zip`) for both Azure and LocalStack.
 - Prints convenient test URLs for each scenario
 - Writes an environment file for cleanup at: `scripts/.last_deploy_all.env`
 
@@ -164,7 +145,6 @@ bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack
 - `-l, --location`: Azure region (default: `eastus`)
 - `-g, --resource-group`: use a specific RG instead of an auto-generated one
 - `--python-version`: Python runtime for Function Apps (default: `3.11`)
-- `--use-localstack`: target LocalStack via `azlocal` interception and publish via `funclocal`/`func`
 - **Scenario toggles** (all enabled by default): `--no-basic`, `--no-multi`, `--no-spec`, `--no-rules`, `--no-state`
 
 ### deploy_all.sh (Outputs to Expect)
@@ -270,7 +250,7 @@ az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --end
 - **Authentication**: The function trigger is Anonymous; no keys required
 - **Function response**: Returns plain text and echoes `WEBSITE_HOSTNAME` to help testing multi-origins
 - **Application Insights**: Disabled by default via `--disable-app-insights`
-- **Deployment method**: Azure uses zip deploy; LocalStack uses `funclocal` + `func` publish
+- **Deployment method**: zip deploy via the Azure CLI for both Azure and LocalStack
 - **AFD readiness**: 2–10 minutes typical; check provisioning state:
   ```bash
   az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <ENDPOINT_NAME> --query provisioningState -o tsv
@@ -296,3 +276,9 @@ bash ./scripts/cleanup_all.sh --resource-group <rg-name>
 - Azure Front Door is a global resource; the script uses `Standard_AzureFrontDoor` SKU and links the route to the default domain of the endpoint
 - The function removes the `/api` prefix so you can call `/john` directly
 - The deployment uses zip deploy; because the function has no heavy dependencies, it should work without additional build steps. If you add dependencies that require native builds, consider using the Azure Functions Core Tools for publishing
+
+## References
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

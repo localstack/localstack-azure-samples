@@ -1,4 +1,4 @@
 prefix              = "funchttp"
 location            = "westeurope"
 runtime_name        = "dotnet-isolated"
-dotnet_version      = "9.0"
+dotnet_version      = "10.0"
