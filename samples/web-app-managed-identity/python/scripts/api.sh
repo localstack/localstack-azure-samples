@@ -10,7 +10,7 @@ MANAGED_IDENTITY_NAME="${PREFIX}-identity-${SUFFIX}-${RANDOM_SUFFIX}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 SUBSCRIPTION_ID=$(az account show --query id --output tsv)
-PROXY_PORT=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
+PROXY_PORT=$(curl --max-time 10 http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
 SUB_BASE_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
 RG_BASE_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP_NAME/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
 ENVIRONMENT=$(az account show --query environmentName --output tsv)
@@ -18,9 +18,9 @@ API_VERSION="2024-11-30"
 
 # Choose the appropriate CLI based on the environment
 if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	CURL="env http_proxy=http://127.0.0.1:$PROXY_PORT https_proxy=http://127.0.0.1:$PROXY_PORT curl -k -s"
+	CURL="env http_proxy=http://127.0.0.1:$PROXY_PORT https_proxy=http://127.0.0.1:$PROXY_PORT curl --max-time 10 -k -s"
 else
-	CURL="curl -s"
+	CURL="curl --max-time 10 -s"
 fi
 
 # Create a resource group

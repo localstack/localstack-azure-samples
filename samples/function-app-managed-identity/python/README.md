@@ -25,8 +25,6 @@ The following diagram illustrates the architecture of the solution:
 
 ## Security
 
-## Security
-
 This sample demonstrates how to configure an [Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-aad?tabs=workforce-configuration), specifically an Azure Functions App, to use either a user-assigned identity or a system-assigned identity to acquire a security token from [Microsoft Entra ID](https://learn.microsoft.com/en-us/entra/fundamentals/what-is-entra) for accessing downstream services such as Azure Blob Storage. You must configure the target resource to allow access from your app. For most Azure services, configure the target resource by [creating a role assignment](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-steps) for the user-assigned or system-assigned managed identity used by the application via Azure role-based access control (Azure RBAC). For more information, see [What is Azure RBAC?](https://learn.microsoft.com/en-us/azure/role-based-access-control/overview)
 
 Some services use mechanisms other than Azure role-based access control. To understand how to configure access using an identity, refer to the Azure documentation for each target resource. To learn more about which resources support Microsoft Entra tokens, see [Azure services that support Microsoft Entra authentication](https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/services-support-managed-identities#azure-services-that-support-azure-ad-authentication).
@@ -53,7 +51,7 @@ The LocalStack emulator emulates the following services, which are necessary at 
 
 ## Deployment
 
-Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the image, execute:
+Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the image, execute:
 
 ```bash
 docker pull localstack/localstack-azure
@@ -70,7 +68,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Deploy the application to LocalStack for Azure using one of these methods:
@@ -207,7 +205,6 @@ If everything works as expected, you should see output similar to the following:
 
 ```bash
 ./test.sh 
-Using azlocal for LocalStack emulator environment.
 Container [input] already exists.
 Container [output] already exists.
 Finished[#############################################################]  100.0000%
@@ -240,3 +237,5 @@ You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/sto
 - [What is managed identities for Azure resources?](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview)
 - [How managed identities for Azure resources work with Azure virtual machines](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-managed-identities-work-vm)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

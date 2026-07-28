@@ -269,6 +269,8 @@ if [[ "$DO_RULES" == "true" ]]; then
   RS_STATUS=$?
   set -e
   if [[ $RS_STATUS -eq 0 ]]; then
+    # Rules use the shorthand syntax of the `cdn` CLI extension (>= 1.0.0b1), where
+    # conditions/actions are passed as structured lists instead of flattened arguments.
     # Add Rule 1: ModifyResponseHeader when RequestMethod == GET
     set +e
     az afd rule create \
@@ -277,15 +279,9 @@ if [[ "$DO_RULES" == "true" ]]; then
       --rule-set-name "$ruleSetName" \
       --rule-name "$ruleName" \
       --order 1 \
-      --match-variable RequestMethod \
-      --operator Equal \
-      --match-values GET \
-      --negate-condition false \
       --match-processing-behavior Continue \
-      --action-name ModifyResponseHeader \
-      --header-action Overwrite \
-      --header-name X-CDN \
-      --header-value MSFT -o none
+      --conditions "[{request-method:{parameters:{operator:Equal,match-values:[GET],negate-condition:false}}}]" \
+      --actions "[{modify-response-header:{parameters:{header-action:Overwrite,header-name:X-CDN,value:MSFT}}}]" -o none
     RULE_STATUS=$?
     set -e
     # Add Rule 2: UrlRewrite when UrlPath begins with /api -> /
@@ -296,13 +292,9 @@ if [[ "$DO_RULES" == "true" ]]; then
       --rule-set-name "$ruleSetName" \
       --rule-name rule2 \
       --order 2 \
-      --match-variable UrlPath \
-      --operator BeginsWith \
-      --match-values /api \
-      --negate-condition false \
       --match-processing-behavior Continue \
-      --action-name UrlRewrite \
-      --destination / -o none
+      --conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[/api],negate-condition:false}}}]" \
+      --actions "[{url-rewrite:{parameters:{source-pattern:/api,destination:/}}}]" -o none
     set -e
     # Add Rule 3: UrlRedirect when UrlPath begins with /old -> /new (302 Found)
     set +e
@@ -312,24 +304,21 @@ if [[ "$DO_RULES" == "true" ]]; then
       --rule-set-name "$ruleSetName" \
       --rule-name rule3 \
       --order 3 \
-      --match-variable UrlPath \
-      --operator BeginsWith \
-      --match-values /old \
-      --negate-condition false \
-      --action-name UrlRedirect \
-      --redirect-type Found \
-      --destination /new -o none
+      --conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[/old],negate-condition:false}}}]" \
+      --actions "[{url-redirect:{parameters:{redirect-type:Found,custom-path:/new}}}]" -o none
     set -e
   else
     echo "Note: 'az afd rule-set' command group not available; skipping rule creation."
     RULE_STATUS=1
   fi
 
-  # Create a route and attach the rule set if created
+  # Create a route and attach the rule set if created. The cdn CLI extension replaced
+  # `--rule-sets <name>` with `--formatted-rule-sets`, which takes resource-id references.
   if [[ $RS_STATUS -eq 0 ]]; then
+    RULE_SET_ID=$(az afd rule-set show -g "$RESOURCE_GROUP" --profile-name "$profileName" --rule-set-name "$ruleSetName" --query id -o tsv)
     az afd route create -g "$RESOURCE_GROUP" --profile-name "$profileName" --endpoint-name "$epRules" --route-name "rt-${prefix}-rules" \
       --origin-group "$ogRules" --patterns-to-match '/*' --https-redirect Enabled --supported-protocols Http Https \
-      --link-to-default-domain Enabled --forwarding-protocol MatchRequest --rule-sets "$ruleSetName" -o none
+      --link-to-default-domain Enabled --forwarding-protocol MatchRequest --formatted-rule-sets "[{id:'$RULE_SET_ID'}]" -o none
   else
     az afd route create -g "$RESOURCE_GROUP" --profile-name "$profileName" --endpoint-name "$epRules" --route-name "rt-${prefix}-rules" \
       --origin-group "$ogRules" --patterns-to-match '/*' --https-redirect Enabled --supported-protocols Http Https \

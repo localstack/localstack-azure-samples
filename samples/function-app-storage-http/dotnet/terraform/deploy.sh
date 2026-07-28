@@ -45,9 +45,10 @@ dotnet clean
 dotnet build -c Release
 
 # Publish the project to a publish directory
-dotnet publish -c Release -o publish
+dotnet publish -c Release -o publish || exit 1
 
 # Create deployment zip from the published output
+rm -f $ZIPFILE
 cd publish || exit
 zip -r ../$ZIPFILE .
 cd .. || exit

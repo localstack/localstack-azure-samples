@@ -11,18 +11,24 @@ Before deploying this solution, ensure you have the following tools installed:
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep): VS Code extension for Bicep language support and IntelliSense
 - [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack and building the custom image
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
-- [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/): LocalStack Azure CLI wrapper
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
 - [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
 
-### Installing azlocal CLI
+### Installing lstk CLI
 
-The [deploy.sh](deploy.sh) Bash script uses the `azlocal` CLI instead of the standard Azure CLI to work with LocalStack. Install it using:
+Deploying to LocalStack requires the `lstk` CLI, which routes Azure CLI commands to the emulator (run `lstk az start-interception` before deploying). Install it using Homebrew:
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk
 ```
 
-For more information, see [Get started with the az tool on LocalStack](https://azure.localstack.cloud/user-guides/sdks/az/).
+or npm:
+
+```bash
+npm install -g @localstack/lstk
+```
+
+Alternatively, download a pre-built binary from the [lstk releases page](https://github.com/localstack/lstk/releases). For more information, see the [lstk CLI documentation](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) and the [lstk GitHub repository](https://github.com/localstack/lstk).
 
 ## Architecture Overview
 
@@ -88,7 +94,7 @@ See [deploy.sh](deploy.sh) for the complete deployment automation. The script pe
 
 ## Deployment
 
-You can set up the Azure emulator by utilizing the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the Azure Docker image, execute the following command:
+You can set up the Azure emulator by utilizing the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the Azure Docker image, execute the following command:
 
 ```bash
 docker pull localstack/localstack-azure
@@ -105,7 +111,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Navigate to the `bicep` folder:
@@ -284,3 +290,5 @@ This will remove all Azure resources created by the Bicep deployment script.
 - [Azure Bicep Documentation](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Bicep Language Reference](https://docs.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-functions)
 - [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

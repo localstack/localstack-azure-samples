@@ -175,14 +175,16 @@ jobs:
           ACTIVATE_PRO: "1"
           DNS_ADDRESS: "0"
 
-      - name: Install Azure Functions Core Tools
-        # Required for publishing function app samples to the emulator.
+      - name: Install lstk CLI
+        # Required by run-samples.sh to proxy Azure CLI calls to the emulator
+        # via `lstk az` (replaces the deprecated azlocal wrapper).
+        # https://github.com/localstack/lstk
         run: |
           MAX_RETRIES=3
           DELAY=15
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
-            npm install -g azure-functions-core-tools@4 --unsafe-perm true && break
+            npm install -g @localstack/lstk && break
             if [ "$i" -eq "$MAX_RETRIES" ]; then
               echo "All $MAX_RETRIES attempts failed"
               exit 1
@@ -191,6 +193,7 @@ jobs:
             sleep $DELAY
             DELAY=$((DELAY * 2))
           done
+          command -v lstk
 
       - name: Install MSSQL ODBC and Tools
         # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to

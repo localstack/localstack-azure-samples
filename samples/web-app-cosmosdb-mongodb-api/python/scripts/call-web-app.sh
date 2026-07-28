@@ -136,12 +136,12 @@ call_web_app() {
 	fi
 
 	# Retrieve LocalStack proxy port
-	proxy_port=$(curl http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
+	proxy_port=$(curl --max-time 10 http://localhost:4566/_localstack/proxy -s | jq '.proxy_port')
 
 	if [ -n "$proxy_port" ]; then
 		# Call the web app via emulator proxy
 		echo "Calling web app [$web_app_name] via emulator..."
-		curl --proxy "http://localhost:$proxy_port/" -s "http://$app_host_name/" 1> /dev/null
+		curl --max-time 10 --proxy "http://localhost:$proxy_port/" -s "http://$app_host_name/" 1> /dev/null
 		
 		if [ $? == 0 ]; then
 			echo "Web app call via emulator proxy port [$proxy_port] succeeded."
@@ -155,7 +155,7 @@ call_web_app() {
 	if [ -n "$container_ip" ]; then
 		# Call the web app via the container IP address
 		echo "Calling web app [$web_app_name] via container IP address [$container_ip]..."
-		curl -s "http://$container_ip/" 1> /dev/null
+		curl --max-time 10 -s "http://$container_ip/" 1> /dev/null
 
 		if [ $? == 0 ]; then
 			echo "Web app call via container IP address [$container_ip] succeeded."
@@ -169,7 +169,7 @@ call_web_app() {
 	if [ -n "$host_port" ]; then
 		# Call the web app via the host port
 		echo "Calling web app [$web_app_name] via host port [$host_port]..."
-		curl -s "http://127.0.0.1:$host_port/" 1> /dev/null
+		curl --max-time 10 -s "http://127.0.0.1:$host_port/" 1> /dev/null
 
 		if [ $? == 0 ]; then
 			echo "Web app call via host port [$host_port] succeeded."
@@ -183,7 +183,7 @@ call_web_app() {
 	if [ -n "$app_host_name" ]; then
 		# Call the web app via the default hostname
 		echo "Calling web app [$web_app_name] via default hostname [$app_host_name]..."
-		curl -s "http://$app_host_name/" 1> /dev/null
+		curl --max-time 10 -s "http://$app_host_name/" 1> /dev/null
 
 		if [ $? == 0 ]; then
 			echo "Web app call via default hostname [$app_host_name] succeeded."

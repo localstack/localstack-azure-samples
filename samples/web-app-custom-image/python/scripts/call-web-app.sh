@@ -32,5 +32,5 @@ fi
 echo "Web App hostname: $APP_HOST_NAME"
 
 echo "Calling Web App using $APP_HOST_NAME..."
-curl -fsS "http://$APP_HOST_NAME/api/status"
+curl --max-time 10 -fsS "http://$APP_HOST_NAME/api/status"
 echo ""

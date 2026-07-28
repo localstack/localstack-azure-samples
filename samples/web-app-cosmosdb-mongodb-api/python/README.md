@@ -38,7 +38,7 @@ The web app enables users to plan and manage vacation activities, with all data 
 
 ## Deployment
 
-Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the image, execute:
+Set up the Azure emulator using the LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/) to obtain your Auth Token and set it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the image, execute:
 
 ```bash
 docker pull localstack/localstack-azure
@@ -55,7 +55,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Deploy the application to LocalStack for Azure using one of these methods:
@@ -87,8 +87,6 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 ## MongoDB Tooling
 
 You can utilize [MongoDB Compass](https://www.mongodb.com/try/download/compass) to explore and manage your MongoDB databases and collections. Ensure you connect using `mongodb://localhost:port` connection string, where `port` corresponds to the port published by the MongoDB container on the host and mapped to the internal MongoDB port `27017`.
-
-![MongoDB Compass](./images/mongodb-compass.png)
 
 Alternatively, you can use the [MongoDB Shell](https://www.mongodb.com/docs/mongodb-shell/) to interact with and administer your MongoDB instance, as shown in the following table:
 
@@ -148,6 +146,8 @@ sampledb> db.activities.find().pretty()
 - [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
 - [Azure CosmosDB for MongoDB API](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction)
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
-- [Quickstart: CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/quickstart?tabs=azure-portal)
+- [Quickstart: CosmosDB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/quickstart-python)
 - [Azure Identity Client Library for Python](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

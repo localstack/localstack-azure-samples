@@ -8,15 +8,15 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "obj", "obj", "{CA285D67-BB6
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "release", "release", "{DA95AA47-ED09-4F06-18B9-BFDCCE25247A}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "net9.0", "net9.0", "{D41FC5AB-4495-5B85-6815-24C4FBB2A598}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "net10.0", "net10.0", "{D41FC5AB-4495-5B85-6815-24C4FBB2A598}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkerExtensions", "obj\release\net9.0\WorkerExtensions\WorkerExtensions.csproj", "{A6C46BF8-FF78-68B4-B4BA-4DEF62E00E32}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkerExtensions", "obj\release\net10.0\WorkerExtensions\WorkerExtensions.csproj", "{A6C46BF8-FF78-68B4-B4BA-4DEF62E00E32}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Debug", "Debug", "{3DB07252-4F5B-61B7-192E-6C40720DF607}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "net9.0", "net9.0", "{423DF030-E479-861D-2231-1D1BC1956A42}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "net10.0", "net10.0", "{423DF030-E479-861D-2231-1D1BC1956A42}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkerExtensions", "obj\Debug\net9.0\WorkerExtensions\WorkerExtensions.csproj", "{AB8BBC52-ADC2-69F9-59E2-D2BFB6E19E3E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkerExtensions", "obj\Debug\net10.0\WorkerExtensions\WorkerExtensions.csproj", "{AB8BBC52-ADC2-69F9-59E2-D2BFB6E19E3E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

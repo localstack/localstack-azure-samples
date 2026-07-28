@@ -2,7 +2,7 @@
 
 ## Overview
 You can emulate selected Azure services locally using the LocalStack Azure Docker image. Before you begin, you must export a valid `LOCALSTACK_AUTH_TOKEN`, which unlocks Azure emulation features.  
-Refer to the LocalStack Auth Token documentation (e.g. the [Auth Token guide](https://docs.localstack.cloud/references/auth-token/)) to obtain your token and set it as an environment variable.
+Refer to the LocalStack Auth Token documentation (e.g. the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/)) to obtain your token and set it as an environment variable.
 
 ## Prerequisites
 - Docker installed and running
@@ -36,7 +36,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 This:
@@ -164,7 +164,4 @@ $Env:LOCALSTACK_AUTH_TOKEN = "<your_auth_token>"
 - Explore available Azure service endpoints through the LocalStack documentation
 - Script integration tests against `http://localhost:4566`
 - Combine with Terraform / SDK clients pointing to the LocalStack endpoint
-
----
-
-Let me know if you’d like an expanded example (e.g. adding a specific Azure service workflow or integrating with a dev container).
+- Proxy the Azure CLI to the emulator with [`lstk az`](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/), or run `lstk az start-interception` to intercept all `az` calls (see the [lstk GitHub repository](https://github.com/localstack/lstk))

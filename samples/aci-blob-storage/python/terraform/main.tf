@@ -15,6 +15,14 @@ resource "azurerm_resource_group" "example" {
   name     = local.resource_group_name
   location = var.location
   tags     = var.tags
+
+  lifecycle {
+    # deploy.sh pre-creates this resource group with `az group create` (untagged) and
+    # imports it into the Terraform state. Ignoring tag drift avoids an in-place
+    # resource-group update on the next apply, which azurerm >= 4.x issues as a PATCH
+    # request that the LocalStack Azure emulator does not implement yet.
+    ignore_changes = [tags]
+  }
 }
 
 # Create a storage account
@@ -48,7 +56,7 @@ resource "azurerm_key_vault" "example" {
   location                   = azurerm_resource_group.example.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  enable_rbac_authorization  = true
+  rbac_authorization_enabled = true
   tags                       = var.tags
 
   lifecycle {

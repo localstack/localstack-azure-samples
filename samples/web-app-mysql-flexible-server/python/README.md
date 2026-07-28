@@ -48,7 +48,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 60
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
-azlocal start-interception
+lstk az start-interception
 ```
 
 Deploy the application using one of these methods:
@@ -103,3 +103,5 @@ mysql> SELECT id, username, activity, created_at FROM activities;
 - [Quickstart: Python Flask on Azure](https://learn.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=flask%2Cbrowser)
 - [PyMySQL documentation](https://pymysql.readthedocs.io/)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

@@ -129,13 +129,13 @@ The sample uses the following configurable settings in `local.settings.json`:
 - [.NET SDK](https://dotnet.microsoft.com/en-us/download) is required to build and run the Azure Functions app written in C#.
 - [Docker](https://docs.docker.com/get-docker/) necessary as container runtime for LocalStack.
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) necessary to work with LocalStack.
-- [azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/) is the LocalStack Azure CLI wrapper.
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) is a high-performance command-line interface for LocalStack.
 - [jq](https://jqlang.org/) is a JSON processor for scripting.
 - [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/storage/storage-explorer/vs-azure-tools-storage-manage-with-storage-explorer) for viewing storage contents.
 
 ## Deployment
 
-1. You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/?__hstc=108988063.8aad2b1a7229945859f4d9b9bb71e05d.1743148429561.1758793541854.1758810151462.32&__hssc=108988063.3.1758810151462&__hsfp=3945774529) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the Azure Docker image, execute the following command:
+1. You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the Azure Docker image, execute the following command:
 
    ```bash
    docker pull localstack/localstack-azure
@@ -222,3 +222,5 @@ Explore the following resources to deepen your understanding of Azure Functions,
 - [LocalStack for Azure - Getting Started](https://azure.localstack.cloud/getting-started/)
 - [LocalStack for Azure - Azure Functions](https://azure.localstack.cloud/user-guide/azure-functions/)
 - [LocalStack for Azure - Storage Services](https://azure.localstack.cloud/user-guide/storage/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)

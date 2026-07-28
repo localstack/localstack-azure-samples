@@ -1,18 +1,18 @@
 # Azure CLI Deployment
 
-This directory contains Bash scripts for deploying and validating the sample using the `azlocal` CLI. For details about the sample application, see [Azure Web App with Azure Database for PostgreSQL flexible server](../README.md).
+This directory contains Bash scripts for deploying and validating the sample using the `lstk` CLI. For details about the sample application, see [Azure Web App with Azure Database for PostgreSQL flexible server](../README.md).
 
 ## Prerequisites
 
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [Azlocal CLI](https://azure.localstack.cloud/user-guides/sdks/az/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) + [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [PostgreSQL client (`psql`)](https://www.postgresql.org/download/)
 - [`jq`](https://jqlang.org/)
 
 ```bash
-pip install azlocal
+brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 ```
 
 ## Architecture Overview
@@ -27,7 +27,7 @@ pip install azlocal
    - *app-subnet*: delegated to `Microsoft.Web/serverFarms` (with NAT gateway).
    - *pe-subnet*: hosts the Private Endpoint (no delegation; `disable-private-endpoint-network-policies=true`).
 6. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, `Burstable / Standard_B1ms`, version 16, 32 GiB, HA disabled. With a permissive `AllowAllIPs` firewall rule.
-7. The `PlannerDB` [database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-server-and-database).
+7. The `PlannerDB` [database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers).
 8. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone) `privatelink.postgres.database.azure.com`, linked to the VNet.
 9. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) targeting the PG server with group `postgresqlServer`, plus the DNS-zone group that auto-registers the A record.
 10. A separate application role (`testuser`) created via `psql`, with the minimum schema privileges on `PlannerDB`.
@@ -64,3 +64,9 @@ bash validate.sh
 | `DEPLOY_APP`         | `1`                | Set to `0` to skip the zip deployment step     |
 
 The script uses [`call-web-app.sh`](call-web-app.sh) (unchanged from the source sample) to demonstrate four ways of hitting the Web App from outside the emulator.
+
+## Related Documentation
+
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)
