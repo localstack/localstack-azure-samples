@@ -66,6 +66,37 @@ export LOCALSTACK_AUTH_TOKEN=<your-token>
 ./run-samples.sh
 ```
 
+### Architecture support (amd64 / arm64)
+
+Some samples run **natively** on `arm64` (Apple Silicon, arm64 CI runners); the rest depend on
+container images Microsoft publishes for `amd64` alone, so there is no `arm64` image to pull.
+
+| Sample | Native amd64 | Native arm64 | Backing image |
+| --- | :---: | :---: | --- |
+| `function-app-*` | ✅ | ✅ | built from a multi-arch `python` / `node` / `dotnet` base |
+| `web-app-custom-image` | ✅ | ✅ | the image the sample builds itself |
+| `aci-blob-storage` | ✅ | ✅ | the image the sample builds itself |
+| `web-app-*` (code deployment) | ✅ | emulated | `mcr.microsoft.com/oryx/<platform>` |
+| `eventhubs` | ✅ | emulated | deploys a dashboard web app (Oryx, as above) |
+| `servicebus/java` | ✅ | emulated | `mcr.microsoft.com/azure-app-service/java` |
+| `web-app-sql-database` | ✅ | emulated | `mcr.microsoft.com/mssql/server` |
+
+**"emulated" does not mean broken.** The emulator never pins `--platform`, so on an `arm64` host
+Docker pulls the `amd64` image and runs it under whatever emulation the runtime provides. Docker
+Desktop on Apple Silicon does this via Rosetta, so these samples do work on a Mac — just more
+slowly. They fail only on an `arm64` host with no emulation registered, such as GitHub's
+`ubuntu-*-arm` runners, which is why CI schedules only the natively-supported samples on `arm64`.
+
+`run-samples.sh` warns when it runs one of these on an `arm64` host; set `SKIP_AMD64_ONLY=1` to skip
+them instead. The authoritative list lives in `ARM64_SAMPLE_DIRS` in [run-samples.sh](./run-samples.sh);
+the CI matrix is generated from it, so adding a sample there is all that is needed to have it
+covered natively on both architectures.
+
+> **Note:** Function Apps on `arm64` require the fix from
+> [localstack-pro#8102](https://github.com/localstack/localstack-pro/pull/8102). Earlier emulator
+> images install `amd64` Azure Functions Core Tools into an `arm64` image, and every Function App
+> deployment fails with a misleading `500 ... No route to host`.
+
 ### Troubleshooting: Line Endings
 If you encounter errors like `invalid option name` or `: command not found` when running on Linux/WSL, it's likely due to Windows-style line endings (CRLF). You can fix this by running:
 ```bash
