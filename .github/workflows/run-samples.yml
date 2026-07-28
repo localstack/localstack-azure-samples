@@ -177,10 +177,14 @@ jobs:
 
       - name: Start LocalStack
         # Run the emulator in detached mode using the virtual environment.
+        # The readiness wait is generous because the architecture matrix roughly doubles
+        # the number of concurrent jobs, and the contention for Docker pulls and runner
+        # I/O pushed some starts past a 120s budget. A healthy emulator still returns as
+        # soon as it is ready, so a larger timeout costs nothing on the happy path.
         run: |
           source .venv/bin/activate
           python -m localstack_cli.cli.main start -d
-          python -m localstack_cli.cli.main wait -t 120
+          python -m localstack_cli.cli.main wait -t 300
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
