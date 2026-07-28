@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment Stream Operations</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">Payment Stream Operations</span>
+    <span class="navbar-text small" id="updated">refreshed {{ refreshed }} UTC</span>
+  </div>
+</nav>
+
+<div class="container-fluid py-4">
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+      <div class="card shadow-sm h-100"><div class="card-body">
+        <div class="text-secondary small text-uppercase">Events ingested</div>
+        <div class="display-6" id="stat-events">-</div>
+        <div class="small text-secondary" id="stat-hub"></div>
+      </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="card shadow-sm h-100"><div class="card-body">
+        <div class="text-secondary small text-uppercase">Fraud alerts</div>
+        <div class="display-6 text-danger" id="stat-alerts">-</div>
+        <div class="small text-secondary">hot path</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="card shadow-sm h-100"><div class="card-body">
+        <div class="text-secondary small text-uppercase">Capture archives</div>
+        <div class="display-6" id="stat-capture">-</div>
+        <div class="small text-secondary">cold path (Avro in Blob)</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="card shadow-sm h-100"><div class="card-body">
+        <div class="text-secondary small text-uppercase">Max consumer lag</div>
+        <div class="display-6" id="stat-lag">-</div>
+        <div class="small text-secondary" id="stat-cg"></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold">Partitions</div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>Partition</th><th>Events</th><th>Last seq</th><th>Last offset</th><th>Last enqueued</th></tr></thead>
+          <tbody id="partitions"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold">Checkpoints &amp; lag <span class="text-secondary small">(written by the Functions host)</span></div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>Partition</th><th>Checkpoint seq</th><th>Head seq</th><th>Lag</th></tr></thead>
+          <tbody id="checkpoints"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold text-danger">Fraud alerts</div>
+        <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Account</th><th>Amount</th><th>Merchant</th><th>Reasons</th></tr></thead>
+            <tbody id="alerts"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold">Schema Registry</div>
+        <ul class="list-group list-group-flush" id="schemas"></ul>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold">Capture archives <span class="text-secondary small">(Avro decoded from Blob Storage)</span></div>
+        <div class="row g-0">
+          <div class="col-lg-5 border-end">
+            <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
+              <table class="table table-sm mb-0">
+                <thead><tr><th>Blob</th><th>Bytes</th></tr></thead>
+                <tbody id="capture-files"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <pre class="mb-0 p-3 small" id="capture-records" style="max-height: 260px; overflow:auto;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function refresh() {
+  let data;
+  try {
+    data = await (await fetch('/api/overview')).json();
+  } catch (error) {
+    return;
+  }
+
+  document.getElementById('stat-events').textContent = data.total_events ?? 0;
+  document.getElementById('stat-hub').textContent = data.event_hub || '';
+  document.getElementById('stat-alerts').textContent = (data.alerts || []).length;
+  document.getElementById('stat-capture').textContent = (data.capture_files || []).length;
+  document.getElementById('stat-cg').textContent = data.consumer_group || '';
+
+  const lags = (data.checkpoints || []).map(row => row.lag).filter(value => value !== null);
+  document.getElementById('stat-lag').textContent = lags.length ? Math.max(...lags) : '-';
+
+  document.getElementById('partitions').innerHTML = (data.partitions || []).map(row => `
+    <tr><td><span class="badge bg-secondary">${escapeHtml(row.partition)}</span></td>
+    <td>${escapeHtml(row.events)}</td><td>${escapeHtml(row.last_sequence_number)}</td>
+    <td class="text-truncate" style="max-width:140px">${escapeHtml(row.last_offset)}</td>
+    <td class="small">${escapeHtml((row.last_enqueued || '').replace('T', ' ').slice(0, 19))}</td></tr>`).join('');
+
+  document.getElementById('checkpoints').innerHTML = (data.checkpoints || []).length
+    ? data.checkpoints.map(row => `
+      <tr><td><span class="badge bg-secondary">${escapeHtml(row.partition)}</span></td>
+      <td>${escapeHtml(row.checkpoint_sequence_number)}</td><td>${escapeHtml(row.head_sequence_number)}</td>
+      <td>${row.lag === 0 ? '<span class="badge bg-success">0</span>' : `<span class="badge bg-warning text-dark">${escapeHtml(row.lag)}</span>`}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="text-secondary small">no checkpoints yet - the processor writes them once it has handled a batch</td></tr>';
+
+  document.getElementById('alerts').innerHTML = (data.alerts || []).length
+    ? data.alerts.map(alert => `
+      <tr><td>${escapeHtml(alert.account_id)}</td>
+      <td class="text-danger fw-semibold">${escapeHtml(alert.amount)} ${escapeHtml(alert.currency || '')}</td>
+      <td>${escapeHtml(alert.merchant)}</td>
+      <td class="small">${escapeHtml((alert.reasons || []).join('; '))}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="text-secondary small">no alerts yet</td></tr>';
+
+  document.getElementById('schemas').innerHTML = (data.schemas || []).length
+    ? data.schemas.map(schema => `<li class="list-group-item d-flex justify-content-between">
+        <span>${escapeHtml(schema.name)}</span><span class="badge bg-light text-dark">${escapeHtml(schema.group)}</span></li>`).join('')
+    : '<li class="list-group-item text-secondary small">no schemas registered yet</li>';
+
+  document.getElementById('capture-files').innerHTML = (data.capture_files || []).length
+    ? data.capture_files.map(file => `<tr><td class="small text-break">${escapeHtml(file.name)}</td><td>${escapeHtml(file.size)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="text-secondary small">no archives yet - Capture flushes on its interval</td></tr>';
+
+  document.getElementById('capture-records').textContent = (data.capture_records || []).length
+    ? JSON.stringify(data.capture_records, null, 2)
+    : 'no decoded records yet';
+
+  document.getElementById('updated').textContent =
+    'refreshed ' + new Date().toISOString().slice(11, 19) + ' UTC';
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

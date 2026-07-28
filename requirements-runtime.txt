@@ -6,5 +6,9 @@ azure-identity
 azure-storage-blob
 azure-mgmt-cosmosdb
 azure-core
+azure-eventhub
+confluent-kafka
+fastavro
+requests
 python-dotenv
 localstack
