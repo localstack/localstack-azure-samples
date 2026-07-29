@@ -59,6 +59,27 @@ def _namespace_host(conn_str: str) -> str:
     return ""
 
 
+def hub_total(hub_name: str) -> int:
+    """Total events in a hub, from partition metadata.
+
+    Counting by reading a hub does not scale and, worse, is bounded by whatever page size the
+    reader uses - which would silently turn a headline count into a page size. The runtime
+    metadata gives the real total without consuming anything.
+    """
+    conn = eventhub_connection()
+    if not conn:
+        return 0
+    try:
+        client = EventHubProducerClient.from_connection_string(conn, eventhub_name=hub_name)
+        with client:
+            return sum(
+                client.get_partition_properties(partition_id)["last_enqueued_sequence_number"] + 1
+                for partition_id in client.get_partition_ids()
+            )
+    except Exception:
+        return 0
+
+
 def partition_snapshot() -> list[dict]:
     """Live per-partition head positions for the payments hub."""
     conn = eventhub_connection()
@@ -280,6 +301,8 @@ def overview():
             "alert_hub": ALERT_HUB_NAME,
             "consumer_group": FRAUD_CONSUMER_GROUP,
             "total_events": sum(row["events"] for row in partitions),
+            # The real number of alerts, not the length of the page below it.
+            "total_alerts": hub_total(ALERT_HUB_NAME),
             "partitions": partitions,
             "checkpoints": checkpoint_snapshot(partitions),
             "alerts": recent_alerts(),

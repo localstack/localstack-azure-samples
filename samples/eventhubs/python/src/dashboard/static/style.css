@@ -29,3 +29,31 @@ table thead th {
   color: #6c757d;
   font-weight: 600;
 }
+
+/* A refresh that changes nothing should look different from one that does: headline numbers
+   flash and show how much they moved, so cause and effect are visible while demonstrating. */
+.stat-changed {
+  animation: stat-flash 1.2s ease-out;
+}
+
+@keyframes stat-flash {
+  0%   { background: #fff3cd; }
+  100% { background: transparent; }
+}
+
+.stat-delta {
+  display: inline-block;
+  margin-left: .35rem;
+  padding: .1rem .4rem;
+  border-radius: .35rem;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #0f5132;
+  background: #d1e7dd;
+  opacity: 0;
+  transition: opacity .3s ease-in;
+}
+
+.stat-delta.show {
+  opacity: 1;
+}
