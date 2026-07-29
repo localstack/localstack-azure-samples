@@ -40,6 +40,7 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
 | [Azure Service Bus with Spring Boot](./samples/servicebus/java/README.md) | Azure Service Bus used by a Spring Boot application |
 | [Event Hubs Fraud Detection Pipeline](./samples/eventhubs/python/README.md) | Real-time payment stream processing with Event Hubs (AMQP, Kafka and HTTPS ingestion, Capture, Schema Registry), an Event Hubs-triggered Function App, Key Vault, Storage and a Web App dashboard |
+| [Event Hubs Cold-Path Automation](./samples/eventhubs-eventgrid/python/README.md) | Event Hubs Capture raises `Microsoft.EventHub.CaptureFileCreated` to an Event Grid system topic, a subscription delivers it into a second event hub, and an Event Hubs-triggered Function App decodes each Avro archive and writes per-device summaries |
  
 ## Sample Structure
 
