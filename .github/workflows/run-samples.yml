@@ -20,10 +20,20 @@ on:
           - all
           - changed
         default: changed
+      arch:
+        description: "Architecture: 'both' runs every test on each architecture it supports"
+        required: false
+        type: choice
+        options:
+          - both
+          - amd64
+          - arm64
+        default: both
 
-# Default run mode for pull_request events (change to 'changed' to only run affected tests)
+# Defaults for pull_request events (change DEFAULT_RUN_MODE to 'changed' to only run affected tests)
 env:
   DEFAULT_RUN_MODE: changed
+  DEFAULT_ARCH: both
 
 # Least-privilege default: no permissions unless a job explicitly opts in.
 permissions: {}
@@ -48,14 +58,17 @@ jobs:
       - name: Build dynamic matrix
         id: build-matrix
         env:
-          # Untrusted dispatch input routed via env, not interpolated into the shell (template-injection)
+          # Untrusted dispatch inputs routed via env, not interpolated into the shell (template-injection)
           RUN_MODE_INPUT: ${{ github.event.inputs.run_mode }}
+          ARCH_INPUT: ${{ github.event.inputs.arch }}
         run: |
-          # Pick run mode: manual dispatch uses the dropdown, PRs use the env default
+          # Pick run mode and architecture: manual dispatch uses the dropdowns, PRs use the env defaults
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             RUN_MODE="${RUN_MODE_INPUT}"
+            ARCH="${ARCH_INPUT}"
           else
             RUN_MODE="${{ env.DEFAULT_RUN_MODE }}"
+            ARCH="${{ env.DEFAULT_ARCH }}"
           fi
 
           # In "changed" mode, determine the base commit to diff against
@@ -68,9 +81,9 @@ jobs:
             fi
           fi
 
-          .github/scripts/build-matrix.sh "$RUN_MODE" "$BASE_SHA"
+          .github/scripts/build-matrix.sh "$RUN_MODE" "$BASE_SHA" "$ARCH"
 
-  # Each test runs in its own job — one matrix entry per test from the setup job
+  # Each test runs in its own job — one matrix entry per test/architecture from the setup job
   scripts:
     name: "Test: ${{ matrix.name }}"
     needs: setup
@@ -79,7 +92,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    runs-on: ubuntu-22.04
+    # ubuntu-22.04 for amd64, ubuntu-22.04-arm for arm64 — the matrix carries the label.
+    # GitHub-hosted arm64 runners are free for public repositories.
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
@@ -162,10 +177,14 @@ jobs:
 
       - name: Start LocalStack
         # Run the emulator in detached mode using the virtual environment.
+        # The readiness wait is generous because the architecture matrix roughly doubles
+        # the number of concurrent jobs, and the contention for Docker pulls and runner
+        # I/O pushed some starts past a 120s budget. A healthy emulator still returns as
+        # soon as it is ready, so a larger timeout costs nothing on the happy path.
         run: |
           source .venv/bin/activate
           python -m localstack_cli.cli.main start -d
-          python -m localstack_cli.cli.main wait -t 120
+          python -m localstack_cli.cli.main wait -t 300
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
@@ -198,6 +217,9 @@ jobs:
       - name: Install MSSQL ODBC and Tools
         # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to
         # initialize and verify the database schema in the local emulator.
+        # amd64 only: the sample is backed by mcr.microsoft.com/mssql/server, which has
+        # no arm64 image, so it never runs on the arm64 runners.
+        if: matrix.arch == 'amd64'
         run: |
           sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
