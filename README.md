@@ -92,10 +92,11 @@ them instead. The authoritative list lives in `ARM64_SAMPLE_DIRS` in [run-sample
 the CI matrix is generated from it, so adding a sample there is all that is needed to have it
 covered natively on both architectures.
 
-> **Note:** Function Apps on `arm64` require the fix from
-> [localstack-pro#8102](https://github.com/localstack/localstack-pro/pull/8102). Earlier emulator
-> images install `amd64` Azure Functions Core Tools into an `arm64` image, and every Function App
-> deployment fails with a misleading `500 ... No route to host`.
+> **Note:** Function Apps on `arm64` were fixed by
+> [localstack-pro#8102](https://github.com/localstack/localstack-pro/pull/8102) and work on the
+> current `localstack/localstack-azure:latest`. If you pin an older emulator image, expect every
+> Function App deployment to fail with a misleading `500 ... No route to host`: those images
+> unpack `amd64` Azure Functions Core Tools into an `arm64` image, so the host process cannot run.
 
 ### Troubleshooting: Line Endings
 If you encounter errors like `invalid option name` or `: command not found` when running on Linux/WSL, it's likely due to Windows-style line endings (CRLF). You can fix this by running:

@@ -112,6 +112,15 @@ ARM64_SAMPLE_DIRS=(
   "samples/web-app-custom-image/python"
 )
 
+# Fail loudly if an entry no longer matches a registered sample: a rename would otherwise
+# silently drop that sample's arm64 coverage while CI stays green.
+for _arm64_dir in "${ARM64_SAMPLE_DIRS[@]}"; do
+  if ! printf '%s\n' "${ALL_SAMPLES[@]}" | cut -d'|' -f1 | sed -E 's#/(terraform|bicep)$##' | grep -qxF "$_arm64_dir"; then
+    echo >&2 "ARM64_SAMPLE_DIRS entry '$_arm64_dir' matches no registered sample - fix the path or remove the entry."
+    exit 1
+  fi
+done
+
 # Architecture support is a property of the sample itself, not of the deployment method,
 # so strip the /terraform or /bicep suffix before matching against ARM64_SAMPLE_DIRS.
 supports_arm64() {
@@ -126,11 +135,18 @@ supports_arm64() {
   return 1
 }
 
-# Normalise `uname -m` to the architecture names used above
+# Normalise `uname -m` to the architecture names used above. Anything not recognisably
+# arm64 is reported as amd64, so an exotic host (armv7l, ppc64le, ...) takes the amd64
+# path and gets no arm64 warning: it errs toward "run it and let the deployment fail"
+# rather than skipping silently.
 host_arch() {
   case "$(uname -m)" in
     aarch64 | arm64) echo "arm64" ;;
-    *) echo "amd64" ;;
+    x86_64 | amd64) echo "amd64" ;;
+    *)
+      echo >&2 "Note: unrecognised architecture '$(uname -m)'; treating it as amd64."
+      echo "amd64"
+      ;;
   esac
 }
 

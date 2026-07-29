@@ -9,6 +9,10 @@ RUN_MODE="${1:-all}"
 BASE_SHA="${2:-}"
 # "both" runs each test on every architecture it supports; "amd64"/"arm64" restrict it to one
 ARCH_FILTER="${3:-both}"
+case "$ARCH_FILTER" in
+  both | amd64 | arm64) ;;
+  *) echo "Invalid arch filter: '$ARCH_FILTER' (expected both, amd64 or arm64)" >&2; exit 1 ;;
+esac
 
 # Get JSON metadata for all tests from run-samples.sh --list
 TEST_META=$(./run-samples.sh --list)
