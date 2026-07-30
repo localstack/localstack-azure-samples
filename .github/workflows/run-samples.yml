@@ -179,12 +179,18 @@ jobs:
         # Required by run-samples.sh to proxy Azure CLI calls to the emulator
         # via `lstk az` (replaces the deprecated azlocal wrapper).
         # https://github.com/localstack/lstk
+        #
+        # Pinned, like every action in this workflow: an unpinned install means an upstream
+        # release lands in every run at once, with no commit to point at when things break.
+        # Bump deliberately.
+        env:
+          LSTK_VERSION: "0.20.0"
         run: |
           MAX_RETRIES=3
           DELAY=15
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
-            npm install -g @localstack/lstk && break
+            npm install -g "@localstack/lstk@${LSTK_VERSION}" && break
             if [ "$i" -eq "$MAX_RETRIES" ]; then
               echo "All $MAX_RETRIES attempts failed"
               exit 1
