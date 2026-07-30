@@ -5,7 +5,7 @@ application code with the Azure CLI.
 
 ## Prerequisites
 
-- The LocalStack Azure emulator is running and `azlocal start-interception` has been run.
+- The LocalStack Azure emulator is running and `lstk az start-interception` has been run.
 - `terraform` and `az` are on the PATH.
 
 The provider is already pointed at the emulator in `providers.tf`

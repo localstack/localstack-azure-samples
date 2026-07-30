@@ -5,7 +5,7 @@ application code with the Azure CLI.
 
 ## Prerequisites
 
-- The LocalStack Azure emulator is running and `azlocal start-interception` has been run.
+- The LocalStack Azure emulator is running and `lstk az start-interception` has been run.
 - The Bicep CLI (`az bicep install`) and `jq` are available.
 
 ## Usage

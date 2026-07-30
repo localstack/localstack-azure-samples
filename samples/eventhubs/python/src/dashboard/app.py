@@ -40,6 +40,9 @@ SCHEMA_NAME = os.environ.get("SCHEMA_NAME", "PaymentEvent")
 API_VERSION = "2023-07-01"
 # Upper bound on a single alerts read, so a page refresh can never hang the worker thread.
 ALERT_READ_TIMEOUT_SECONDS = 15
+# How many alerts the table below the headline shows. The page labels itself with this, so the
+# label cannot drift from the list it describes - and the headline total is deliberately separate.
+ALERT_PAGE_SIZE = 25
 
 
 def eventhub_connection() -> str:
@@ -59,12 +62,31 @@ def _namespace_host(conn_str: str) -> str:
     return ""
 
 
-def partition_snapshot() -> list[dict]:
-    """Live per-partition head positions for the payments hub."""
+def hub_total(hub_name: str) -> int:
+    """Events ever enqueued in a hub, summed from per-partition runtime metadata.
+
+    Counting by reading a hub does not scale and, worse, is bounded by whatever page size the
+    reader uses - which would silently turn a headline count into a page size. The runtime
+    metadata gives the real total without consuming anything.
+
+    High-water mark, not live occupancy: `last_enqueued_sequence_number` is the last event
+    *enqueued*, so this errs high once retention expires events - it never falls. For events still
+    retained the figure would be `last_enqueued_sequence_number - beginning_sequence_number + 1`.
+
+    A read failure is deliberately not caught. Returning 0 would be indistinguishable from an empty
+    hub, and since 0 is a real value the page's fallback would not fire: the headline would read 0
+    above a list of alerts, then flash a delta the size of the whole hub on the next good refresh.
+    https://learn.microsoft.com/en-us/dotnet/api/azure.messaging.eventhubs.partitionproperties
+    """
+    return sum(row["events"] for row in partition_snapshot(hub_name))
+
+
+def partition_snapshot(hub_name: str = EVENT_HUB_NAME) -> list[dict]:
+    """Live per-partition head positions for a hub."""
     conn = eventhub_connection()
     if not conn:
         return []
-    client = EventHubProducerClient.from_connection_string(conn, eventhub_name=EVENT_HUB_NAME)
+    client = EventHubProducerClient.from_connection_string(conn, eventhub_name=hub_name)
     rows = []
     with client:
         for partition_id in client.get_partition_ids():
@@ -123,7 +145,7 @@ def checkpoint_snapshot(partitions: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda row: row["partition"])
 
 
-def recent_alerts(limit: int = 25) -> list[dict]:
+def recent_alerts(limit: int = ALERT_PAGE_SIZE) -> list[dict]:
     """Read the fraud-alerts hub from the beginning (the sample keeps volumes small)."""
     conn = eventhub_connection()
     if not conn:
@@ -266,7 +288,11 @@ def schema_snapshot() -> list[dict]:
 
 @app.route("/")
 def index():
-    return render_template("index.html", refreshed=datetime.now(UTC).strftime("%H:%M:%S"))
+    return render_template(
+        "index.html",
+        refreshed=datetime.now(UTC).strftime("%H:%M:%S"),
+        alert_page_size=ALERT_PAGE_SIZE,
+    )
 
 
 @app.route("/api/overview")
@@ -280,6 +306,8 @@ def overview():
             "alert_hub": ALERT_HUB_NAME,
             "consumer_group": FRAUD_CONSUMER_GROUP,
             "total_events": sum(row["events"] for row in partitions),
+            # The real number of alerts, not the length of the page below it.
+            "total_alerts": hub_total(ALERT_HUB_NAME),
             "partitions": partitions,
             "checkpoints": checkpoint_snapshot(partitions),
             "alerts": recent_alerts(),

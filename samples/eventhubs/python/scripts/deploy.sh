@@ -17,7 +17,7 @@
 #   Web App (Python)                       operations dashboard
 #
 # Everything runs against the LocalStack Azure emulator; no real cloud resources
-# are created. Run 'azlocal start-interception' first.
+# are created. Run 'lstk az start-interception' first.
 # =============================================================================
 
 # Variables
