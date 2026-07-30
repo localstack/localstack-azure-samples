@@ -42,6 +42,7 @@ SAMPLES=(
   "samples/web-app-postgresql-flexible-server/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-custom-image/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/aci-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
+  "samples/multi-service-app/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
 )
 
 # 1a. Define Terraform Samples
@@ -57,6 +58,7 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-mysql-flexible-server/python/terraform|bash deploy.sh"
   "samples/web-app-postgresql-flexible-server/python/terraform|bash deploy.sh"
   "samples/aci-blob-storage/python/terraform|bash deploy.sh"
+  "samples/multi-service-app/python/terraform|bash deploy.sh"
 )
 
 # 1b. Define Bicep Samples
@@ -72,6 +74,7 @@ BICEP_SAMPLES=(
   "samples/web-app-mysql-flexible-server/python/bicep|bash deploy.sh"
   "samples/web-app-postgresql-flexible-server/python/bicep|bash deploy.sh"
   "samples/aci-blob-storage/python/bicep|bash deploy.sh"
+  "samples/multi-service-app/python/bicep|bash deploy.sh"
 )
 
 # Combine script-based, Terraform, and Bicep samples into one array
