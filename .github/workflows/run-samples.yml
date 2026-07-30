@@ -184,7 +184,14 @@ jobs:
         # release lands in every run at once, with no commit to point at when things break.
         # Bump deliberately.
         env:
-          LSTK_VERSION: "0.20.0"
+          # 0.19.0, not the current 0.20.0. Since 0.20.0 was published (2026-07-30 11:10) every
+          # sample run has failed at `lstk az start-interception` with "LocalStack Azure Emulator
+          # is not running" - 6 runs across 4 unrelated branches, while the emulator was up and
+          # answering its health endpoint. Detection fails on roughly 80% of fresh runners, is
+          # decided before the first call (retries never recover it), and reproduces on neither
+          # arch locally. Every run on 0.19.0 was green.
+          # Revert to the latest release once the detection regression is fixed upstream.
+          LSTK_VERSION: "0.19.0"
         run: |
           MAX_RETRIES=3
           DELAY=15
