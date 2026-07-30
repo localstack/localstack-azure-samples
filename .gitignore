@@ -183,6 +183,7 @@ celerybeat.pid
 .env
 .env.*
 !.env.example
+.last_deploy*.env
 .venv
 env/
 venv/
