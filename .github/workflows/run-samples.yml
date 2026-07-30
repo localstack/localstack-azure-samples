@@ -203,7 +203,10 @@ jobs:
           DELAY=15
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i/$MAX_RETRIES..."
-            npm install -g @localstack/lstk && break
+            # Pinned: lstk 0.20.0 (published 2026-07-30 11:10 UTC) fails its emulator
+            # probe against the Azure emulator ("LocalStack Azure Emulator is not
+            # running" on healthy containers), taking down most CI shards fleet-wide.
+            npm install -g @localstack/lstk@0.19.0 && break
             if [ "$i" -eq "$MAX_RETRIES" ]; then
               echo "All $MAX_RETRIES attempts failed"
               exit 1
