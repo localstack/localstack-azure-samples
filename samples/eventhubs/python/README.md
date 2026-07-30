@@ -71,7 +71,8 @@ schema registry.
   `LOCALSTACK_AUTH_TOKEN`
 - [Docker](https://docs.docker.com/get-docker/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and
-  [azlocal](https://pypi.org/project/azlocal/) (`pip install azlocal`)
+  [lstk](https://github.com/localstack/lstk) (`brew install localstack/tap/lstk` or
+  `npm install -g @localstack/lstk`)
 - Python 3.12+ with `src/producers/requirements.txt` installed
 - `jq` and `zip`
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) or the Bicep CLI, for
@@ -86,7 +87,7 @@ IMAGE_NAME=localstack/localstack-azure localstack start -d
 localstack wait -t 120
 
 # Route the Azure CLI to the emulator
-azlocal start-interception
+lstk az start-interception
 
 cd samples/eventhubs/python
 pip install -r src/producers/requirements.txt
