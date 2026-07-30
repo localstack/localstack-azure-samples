@@ -65,7 +65,9 @@ whatever happened to be in the last batch.
 
 ## Prerequisites
 
-- The LocalStack Azure emulator running, and `azlocal start-interception` run.
+- The LocalStack Azure emulator running, and `lstk az start-interception` run.
+- [lstk](https://github.com/localstack/lstk) (`brew install localstack/tap/lstk` or
+  `npm install -g @localstack/lstk`), which routes the Azure CLI to the emulator.
 - Python 3.12+ with `src/producers/requirements.txt` installed.
 - `jq` and `zip`.
 

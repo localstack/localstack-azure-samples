@@ -10,7 +10,7 @@
 #     -> Function App (Event Hubs trigger) decodes the archive and aggregates it
 #     -> curated hub (Event Hubs output binding)
 #
-# Everything runs against the LocalStack Azure emulator. Run 'azlocal start-interception' first.
+# Everything runs against the LocalStack Azure emulator. Run 'lstk az start-interception' first.
 # =============================================================================
 
 PREFIX='local'
