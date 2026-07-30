@@ -127,6 +127,9 @@ else
 fi
 
 # 6. Follow the short link twice: each redirect logs a click row into PostgreSQL.
+# The redirect status codes are printed for information only (emulator releases
+# without the fix from localstack/localstack-pro#8135 follow the redirect at the
+# gateway), so the assertion targets the effect: the click rows in PostgreSQL.
 echo "Following the short link twice..."
 curl -s -o /dev/null -w "First redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
 curl -s -o /dev/null -w "Second redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
