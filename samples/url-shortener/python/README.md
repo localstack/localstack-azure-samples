@@ -22,6 +22,54 @@ The solution is composed of the following Azure resources:
     - *AbuseScan* ([Service Bus trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus-trigger), identity-based connection): Applies a keyword heuristic and reports a `clean`/`flagged` verdict.
     - *QrGenerator* ([Queue Storage trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger)): Requests the QR SVG render for the short link.
 
+```mermaid
+flowchart LR
+    user((User))
+
+    subgraph webapp["Web App (Flask)"]
+        shorten["POST /shorten"]
+        follow["GET /l/{code}"]
+        internal["POST /internal/*<br/>(token-protected)"]
+    end
+
+    subgraph functions["Function App (worker)"]
+        abuse["AbuseScan<br/>(Service Bus trigger)"]
+        qrgen["QrGenerator<br/>(queue trigger)"]
+    end
+
+    subgraph storage["Storage Account"]
+        links[("links table")]
+        qrjobs[["qrjobs queue"]]
+        qrcodes[("qrcodes container<br/>public read")]
+    end
+
+    kv["Key Vault<br/>link-sign-key, pg-conn"]
+    sb[["Service Bus<br/>link-events queue"]]
+    pg[("PostgreSQL<br/>clicks db")]
+    logs["Log Analytics"]
+
+    user -->|"1: shorten URL"| shorten
+    shorten -.->|"read sign key"| kv
+    shorten -->|"write link + sig"| links
+    shorten -->|"link-created event"| sb
+    shorten -->|"QR job"| qrjobs
+
+    sb -->|"trigger"| abuse
+    qrjobs -->|"trigger"| qrgen
+    abuse -->|"verdict"| internal
+    qrgen -->|"render request"| internal
+    internal -->|"scan / qr status"| links
+    internal -->|"QR SVG"| qrcodes
+
+    user -->|"2: follow short link"| follow
+    follow -->|"hit counter"| links
+    follow -.->|"read pg-conn"| kv
+    follow -->|"click row"| pg
+
+    user -.->|"3: fetch QR"| qrcodes
+    storage -.->|"transaction metrics"| logs
+```
+
 The flow of a single link: `POST /shorten` → Table Storage + Key Vault + Service Bus + Queue Storage → workers → internal API → Table Storage + Blob Storage → `GET /l/<code>` → PostgreSQL + 302 redirect. The home page renders the link table with hit counts, signatures, scan verdicts and QR links.
 
 ## Prerequisites
