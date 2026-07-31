@@ -1,6 +1,6 @@
 # Azure CLI Deployment
 
-This directory contains Bash scripts for deploying and validating the sample using the `lstk` CLI. For details about the sample application, see [Multi-Service App](../README.md).
+This directory contains Bash scripts for deploying and validating the sample using the `lstk` CLI. For details about the sample application, see [URL Shortener](../README.md).
 
 ## Prerequisites
 

@@ -1,6 +1,6 @@
 # Terraform Deployment
 
-This directory contains the Terraform configuration for the sample. For details about the sample application, see [Multi-Service App](../README.md).
+This directory contains the Terraform configuration for the sample. For details about the sample application, see [URL Shortener](../README.md).
 
 ## Prerequisites
 
