@@ -39,15 +39,15 @@ param internalToken string
 // Variables
 //********************************************
 
-var storageAccountName = '${prefix}msastorage${suffix}'
-var keyVaultName = '${prefix}-msa-kv-${suffix}'
-var postgresServerName = '${prefix}-msa-pgflex-${suffix}'
-var servicebusNamespaceName = '${prefix}-msa-sb-ns-${suffix}'
-var logAnalyticsName = '${prefix}-msa-log-analytics-${suffix}'
-var appServicePlanName = '${prefix}-msa-app-service-plan-${suffix}'
-var webAppName = '${prefix}-msa-webapp-${suffix}'
-var functionAppName = '${prefix}-msa-functionapp-${suffix}'
-var managedIdentityName = '${prefix}-msa-identity-${suffix}'
+var storageAccountName = '${prefix}urlshortstorage${suffix}'
+var keyVaultName = '${prefix}-urlshort-kv-${suffix}'
+var postgresServerName = '${prefix}-urlshort-pgflex-${suffix}'
+var servicebusNamespaceName = '${prefix}-urlshort-sb-ns-${suffix}'
+var logAnalyticsName = '${prefix}-urlshort-log-analytics-${suffix}'
+var appServicePlanName = '${prefix}-urlshort-app-service-plan-${suffix}'
+var webAppName = '${prefix}-urlshort-webapp-${suffix}'
+var functionAppName = '${prefix}-urlshort-functionapp-${suffix}'
+var managedIdentityName = '${prefix}-urlshort-identity-${suffix}'
 var linksTableName = 'links'
 var qrJobsQueueName = 'qrjobs'
 var qrContainerName = 'qrcodes'
@@ -108,6 +108,11 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
     name: 'Standard_LRS'
   }
   kind: 'StorageV2'
+  properties: {
+    // The qrcodes container uses publicAccess 'Blob'; new storage accounts
+    // disallow anonymous access unless the account explicitly allows it.
+    allowBlobPublicAccess: true
+  }
 }
 
 resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2025-01-01' = {
@@ -344,7 +349,12 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
   }
 }
 
-var servicebusConnectionString = listKeys('${servicebusNamespace.id}/AuthorizationRules/RootManageSharedAccessKey', '2024-01-01').primaryConnectionString
+resource servicebusRootAuthorizationRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' existing = {
+  parent: servicebusNamespace
+  name: 'RootManageSharedAccessKey'
+}
+
+var servicebusConnectionString = servicebusRootAuthorizationRule.listKeys().primaryConnectionString
 var storageAccountKey = storageAccount.listKeys().keys[0].value
 var storageEndpoints = storageAccount.properties.primaryEndpoints
 
@@ -428,3 +438,5 @@ output logAnalyticsWorkspaceName string = logAnalyticsWorkspace.name
 output webAppName string = webApp.name
 output functionAppName string = functionApp.name
 output webAppHostName string = webApp.properties.defaultHostName
+output postgresHost string = postgresHost
+output postgresPort string = postgresPort

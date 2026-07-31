@@ -77,11 +77,21 @@ fi
 WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .webAppName.value)
 FUNCTION_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .functionAppName.value)
 WEB_APP_HOSTNAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .webAppHostName.value)
+POSTGRES_HOST=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .postgresHost.value)
+POSTGRES_PORT=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .postgresPort.value)
 
 if [[ -z "$WEB_APP_NAME" || -z "$FUNCTION_APP_NAME" ]]; then
 	echo "Web App Name or Function App Name is empty. Exiting."
 	exit 1
 fi
+
+# Persist the PostgreSQL credentials for scripts/validate.sh, matching the
+# contract of scripts/deploy.sh.
+cat >"$CURRENT_DIR/../scripts/.last_deploy.env" <<EOF
+POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
+POSTGRES_HOST=$POSTGRES_HOST
+POSTGRES_PORT=$POSTGRES_PORT
+EOF
 
 # Create the zip package of the web app
 cd "$CURRENT_DIR/../src" || exit

@@ -5,24 +5,24 @@ PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
-STORAGE_ACCOUNT_NAME="${PREFIX}msastorage${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}urlshortstorage${SUFFIX}"
 LINKS_TABLE_NAME='links'
 QR_JOBS_QUEUE_NAME='qrjobs'
 QR_CONTAINER_NAME='qrcodes'
-MANAGED_IDENTITY_NAME="${PREFIX}-msa-identity-${SUFFIX}"
-KEY_VAULT_NAME="${PREFIX}-msa-kv-${SUFFIX}"
+MANAGED_IDENTITY_NAME="${PREFIX}-urlshort-identity-${SUFFIX}"
+KEY_VAULT_NAME="${PREFIX}-urlshort-kv-${SUFFIX}"
 SIGN_KEY_SECRET_NAME='link-sign-key'
 PG_CONN_SECRET_NAME='pg-conn'
-POSTGRES_SERVER_NAME="${PREFIX}-msa-pgflex-${SUFFIX}"
+POSTGRES_SERVER_NAME="${PREFIX}-urlshort-pgflex-${SUFFIX}"
 POSTGRES_ADMIN_USER='linkletadmin'
 POSTGRES_DB_NAME='clicks'
-SERVICEBUS_NAMESPACE_NAME="${PREFIX}-msa-sb-ns-${SUFFIX}"
+SERVICEBUS_NAMESPACE_NAME="${PREFIX}-urlshort-sb-ns-${SUFFIX}"
 SERVICEBUS_QUEUE_NAME='link-events'
-LOG_ANALYTICS_NAME="${PREFIX}-msa-log-analytics-${SUFFIX}"
-APP_SERVICE_PLAN_NAME="${PREFIX}-msa-app-service-plan-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-urlshort-log-analytics-${SUFFIX}"
+APP_SERVICE_PLAN_NAME="${PREFIX}-urlshort-app-service-plan-${SUFFIX}"
 APP_SERVICE_PLAN_SKU='B1'
-WEB_APP_NAME="${PREFIX}-msa-webapp-${SUFFIX}"
-FUNCTION_APP_NAME="${PREFIX}-msa-functionapp-${SUFFIX}"
+WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
+FUNCTION_APP_NAME="${PREFIX}-urlshort-functionapp-${SUFFIX}"
 RUNTIME='python'
 WEB_APP_RUNTIME_VERSION='3.13'
 FUNCTIONS_VERSION='4'
@@ -62,11 +62,14 @@ if [[ $? != 0 ]]; then
 	echo "No [$STORAGE_ACCOUNT_NAME] storage account actually exists in the [$RESOURCE_GROUP_NAME] resource group"
 	echo "Creating [$STORAGE_ACCOUNT_NAME] storage account in the [$RESOURCE_GROUP_NAME] resource group..."
 
+	# The qrcodes container uses public 'blob' access; new storage accounts
+	# disallow anonymous access unless the account explicitly allows it.
 	az storage account create \
 		--name $STORAGE_ACCOUNT_NAME \
 		--resource-group $RESOURCE_GROUP_NAME \
 		--location "$LOCATION" \
-		--sku Standard_LRS 1>/dev/null
+		--sku Standard_LRS \
+		--allow-blob-public-access true 1>/dev/null
 
 	if [[ $? == 0 ]]; then
 		echo "[$STORAGE_ACCOUNT_NAME] storage account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
@@ -165,11 +168,21 @@ STORAGE_ACCOUNT_ID=$(az storage account show --name $STORAGE_ACCOUNT_NAME --reso
 # Assign the storage data-plane roles to the managed identity
 for ROLE in "Storage Table Data Contributor" "Storage Queue Data Contributor" "Storage Blob Data Contributor"; do
 	echo "Assigning [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$STORAGE_ACCOUNT_NAME] storage account..."
-	az role assignment create \
+	# Skip when already assigned: az role assignment create is not idempotent
+	# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
+	EXISTING_ASSIGNMENT=$(az role assignment list \
 		--role "$ROLE" \
-		--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-		--assignee-principal-type ServicePrincipal \
-		--scope "$STORAGE_ACCOUNT_ID" 1>/dev/null
+		--assignee "$IDENTITY_PRINCIPAL_ID" \
+		--scope "$STORAGE_ACCOUNT_ID" \
+		--query "[0].id" \
+		--output tsv)
+	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
+		az role assignment create \
+			--role "$ROLE" \
+			--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
+			--assignee-principal-type ServicePrincipal \
+			--scope "$STORAGE_ACCOUNT_ID" 1>/dev/null
+	fi
 
 	if [[ $? == 0 ]]; then
 		echo "[$ROLE] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
@@ -206,11 +219,21 @@ fi
 # Assign the Key Vault Secrets User role to the managed identity
 KEY_VAULT_ID=$(az keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 echo "Assigning [Key Vault Secrets User] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$KEY_VAULT_NAME] key vault..."
-az role assignment create \
+# Skip when already assigned: az role assignment create is not idempotent
+# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
+EXISTING_ASSIGNMENT=$(az role assignment list \
 	--role "Key Vault Secrets User" \
-	--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-	--assignee-principal-type ServicePrincipal \
-	--scope "$KEY_VAULT_ID" 1>/dev/null
+	--assignee "$IDENTITY_PRINCIPAL_ID" \
+	--scope "$KEY_VAULT_ID" \
+	--query "[0].id" \
+	--output tsv)
+if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
+	az role assignment create \
+		--role "Key Vault Secrets User" \
+		--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
+		--assignee-principal-type ServicePrincipal \
+		--scope "$KEY_VAULT_ID" 1>/dev/null
+fi
 
 if [[ $? == 0 ]]; then
 	echo "[Key Vault Secrets User] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
@@ -366,11 +389,21 @@ fi
 SERVICEBUS_NAMESPACE_ID=$(az servicebus namespace show --name $SERVICEBUS_NAMESPACE_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 for ROLE in "Azure Service Bus Data Sender" "Azure Service Bus Data Receiver"; do
 	echo "Assigning [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$SERVICEBUS_NAMESPACE_NAME] namespace..."
-	az role assignment create \
+	# Skip when already assigned: az role assignment create is not idempotent
+	# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
+	EXISTING_ASSIGNMENT=$(az role assignment list \
 		--role "$ROLE" \
-		--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-		--assignee-principal-type ServicePrincipal \
-		--scope "$SERVICEBUS_NAMESPACE_ID" 1>/dev/null
+		--assignee "$IDENTITY_PRINCIPAL_ID" \
+		--scope "$SERVICEBUS_NAMESPACE_ID" \
+		--query "[0].id" \
+		--output tsv)
+	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
+		az role assignment create \
+			--role "$ROLE" \
+			--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
+			--assignee-principal-type ServicePrincipal \
+			--scope "$SERVICEBUS_NAMESPACE_ID" 1>/dev/null
+	fi
 
 	if [[ $? == 0 ]]; then
 		echo "[$ROLE] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
@@ -432,6 +465,7 @@ az monitor diagnostic-settings create \
 if [[ $? == 0 ]]; then
 	echo "Diagnostic settings successfully attached to the [$STORAGE_ACCOUNT_NAME] storage account"
 else
+	# Best-effort: validate.sh step 8 fails the run if diagnostics are missing.
 	echo "Failed to attach diagnostic settings to the [$STORAGE_ACCOUNT_NAME] storage account"
 fi
 
@@ -511,6 +545,8 @@ az webapp config appsettings set \
 	--name $WEB_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
+	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	ENABLE_ORYX_BUILD='true' \
 	AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
 	AZURE_TABLES_ENDPOINT="$TABLES_ENDPOINT" \
 	LINKS_TABLE="$LINKS_TABLE_NAME" \
@@ -610,6 +646,8 @@ az functionapp config appsettings set \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
 	FUNCTIONS_WORKER_RUNTIME="$RUNTIME" \
+	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	ENABLE_ORYX_BUILD='true' \
 	AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
 	ServiceBusConnection__fullyQualifiedNamespace="${SERVICEBUS_NAMESPACE_NAME}.servicebus.windows.net" \
 	ServiceBusConnection__clientId="$IDENTITY_CLIENT_ID" \

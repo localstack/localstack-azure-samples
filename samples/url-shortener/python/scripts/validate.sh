@@ -4,9 +4,9 @@
 PREFIX='local'
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
-STORAGE_ACCOUNT_NAME="${PREFIX}msastorage${SUFFIX}"
-LOG_ANALYTICS_NAME="${PREFIX}-msa-log-analytics-${SUFFIX}"
-WEB_APP_NAME="${PREFIX}-msa-webapp-${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}urlshortstorage${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-urlshort-log-analytics-${SUFFIX}"
+WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 POSTGRES_ADMIN_USER='linkletadmin'
 POSTGRES_DB_NAME='clicks'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -117,9 +117,9 @@ fi
 # 5. Fetch the rendered QR code from the public blob container.
 QR_URL=$(curl -s "$WEB_APP_URL/api/links/$CLEAN_CODE" | jq -r .qr_url)
 echo "Fetching the QR code from [$QR_URL]..."
-QR_CONTENT_TYPE=$(curl -sk -o /tmp/msa_qr.svg -w "%{content_type}" "$QR_URL")
+QR_CONTENT_TYPE=$(curl -sk -o /tmp/urlshort_qr.svg -w "%{content_type}" "$QR_URL")
 echo "QR content type: $QR_CONTENT_TYPE"
-if grep -q "<svg" /tmp/msa_qr.svg; then
+if grep -q "<svg" /tmp/urlshort_qr.svg; then
 	echo "QR code successfully fetched from Blob Storage"
 else
 	echo "Failed to fetch the QR code from Blob Storage"

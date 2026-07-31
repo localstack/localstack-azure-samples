@@ -49,6 +49,14 @@ if [[ -z "$WEB_APP_NAME" || -z "$FUNCTION_APP_NAME" ]]; then
 	exit 1
 fi
 
+# Persist the PostgreSQL credentials for scripts/validate.sh, matching the
+# contract of scripts/deploy.sh.
+cat >"$CURRENT_DIR/../scripts/.last_deploy.env" <<EOF
+POSTGRES_ADMIN_PASSWORD=$(terraform output -raw postgres_password)
+POSTGRES_HOST=$(terraform output -raw postgres_host)
+POSTGRES_PORT=$(terraform output -raw postgres_port)
+EOF
+
 # Attach diagnostic settings for the storage account to the Log Analytics workspace
 echo "Attaching diagnostic settings for [$STORAGE_ACCOUNT_NAME] to [$LOG_ANALYTICS_NAME]..."
 STORAGE_ACCOUNT_ID=$(az storage account show \
@@ -71,6 +79,7 @@ az monitor diagnostic-settings create \
 if [ $? -eq 0 ]; then
 	echo "Diagnostic settings successfully attached."
 else
+	# Best-effort: validate.sh step 8 fails the run if diagnostics are missing.
 	echo "Failed to attach diagnostic settings."
 fi
 

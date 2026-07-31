@@ -4,7 +4,7 @@
 PREFIX='local'
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
-WEB_APP_NAME="${PREFIX}-msa-webapp-${SUFFIX}"
+WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 
 # Retrieve the web app host name
 echo "Retrieving the host name of the [$WEB_APP_NAME] web app..."
@@ -56,6 +56,8 @@ else
 	# Emulator releases without the fix from localstack/localstack-pro#8135 follow the
 	# redirect at the gateway instead of passing the 302 through; accept that as long
 	# as the click was recorded on the link.
+	# TODO: drop this fallback and assert the bare 302 unconditionally once the fix
+	# from localstack/localstack-pro#8135 ships in the released emulator image.
 	HITS=$(curl -s "$WEB_APP_URL/api/links/$CODE" | jq -r .hits)
 	if [[ "$HITS" =~ ^[0-9]+$ && "$HITS" -ge 1 ]]; then
 		echo "Short link [$CODE] returned [$REDIRECT_STATUS] (redirect followed by the emulator gateway) and the click was recorded (hits=$HITS)"

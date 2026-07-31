@@ -16,7 +16,7 @@ This directory contains the Bicep template for the sample. For details about the
 bash deploy.sh
 ```
 
-The script creates the resource group, validates and deploys `main.bicep` (generating the PostgreSQL password, the link-signing key and the internal API token per run), and then deploys the web app and the worker from zip packages with the Azure CLI.
+The script creates the resource group, validates and deploys `main.bicep` (generating the PostgreSQL password, the link-signing key and the internal API token per run), and then deploys the web app and the worker from zip packages with the Azure CLI. It persists the generated PostgreSQL credentials to `../scripts/.last_deploy.env` so `scripts/validate.sh` works after a Bicep deployment.
 
 ## Cleanup
 

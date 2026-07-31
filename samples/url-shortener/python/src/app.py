@@ -249,7 +249,10 @@ def link_info(code):
 
 
 def require_internal_token():
-    if request.headers.get("X-Internal-Token") != os.environ.get("INTERNAL_TOKEN"):
+    # Fail closed when INTERNAL_TOKEN is not configured.
+    expected = os.environ.get("INTERNAL_TOKEN")
+    provided = request.headers.get("X-Internal-Token", "")
+    if not expected or not hmac.compare_digest(provided, expected):
         abort(403)
 
 

@@ -16,7 +16,7 @@ This directory contains the Terraform configuration for the sample. For details 
 bash deploy.sh
 ```
 
-The script runs `terraform init`, `plan` and `apply`, attaches the storage diagnostic settings to the Log Analytics workspace, and deploys the web app and the worker from zip packages with the Azure CLI. Terraform state stays local, matching the sibling samples.
+The script runs `terraform init`, `plan` and `apply`, attaches the storage diagnostic settings to the Log Analytics workspace, and deploys the web app and the worker from zip packages with the Azure CLI. It persists the generated PostgreSQL credentials to `../scripts/.last_deploy.env` so `scripts/validate.sh` works after a Terraform deployment. Terraform state stays local, matching the sibling samples.
 
 ## Cleanup
 

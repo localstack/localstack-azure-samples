@@ -1,6 +1,6 @@
 # URL Shortener: Web App, Functions, Storage, Key Vault, Service Bus and PostgreSQL
 
-This sample demonstrates *Linklet*, a Python Flask URL shortener hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with an event-driven worker on [Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview). Unlike the sibling samples, which each exercise one or two services, this sample composes seven services into a single causal chain: every shortened link fans out through [Azure Service Bus](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview) and [Azure Queue Storage](https://learn.microsoft.com/en-us/azure/storage/queues/storage-queues-introduction) to background workers, and every redirect is logged to an [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview). It is intended as a realistic end-to-end workout for the LocalStack Azure emulator: a regression in any one service breaks an observable user outcome.
+This sample demonstrates *Linklet*, a Python Flask URL shortener hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with an event-driven worker on [Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview). Unlike the sibling samples, which each exercise one or two services, this sample composes six Azure services into a single causal chain: every shortened link fans out through [Azure Service Bus](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview) and [Azure Queue Storage](https://learn.microsoft.com/en-us/azure/storage/queues/storage-queues-introduction) to background workers, and every redirect is logged to an [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview). It is intended as a realistic end-to-end workout for the LocalStack Azure emulator: a regression in any one service breaks an observable user outcome.
 
 ## Architecture
 
@@ -64,7 +64,7 @@ cd terraform
 bash deploy.sh
 ```
 
-The Terraform variant provisions the same resources declaratively and then performs the two zip deployments with the Azure CLI.
+The Terraform variant provisions the same resources declaratively and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.env` for the validation script.
 
 ### Bicep
 
@@ -73,7 +73,7 @@ cd bicep
 bash deploy.sh
 ```
 
-The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI.
+The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.env` for the validation script.
 
 ## Testing
 
@@ -97,4 +97,16 @@ az group delete --name local-rg --yes
 - The web app talks to Service Bus through the namespace connection string rather than a managed-identity connection: the Python Service Bus SDK enforces TLS verification and the emulator's certificate does not cover `*.servicebus.windows.net`. The connection string's endpoint is certificate-valid on both the emulator and real Azure.
 - The worker's queue trigger uses a dedicated connection string with explicit `BlobEndpoint`/`QueueEndpoint`/`TableEndpoint` entries because strict .NET storage clients cannot parse an `EndpointSuffix` that carries the emulator's port.
 - The PostgreSQL flexible-server emulator embeds its TCP-proxy port in the server's `fullyQualifiedDomainName`; both deployment variants split host and port so the same configuration works against real Azure (bare host, port 5432).
-- On real Azure, additionally enable *Always On* for the function app (dedicated plans idle otherwise and non-HTTP triggers stop firing) and deploy the function app through a build-enabled path (Oryx remote build or a vendored `.python_packages` layout).
+- The worker calls the web app's internal API over plain `http://` (`WEB_BASE_URL`), and the apps are deployed without HTTPS-only: the emulator serves `*.azurewebsites.net` with a certificate that does not cover that domain, so an `https://` call from the worker would fail TLS verification. On real Azure, switch `WEB_BASE_URL` to `https://` and enable HTTPS-only on both apps so the internal token never crosses the wire unencrypted.
+- On real Azure, additionally enable *Always On* for the function app (dedicated plans idle otherwise and non-HTTP triggers stop firing), deploy the function app through a build-enabled path (Oryx remote build or a vendored `.python_packages` layout), and tighten the sample's allow-all PostgreSQL firewall rule to your own address ranges.
+
+## References
+
+- [Azure Web Apps Documentation](https://learn.microsoft.com/en-us/azure/app-service/)
+- [Azure Functions Documentation](https://learn.microsoft.com/en-us/azure/azure-functions/)
+- [Azure Service Bus Documentation](https://learn.microsoft.com/en-us/azure/service-bus-messaging/)
+- [Azure Storage Documentation](https://learn.microsoft.com/en-us/azure/storage/)
+- [Azure Key Vault Documentation](https://learn.microsoft.com/en-us/azure/key-vault/)
+- [Azure Database for PostgreSQL — flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/)
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
