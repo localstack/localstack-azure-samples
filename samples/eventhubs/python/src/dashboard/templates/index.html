@@ -20,21 +20,21 @@
     <div class="col-6 col-lg-3">
       <div class="card shadow-sm h-100"><div class="card-body">
         <div class="text-secondary small text-uppercase">Events ingested</div>
-        <div class="display-6" id="stat-events">-</div>
+        <div class="d-flex align-items-baseline"><div class="display-6" id="stat-events">-</div><span class="stat-delta"></span></div>
         <div class="small text-secondary" id="stat-hub"></div>
       </div></div>
     </div>
     <div class="col-6 col-lg-3">
       <div class="card shadow-sm h-100"><div class="card-body">
         <div class="text-secondary small text-uppercase">Fraud alerts</div>
-        <div class="display-6 text-danger" id="stat-alerts">-</div>
+        <div class="d-flex align-items-baseline"><div class="display-6 text-danger" id="stat-alerts">-</div><span class="stat-delta"></span></div>
         <div class="small text-secondary">hot path</div>
       </div></div>
     </div>
     <div class="col-6 col-lg-3">
       <div class="card shadow-sm h-100"><div class="card-body">
         <div class="text-secondary small text-uppercase">Capture archives</div>
-        <div class="display-6" id="stat-capture">-</div>
+        <div class="d-flex align-items-baseline"><div class="display-6" id="stat-capture">-</div><span class="stat-delta"></span></div>
         <div class="small text-secondary">cold path (Avro in Blob)</div>
       </div></div>
     </div>
@@ -70,7 +70,7 @@
 
     <div class="col-lg-7">
       <div class="card shadow-sm h-100">
-        <div class="card-header fw-semibold text-danger">Fraud alerts</div>
+        <div class="card-header fw-semibold text-danger">Fraud alerts <span class="text-secondary small fw-normal">({{ alert_page_size }} most recent)</span></div>
         <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
           <table class="table table-sm mb-0">
             <thead><tr><th>Account</th><th>Amount</th><th>Merchant</th><th>Reasons</th></tr></thead>
@@ -114,6 +114,33 @@ function escapeHtml(value) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Write a headline number and flash it when it moves, so a refresh that changes something
+// is obvious. Without this the page looks identical whether or not anything happened.
+function setStat(id, value) {
+  const element = document.getElementById(id);
+  const previous = element.dataset.value;
+  const next = String(value);
+  element.textContent = next;
+  if (previous !== undefined && previous !== next) {
+    element.classList.remove('stat-changed');
+    void element.offsetWidth;  // restart the animation
+    element.classList.add('stat-changed');
+    const delta = Number(next) - Number(previous);
+    if (Number.isFinite(delta) && delta > 0) {
+      const badge = element.parentElement.querySelector('.stat-delta');
+      if (badge) {
+        badge.textContent = '+' + delta;
+        badge.classList.add('show');
+        // Cancel the previous hide: two changes less than the badge lifetime apart are normal at
+        // this refresh gap, and a stale timer would strip the badge the newer change just set.
+        clearTimeout(Number(badge.dataset.timer));
+        badge.dataset.timer = setTimeout(() => badge.classList.remove('show'), 4000);
+      }
+    }
+  }
+  element.dataset.value = next;
+}
+
 async function refresh() {
   let data;
   try {
@@ -122,10 +149,10 @@ async function refresh() {
     return;
   }
 
-  document.getElementById('stat-events').textContent = data.total_events ?? 0;
+  setStat('stat-events', data.total_events ?? 0);
   document.getElementById('stat-hub').textContent = data.event_hub || '';
-  document.getElementById('stat-alerts').textContent = (data.alerts || []).length;
-  document.getElementById('stat-capture').textContent = (data.capture_files || []).length;
+  setStat('stat-alerts', data.total_alerts ?? (data.alerts || []).length);
+  setStat('stat-capture', (data.capture_files || []).length);
   document.getElementById('stat-cg').textContent = data.consumer_group || '';
 
   const lags = (data.checkpoints || []).map(row => row.lag).filter(value => value !== null);
@@ -169,8 +196,27 @@ async function refresh() {
     'refreshed ' + new Date().toISOString().slice(11, 19) + ' UTC';
 }
 
-refresh();
-setInterval(refresh, 5000);
+// Reading both hubs takes several seconds, so the next refresh is scheduled only after the
+// previous one finishes. A fixed interval shorter than the request would overlap requests,
+// land responses out of order, and make the page appear to update at random moments.
+const REFRESH_GAP_MS = 3000;
+
+async function refreshLoop() {
+  const updated = document.getElementById('updated');
+  updated.textContent = 'updating...';
+  try {
+    await refresh();
+  } finally {
+    if (updated.textContent === 'updating...') {
+      // refresh() bailed out before stamping a time. Say so: leaving 'updating...' up makes a
+      // broken pipeline look permanently busy, which is the opposite of what this page is for.
+      updated.textContent = 'refresh failed - retrying';
+    }
+    setTimeout(refreshLoop, REFRESH_GAP_MS);
+  }
+}
+
+refreshLoop();
 </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 # Azure CLI deployment
 
 Deploys the payment fraud detection pipeline with the Azure CLI, then verifies and
-exercises it. Run `azlocal start-interception` first so every `az` call is routed to the
+exercises it. Run `lstk az start-interception` first so every `az` call is routed to the
 LocalStack Azure emulator.
 
 ## Scripts

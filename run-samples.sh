@@ -31,6 +31,7 @@ PURGE_DOCKER="${PURGE_DOCKER:-0}"
 SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
+  "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd|"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
@@ -49,6 +50,7 @@ SAMPLES=(
 TERRAFORM_SAMPLES=(
   "samples/servicebus/java/terraform|bash deploy.sh"
   "samples/eventhubs/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/eventhubs-eventgrid/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
@@ -65,6 +67,7 @@ TERRAFORM_SAMPLES=(
 BICEP_SAMPLES=(
   "samples/servicebus/java/bicep|bash deploy.sh"
   "samples/eventhubs/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/eventhubs-eventgrid/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/bicep|bash deploy.sh"
@@ -217,7 +220,35 @@ fi
 
 if command -v lstk >/dev/null 2>&1; then
   echo "[DEBUG] Starting lstk az interception..."
-  lstk az start-interception
+  # lstk's emulator detection can report a running emulator as absent - `lstk status` has been
+  # observed answering "LocalStack AWS Emulator is not running" against a live emulator, and CI
+  # runs have failed here with "LocalStack Azure Emulator is not running" while the container was
+  # up and `localstack wait` had already returned. Retry before giving up.
+  #
+  # Deliberately still fatal after the last attempt: without interception the az CLI targets real
+  # Azure, so continuing would send this suite's commands to the cloud. The diagnostics below run
+  # only on the final failure, so the next occurrence is debuggable from the log alone.
+  INTERCEPTION_ATTEMPTS=5
+  for attempt in $(seq 1 "$INTERCEPTION_ATTEMPTS"); do
+    if lstk az start-interception; then
+      break
+    fi
+    if [ "$attempt" -eq "$INTERCEPTION_ATTEMPTS" ]; then
+      echo "[ERROR] lstk could not attach to the emulator after $INTERCEPTION_ATTEMPTS attempts."
+      echo "[ERROR] --- lstk version ---"
+      lstk --version 2>&1 || true
+      echo "[ERROR] --- container ---"
+      docker ps -a --filter name=localstack-main --format '{{.Names}} | {{.Image}} | {{.Status}}' || true
+      echo "[ERROR] --- emulator health ---"
+      curl -s --max-time 10 http://127.0.0.1:4566/_localstack/health || true
+      echo ""
+      echo "[ERROR] --- lstk log ---"
+      tail -30 "${XDG_CONFIG_HOME:-$HOME/.config}/lstk/lstk.log" 2>/dev/null || true
+      exit 1
+    fi
+    echo "[DEBUG] interception attempt $attempt failed; retrying in $((attempt * 5))s..."
+    sleep $((attempt * 5))
+  done
   # With interception active, the standard az CLI targets the emulator directly.
   # The `lstk az` proxy is intentionally not used below: it requires a one-time
   # Azure CLI integration setup that is not available on headless CI runners.
