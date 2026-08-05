@@ -5,4 +5,4 @@ gunicorn==26.0.0
 python-dotenv==1.2.2
 azure-keyvault-secrets==4.11.0
 azure-keyvault-certificates==4.11.1
-cryptography==48.0.1
+cryptography==50.0.0
