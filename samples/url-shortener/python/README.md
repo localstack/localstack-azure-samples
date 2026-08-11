@@ -23,32 +23,37 @@ The solution is composed of the following Azure resources:
     - *QrGenerator* ([Queue Storage trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger)): Requests the QR SVG render for the short link.
 
 ```mermaid
-flowchart LR
+%%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 80}}}%%
+flowchart TB
     user((User))
 
     subgraph webapp["Web App (Flask)"]
-        shorten["POST /shorten"]
         follow["GET /l/{code}"]
+        shorten["POST /shorten"]
         internal["POST /internal/*<br/>(token-protected)"]
     end
+
+    kv["Key Vault<br/>link-sign-key, pg-conn"]
+    pg[("PostgreSQL<br/>clicks db")]
+    sb[["Service Bus<br/>link-events queue"]]
+    links[("links table<br/>(Storage Account)")]
+    qrjobs[["qrjobs queue<br/>(Storage Account)"]]
+    qrcodes[("qrcodes container<br/>(Storage Account, public read)")]
+    logs["Log Analytics"]
 
     subgraph functions["Function App (worker)"]
         abuse["AbuseScan<br/>(Service Bus trigger)"]
         qrgen["QrGenerator<br/>(queue trigger)"]
     end
 
-    subgraph storage["Storage Account"]
-        links[("links table")]
-        qrjobs[["qrjobs queue"]]
-        qrcodes[("qrcodes container<br/>public read")]
-    end
-
-    kv["Key Vault<br/>link-sign-key, pg-conn"]
-    sb[["Service Bus<br/>link-events queue"]]
-    pg[("PostgreSQL<br/>clicks db")]
-    logs["Log Analytics"]
-
+    user -->|"2: follow short link"| follow
     user -->|"1: shorten URL"| shorten
+    user -.->|"3: fetch QR"| qrcodes
+
+    follow -.->|"read pg-conn"| kv
+    follow -->|"click row"| pg
+    follow -->|"hit counter"| links
+
     shorten -.->|"read sign key"| kv
     shorten -->|"write link + sig"| links
     shorten -->|"link-created event"| sb
@@ -61,13 +66,10 @@ flowchart LR
     internal -->|"scan / qr status"| links
     internal -->|"QR SVG"| qrcodes
 
-    user -->|"2: follow short link"| follow
-    follow -->|"hit counter"| links
-    follow -.->|"read pg-conn"| kv
-    follow -->|"click row"| pg
+    links -.->|"transaction metrics<br/>(diagnostic settings)"| logs
 
-    user -.->|"3: fetch QR"| qrcodes
-    storage -.->|"transaction metrics"| logs
+    style webapp fill:#ffffff,stroke:#999999,color:#333333
+    style functions fill:#ffffff,stroke:#999999,color:#333333
 ```
 
 The flow of a single link: `POST /shorten` → Table Storage + Key Vault + Service Bus + Queue Storage → workers → internal API → Table Storage + Blob Storage → `GET /l/<code>` → PostgreSQL + 302 redirect. The home page renders the link table with hit counts, signatures, scan verdicts and QR links.
