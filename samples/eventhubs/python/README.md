@@ -54,6 +54,11 @@ flowchart LR
     ehns -.-> kv
     funcapp -.->|"telemetry"| monitor
     dashboard -.->|"telemetry"| monitor
+
+    style producers fill:#ffffff,stroke:#999999,color:#333333
+    style ehns fill:#ffffff,stroke:#999999,color:#333333
+    style funcapp fill:#ffffff,stroke:#999999,color:#333333
+    style storage fill:#ffffff,stroke:#999999,color:#333333
 ```
 
 **Deployment flow.** The deploy script creates Log Analytics and Application Insights, a
