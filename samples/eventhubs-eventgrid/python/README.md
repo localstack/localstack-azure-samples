@@ -14,7 +14,7 @@ archive, aggregates it per device, and writes summaries to a curated hub.
 The following diagram illustrates the architecture of the solution:
 
 ```mermaid
-flowchart LR
+flowchart TB
     devices["Devices<br/>telemetry_producer.py"]
 
     subgraph ehns["Event Hubs namespace"]
