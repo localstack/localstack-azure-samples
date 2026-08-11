@@ -22,6 +22,9 @@ flowchart LR
     app -->|"1: send 'Hello, World!'"| queue
     queue -->|"2: deliver to @ServiceBusListener"| app
     app -.->|"authenticates with AZURE_SERVICEBUS_CONNECTION_STRING"| sbns
+
+    style host fill:#ffffff,stroke:#999999,color:#333333
+    style sbns fill:#ffffff,stroke:#999999,color:#333333
 ```
 
 The solution is composed of the following Azure resources:

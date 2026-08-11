@@ -44,6 +44,11 @@ flowchart LR
     notifications -->|"5: trigger (capture-processor group)"| processor
     processor -->|"6: read archive (data.fileUrl)"| archive
     processor -->|"7: per-device summaries (output binding)"| curated
+
+    style ehns fill:#ffffff,stroke:#999999,color:#333333
+    style storage fill:#ffffff,stroke:#999999,color:#333333
+    style eventgrid fill:#ffffff,stroke:#999999,color:#333333
+    style funcapp fill:#ffffff,stroke:#999999,color:#333333
 ```
 
 ## Why this shape
