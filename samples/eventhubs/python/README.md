@@ -10,28 +10,50 @@ The sample is built around the properties that make Event Hubs different from a 
 
 ## Architecture
 
-```
-  Producers (outside Azure)                LocalStack for Azure
-  ┌───────────────────────┐        ┌──────────────────────────────────────────────┐
-  │ POS terminals         │  AMQP  │  Event Hubs namespace (Standard, Kafka on)   │
-  │ producer_amqp.py      ├───────►│                                              │
-  │                       │        │   payments hub ─ 4 partitions ─── Capture ───┼──► Blob Storage
-  │ Legacy gateway        │ Kafka  │     consumer groups:                         │    Avro archives
-  │ producer_kafka.py     ├───────►│       fraud-detector ──┐  analytics  audit   │    (cold path)
-  │                       │        │                        │                     │
-  │ ATM / IoT devices     │ HTTPS  │                        ▼                     │
-  │ producer_http.py      ├───────►│              Function App (Python)           │
-  └───────────────────────┘        │              Event Hubs trigger              │
-                                   │              fraud rules ──────┐             │
-                                   │                                ▼             │
-                                   │   fraud-alerts hub ─ 2 partitions            │
-                                   │                                ▲             │
-                                   │   Key Vault: connection strings │            │
-                                   │   Schema Registry: Avro contract│            │
-                                   │   App Insights + Log Analytics  │            │
-                                   │                                 │            │
-                                   │   Web App ── operations dashboard            │
-                                   └──────────────────────────────────────────────┘
+The following diagram illustrates the architecture of the solution:
+
+```mermaid
+flowchart LR
+    subgraph producers["External producers"]
+        pos["POS terminals<br/>producer_amqp.py"]
+        gateway["Legacy gateway<br/>producer_kafka.py"]
+        atm["ATM / IoT devices<br/>producer_http.py"]
+    end
+
+    subgraph ehns["Event Hubs namespace (Standard, Kafka enabled)"]
+        payments[["payments hub<br/>4 partitions<br/>groups: fraud-detector, analytics, audit"]]
+        alerts[["fraud-alerts hub<br/>2 partitions"]]
+        registry["Schema Registry<br/>payments-schemas (Avro)"]
+    end
+
+    subgraph funcapp["Function App"]
+        detector["FraudDetector<br/>(Event Hubs trigger, batched)"]
+    end
+
+    subgraph storage["Storage Account"]
+        archive[("payments-archive container<br/>Avro archives, cold path")]
+        checkpoints[("checkpoint blobs")]
+    end
+
+    kv["Key Vault<br/>connection-string secrets<br/>(stored at deploy)"]
+    dashboard["Web App<br/>operations dashboard"]
+    monitor["Application Insights +<br/>Log Analytics"]
+
+    pos -->|"1: AMQP"| payments
+    gateway -->|"1: Kafka"| payments
+    atm -->|"1: HTTPS"| payments
+    producers -.->|"register Avro contract"| registry
+
+    payments -->|"2: trigger (fraud-detector group)"| detector
+    detector -->|"3: alerts (output binding)"| alerts
+    detector -.->|"checkpoints"| checkpoints
+    payments -->|"Capture (60 s / 10 MB, Avro)"| archive
+
+    dashboard -.->|"partition state, alerts, schemas"| ehns
+    dashboard -.->|"checkpoints, archives"| storage
+    ehns -.-> kv
+    funcapp -.->|"telemetry"| monitor
+    dashboard -.->|"telemetry"| monitor
 ```
 
 **Deployment flow.** The deploy script creates Log Analytics and Application Insights, a

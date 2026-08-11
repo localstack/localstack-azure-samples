@@ -7,6 +7,23 @@ This sample demonstrates a Java Spring Boot application that sends and receives 
 
 ## Architecture
 
+The following diagram illustrates the architecture of the solution:
+
+```mermaid
+flowchart LR
+    subgraph host["Host machine"]
+        app["Spring Boot app<br/>ServiceBusSenderClient + @ServiceBusListener"]
+    end
+
+    subgraph sbns["Service Bus namespace (Standard)"]
+        queue[["myqueue"]]
+    end
+
+    app -->|"1: send 'Hello, World!'"| queue
+    queue -->|"2: deliver to @ServiceBusListener"| app
+    app -.->|"authenticates with AZURE_SERVICEBUS_CONNECTION_STRING"| sbns
+```
+
 The solution is composed of the following Azure resources:
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): A logical container scoping all resources in this sample.
