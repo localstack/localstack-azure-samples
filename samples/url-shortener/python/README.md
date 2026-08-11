@@ -23,7 +23,7 @@ The solution is composed of the following Azure resources:
     - *QrGenerator* ([Queue Storage trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger)): Requests the QR SVG render for the short link.
 
 ```mermaid
-flowchart LR
+flowchart TB
     user((User))
 
     subgraph webapp["Web App (Flask)"]
@@ -68,6 +68,10 @@ flowchart LR
 
     user -.->|"3: fetch QR"| qrcodes
     storage -.->|"transaction metrics"| logs
+
+    style webapp fill:#ffffff,stroke:#999999,color:#333333
+    style functions fill:#ffffff,stroke:#999999,color:#333333
+    style storage fill:#ffffff,stroke:#999999,color:#333333
 ```
 
 The flow of a single link: `POST /shorten` → Table Storage + Key Vault + Service Bus + Queue Storage → workers → internal API → Table Storage + Blob Storage → `GET /l/<code>` → PostgreSQL + 302 redirect. The home page renders the link table with hit counts, signatures, scan verdicts and QR links.
