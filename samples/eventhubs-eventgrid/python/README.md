@@ -9,24 +9,41 @@ Blob Storage as Avro. The moment an archive lands, Event Hubs raises
 notification **into a second event hub**, and a Function App triggered on that hub downloads the
 archive, aggregates it per device, and writes summaries to a curated hub.
 
-```
- devices ──▶ telemetry hub ──── Capture (60s window) ────▶ Avro archive in Blob Storage
-                  │                                                    │
-                  │                        Microsoft.EventHub.CaptureFileCreated
-                  │                                                    ▼
-                  │                                    Event Grid system topic
-                  │                                                    │
-                  │                          subscription, EventHub destination
-                  │                                                    ▼
-                  │                                      capture-notifications hub
-                  │                                                    │
-                  │                                    Event Hubs trigger
-                  │                                                    ▼
-                  └───────────── archive read back ────────────  Function App
-                                                                       │
-                                                     Event Hubs output binding
-                                                                       ▼
-                                                                  curated hub
+## Architecture
+
+The following diagram illustrates the architecture of the solution:
+
+```mermaid
+flowchart LR
+    devices["Devices<br/>telemetry_producer.py"]
+
+    subgraph ehns["Event Hubs namespace"]
+        telemetry[["telemetry hub<br/>4 partitions, Capture enabled"]]
+        notifications[["capture-notifications hub<br/>2 partitions"]]
+        curated[["curated hub<br/>2 partitions"]]
+    end
+
+    subgraph storage["Storage Account"]
+        archive[("telemetry-archive container<br/>Avro archives")]
+    end
+
+    subgraph eventgrid["Event Grid"]
+        topic["System topic<br/>(over the namespace)"]
+        subscription["capture-to-eventhub subscription<br/>(Event Hub destination)"]
+    end
+
+    subgraph funcapp["Function App"]
+        processor["CaptureProcessor<br/>(Event Hubs trigger)"]
+    end
+
+    devices -->|"1: AMQP, partition key = device_id"| telemetry
+    telemetry -->|"2: Capture (60 s window, Avro)"| archive
+    telemetry -->|"3: Microsoft.EventHub.CaptureFileCreated"| topic
+    topic --> subscription
+    subscription -->|"4: delivered as an event"| notifications
+    notifications -->|"5: trigger (capture-processor group)"| processor
+    processor -->|"6: read archive (data.fileUrl)"| archive
+    processor -->|"7: per-device summaries (output binding)"| curated
 ```
 
 ## Why this shape
