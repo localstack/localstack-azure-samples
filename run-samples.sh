@@ -43,6 +43,7 @@ SAMPLES=(
   "samples/web-app-postgresql-flexible-server/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/web-app-custom-image/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/aci-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
+  "samples/container-apps-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
   "samples/url-shortener/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
 )
 
@@ -60,6 +61,7 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-mysql-flexible-server/python/terraform|bash deploy.sh"
   "samples/web-app-postgresql-flexible-server/python/terraform|bash deploy.sh"
   "samples/aci-blob-storage/python/terraform|bash deploy.sh"
+  "samples/container-apps-blob-storage/python/terraform|bash deploy.sh"
   "samples/url-shortener/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
 )
 
@@ -77,6 +79,7 @@ BICEP_SAMPLES=(
   "samples/web-app-mysql-flexible-server/python/bicep|bash deploy.sh"
   "samples/web-app-postgresql-flexible-server/python/bicep|bash deploy.sh"
   "samples/aci-blob-storage/python/bicep|bash deploy.sh"
+  "samples/container-apps-blob-storage/python/bicep|bash deploy.sh"
   "samples/url-shortener/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
 )
 
@@ -95,8 +98,10 @@ TOTAL=${#ALL_SAMPLES[@]}
 #   - SQL Database is backed by mcr.microsoft.com/mssql/server — amd64-only.
 # The samples below avoid all of those: Function Apps get an image built from a
 # multi-arch base (arm64 support added in localstack-pro#8102), and the custom-image
-# Web App and ACI samples run an image the sample itself builds. Their Cosmos DB,
-# Service Bus, Storage and Front Door dependencies all publish arm64 manifests.
+# Web App, ACI and Container Apps samples run an image the sample itself builds (the
+# Container Apps k3d runtime images, rancher/k3s and k3d-proxy, are multi-arch).
+# Their Cosmos DB, Service Bus, Storage and Front Door dependencies all publish
+# arm64 manifests.
 #
 # "amd64-only" means *not native* — not "cannot run". The emulator never pins
 # --platform, so on an arm64 host Docker pulls the amd64 manifest and runs it under
@@ -111,6 +116,7 @@ TOTAL=${#ALL_SAMPLES[@]}
 # test_deploy_zip_without_basic_auth) are still marked @only_on_amd64.
 ARM64_SAMPLE_DIRS=(
   "samples/aci-blob-storage/python"
+  "samples/container-apps-blob-storage/python"
   "samples/function-app-front-door/python"
   "samples/function-app-managed-identity/python"
   "samples/function-app-service-bus/dotnet"

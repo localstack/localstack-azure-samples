@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Container Apps Guestbook</title>
+    <style>
+        body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+               background: #f4f6f8; color: #212529; margin: 0; }
+        .container { max-width: 720px; margin: 0 auto; padding: 2rem 1rem; }
+        header { display: flex; align-items: baseline; justify-content: space-between; }
+        h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+        .revision { font-size: 0.85rem; color: #6c757d; }
+        .revision strong { color: #0078d4; }
+        form.sign { background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+                    padding: 1rem; margin: 1.5rem 0; }
+        form.sign input, form.sign textarea {
+            width: 100%; box-sizing: border-box; padding: 0.5rem; margin-bottom: 0.75rem;
+            border: 1px solid #ced4da; border-radius: 4px; font: inherit; }
+        button { background: #0078d4; color: #fff; border: none; border-radius: 4px;
+                 padding: 0.5rem 1.25rem; font: inherit; cursor: pointer; }
+        button:hover { background: #106ebe; }
+        .entry { background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+                 padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+        .entry .meta { display: flex; justify-content: space-between; align-items: center;
+                       font-size: 0.85rem; color: #6c757d; margin-bottom: 0.35rem; }
+        .entry .author { font-weight: 600; color: #212529; }
+        .entry form { display: inline; }
+        .entry button { background: #dc3545; padding: 0.15rem 0.6rem; font-size: 0.8rem; }
+        .entry button:hover { background: #bb2d3b; }
+        .empty { color: #6c757d; font-style: italic; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>&#128221; Guestbook</h1>
+        <span class="revision">Served by revision <strong>{{ app_revision }}</strong></span>
+    </header>
+    <p>A Flask app running on Azure Container Apps, storing entries in Azure Blob Storage.</p>
+
+    <form class="sign" method="POST" action="/">
+        <input type="text" name="author" placeholder="Your name" required maxlength="60">
+        <textarea name="message" placeholder="Leave a message..." required rows="2" maxlength="500"></textarea>
+        <button type="submit">Sign the guestbook</button>
+    </form>
+
+    {% if entries %}
+        {% for entry in entries %}
+        <div class="entry">
+            <div class="meta">
+                <span class="author">{{ entry.author }}</span>
+                <span>
+                    {{ entry.timestamp[:19].replace('T', ' ') }}
+                    <form method="POST" action="/delete/{{ entry.id }}">
+                        <button type="submit" title="Delete entry">&times;</button>
+                    </form>
+                </span>
+            </div>
+            <div>{{ entry.message }}</div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="empty">No entries yet. Be the first to sign!</p>
+    {% endif %}
+</div>
+</body>
+</html>
