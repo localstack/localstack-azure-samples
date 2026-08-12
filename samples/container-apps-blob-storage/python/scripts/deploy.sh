@@ -343,7 +343,7 @@ echo "ACA Environment:   $ACA_ENV_NAME"
 echo "Container App:     $ACA_APP_NAME"
 echo "Image:             $FULL_IMAGE"
 echo "Ingress FQDN:      $FQDN"
-if [[ "$FQDN" == *"localhost.localstack.cloud"* ]]; then
+if [[ "$FQDN" == *"localhost.localstack.cloud" ]]; then
 	echo "App URL:           http://${FQDN}:4566/"
 else
 	echo "App URL:           https://${FQDN}/"

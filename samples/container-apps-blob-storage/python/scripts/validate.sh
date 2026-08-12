@@ -197,7 +197,7 @@ echo ""
 
 # On LocalStack the FQDN resolves to 127.0.0.1 and the ingress listens on the
 # gateway port; on real Azure the app is served on 443.
-if [[ "$FQDN" == *"localhost.localstack.cloud"* ]]; then
+if [[ "$FQDN" == *"localhost.localstack.cloud" ]]; then
 	APP_URL="http://${FQDN}:4566"
 else
 	APP_URL="https://${FQDN}"

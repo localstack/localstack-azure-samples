@@ -6,6 +6,9 @@
 
 This repository contains comprehensive sample projects demonstrating how to develop and test Azure cloud applications locally using [LocalStack for Azure](https://localstack.cloud/). Each sample provides complete infrastructure-as-code templates, application code, and deployment instructions for seamless local development.
 
+> [!NOTE]
+> Azure Kubernetes Service (AKS) samples and tutorials live in a separate repository, [localstack-samples/aks-samples](https://github.com/localstack-samples/aks-samples). It covers cluster provisioning, application deployments backed by Azure data services, and standalone walkthroughs of individual AKS capabilities such as network policies, KEDA autoscaling, the Gateway API, and the Key Vault CSI driver. Everything there runs unchanged against both Azure and the emulator.
+
 ## Prerequisites
 
 ### Required Tools

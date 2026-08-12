@@ -10,6 +10,7 @@ with `az containerapp update` are observable over HTTP.
 import logging
 import os
 
+from azure.core.exceptions import AzureError
 from blob_storage_client import BlobGuestbookClient
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
@@ -43,8 +44,8 @@ def index():
             try:
                 entry = guestbook_client.insert_entry(author, message)
                 logger.info("Entry created: %s", entry["id"])
-            except (ConnectionError, ValueError) as e:
-                logger.error("Error creating entry: %s", e)
+            except (AzureError, RuntimeError, ValueError):
+                logger.exception("Error creating entry")
 
         return redirect(url_for("index"))
 
@@ -52,8 +53,8 @@ def index():
     try:
         if guestbook_client:
             entries = guestbook_client.read_entries()
-    except (ConnectionError, ValueError, KeyError) as e:
-        logger.error("Error reading entries: %s", e)
+    except (AzureError, ValueError, KeyError):
+        logger.exception("Error reading entries")
 
     return render_template(
         "index.html",
@@ -72,8 +73,8 @@ def delete(entry_id: str):
                 logger.info("Entry deleted: %s", entry_id)
             else:
                 logger.warning("No entry found with ID: %s", entry_id)
-    except (ConnectionError, ValueError) as e:
-        logger.error("Error deleting entry: %s", e)
+    except (AzureError, RuntimeError, ValueError):
+        logger.exception("Error deleting entry")
 
     return redirect(url_for("index"))
 

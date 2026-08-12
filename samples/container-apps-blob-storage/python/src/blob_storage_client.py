@@ -1,21 +1,41 @@
 """Blob Storage client for guestbook entries.
 
 Stores all guestbook entries as a single JSON blob in Azure Blob Storage.
+Writes use optimistic concurrency (ETag conditions), so concurrent replicas
+of the container app cannot lose each other's updates.
 """
 
 import json
 import logging
 import os
+import random
+import time
 import uuid
 from datetime import datetime
 
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core import MatchConditions
+from azure.core.exceptions import (
+    ResourceExistsError,
+    ResourceModifiedError,
+    ResourceNotFoundError,
+)
 from azure.storage.blob import BlobServiceClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 ENTRIES_BLOB_NAME = "entries.json"
+
+# Attempts per read-modify-write before giving up; each retry re-reads the
+# blob, so a retry is only consumed when another writer got in between. The
+# jittered backoff below desynchronizes concurrent losers, so the bound is
+# about tolerating a burst of simultaneous writers, not elapsed time.
+MAX_WRITE_ATTEMPTS = 10
+
+
+def _backoff(attempt: int) -> None:
+    """Sleep briefly with jitter so concurrent writers stop colliding."""
+    time.sleep(random.uniform(0.05, 0.15) * (attempt + 1))
 
 
 class BlobGuestbookClient:
@@ -50,35 +70,49 @@ class BlobGuestbookClient:
         logger.info("Initializing Blob Storage client for container: %s", container_name)
         return cls(connection_string, container_name)
 
-    def _read_blob(self) -> list[dict[str, str]]:
-        """Download and parse the JSON blob. Returns [] if the blob doesn't exist."""
+    def _read_blob(self) -> tuple[list[dict[str, str]], str | None]:
+        """Download and parse the JSON blob, together with its ETag.
+
+        Returns ([], None) only when the blob doesn't exist yet. Any other
+        read error propagates: treating a failed read as "no entries" would
+        let the next write overwrite existing entries with a truncated list.
+        """
+        blob_client = self.container_client.get_blob_client(ENTRIES_BLOB_NAME)
         try:
-            blob_client = self.container_client.get_blob_client(ENTRIES_BLOB_NAME)
-            data = blob_client.download_blob().readall()
-            entries = json.loads(data)
-            logger.info("Read %d guestbook entries", len(entries))
-            return entries
+            downloader = blob_client.download_blob()
         except ResourceNotFoundError:
             logger.info("No guestbook blob found yet")
-            return []
-        except Exception as e:
-            logger.error("Error reading guestbook entries: %s", e)
-            return []
+            return [], None
+        entries = json.loads(downloader.readall())
+        logger.info("Read %d guestbook entries", len(entries))
+        return entries, downloader.properties.etag
 
-    def _write_blob(self, entries: list[dict[str, str]]):
-        """Upload the entries list as a JSON blob (overwrite)."""
+    def _try_write_blob(self, entries: list[dict[str, str]], etag: str | None) -> bool:
+        """Upload the entries list, conditional on the ETag the read observed.
+
+        Returns False when another writer changed (or created) the blob in the
+        meantime, so the caller can re-read and retry.
+        """
+        blob_client = self.container_client.get_blob_client(ENTRIES_BLOB_NAME)
+        data = json.dumps(entries, indent=2)
         try:
-            blob_client = self.container_client.get_blob_client(ENTRIES_BLOB_NAME)
-            data = json.dumps(entries, indent=2)
-            blob_client.upload_blob(data, overwrite=True)
-            logger.info("Wrote %d guestbook entries", len(entries))
-        except Exception as e:
-            logger.error("Error writing guestbook entries: %s", e)
-            raise
+            if etag is None:
+                blob_client.upload_blob(data, overwrite=False)
+            else:
+                blob_client.upload_blob(
+                    data,
+                    overwrite=True,
+                    etag=etag,
+                    match_condition=MatchConditions.IfNotModified,
+                )
+        except (ResourceExistsError, ResourceModifiedError):
+            return False
+        logger.info("Wrote %d guestbook entries", len(entries))
+        return True
 
     def read_entries(self) -> list[dict[str, str]]:
         """Read all guestbook entries, newest first."""
-        entries = self._read_blob()
+        entries, _ = self._read_blob()
         return sorted(entries, key=lambda e: e.get("timestamp", ""), reverse=True)
 
     def insert_entry(self, author: str, message: str) -> dict[str, str]:
@@ -92,18 +126,22 @@ class BlobGuestbookClient:
         if not message or not message.strip():
             raise ValueError("Message cannot be None or empty")
 
-        entries = self._read_blob()
         entry = {
             "id": str(uuid.uuid4()),
             "author": author.strip(),
             "message": message.strip(),
             "timestamp": datetime.now().isoformat(),
         }
-        entries.append(entry)
 
-        self._write_blob(entries)
-        logger.info("Inserted guestbook entry %s", entry["id"])
-        return entry
+        for attempt in range(MAX_WRITE_ATTEMPTS):
+            entries, etag = self._read_blob()
+            if self._try_write_blob([*entries, entry], etag):
+                logger.info("Inserted guestbook entry %s", entry["id"])
+                return entry
+            logger.info("Concurrent write detected, retrying insert")
+            _backoff(attempt)
+
+        raise RuntimeError(f"Could not insert entry after {MAX_WRITE_ATTEMPTS} attempts")
 
     def delete_entry_by_id(self, entry_id: str) -> int:
         """Delete an entry by its ID.
@@ -114,12 +152,17 @@ class BlobGuestbookClient:
         if not entry_id:
             raise ValueError("Entry ID cannot be None or empty")
 
-        entries = self._read_blob()
-        new_entries = [e for e in entries if e.get("id") != entry_id]
-        deleted_count = len(entries) - len(new_entries)
+        for attempt in range(MAX_WRITE_ATTEMPTS):
+            entries, etag = self._read_blob()
+            new_entries = [e for e in entries if e.get("id") != entry_id]
+            deleted_count = len(entries) - len(new_entries)
 
-        if deleted_count > 0:
-            self._write_blob(new_entries)
-            logger.info("Deleted guestbook entry %s", entry_id)
+            if deleted_count == 0:
+                return 0
+            if self._try_write_blob(new_entries, etag):
+                logger.info("Deleted guestbook entry %s", entry_id)
+                return deleted_count
+            logger.info("Concurrent write detected, retrying delete")
+            _backoff(attempt)
 
-        return deleted_count
+        raise RuntimeError(f"Could not delete entry after {MAX_WRITE_ATTEMPTS} attempts")
