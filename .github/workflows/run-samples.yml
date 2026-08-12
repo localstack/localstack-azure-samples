@@ -198,7 +198,13 @@ jobs:
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
-          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
+          # GITHUB_API_TOKEN: the emulator's package installers query api.github.com
+          # (e.g. Azure Functions Core Tools releases when prebuilding the Functions
+          # image); anonymous calls share the runner egress IP's 60 req/h budget,
+          # which is routinely exhausted on GitHub-hosted runners. localstack-core's
+          # GitHubReleaseInstaller sends this token as a Bearer for the higher
+          # authenticated limit. The workflow token is ephemeral and contents:read.
+          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y -e GITHUB_API_TOKEN=${{ github.token }}"
           LS_LOG: "DEBUG"
           DISABLE_EVENTS: "1"
           ACTIVATE_PRO: "1"
