@@ -144,6 +144,15 @@ jobs:
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev default-mysql-client postgresql-client
           find . -name "*.sh" -exec chmod +x {} +
 
+      - name: Pin Azure CLI to 2.88.0
+        # SHORTCUT: runner image ubuntu22/20260810.260 bumped the preinstalled az to
+        # 2.89.0, whose `az mysql flexible-server firewall-rule create` payload the
+        # emulator answers with a 500 (AttributeError on a None `properties` in
+        # mysql_flexible/apis/firewall_rules.py). Remove this pin once the released
+        # emulator image parses the az 2.89 request shape. Both runner arches are
+        # jammy, so one version string covers amd64 and arm64.
+        run: sudo apt-get install -y --allow-downgrades azure-cli=2.88.0-1~jammy
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -179,16 +188,23 @@ jobs:
         # Run the emulator in detached mode using the virtual environment.
         # The readiness wait is generous because the architecture matrix roughly doubles
         # the number of concurrent jobs, and the contention for Docker pulls and runner
-        # I/O pushed some starts past a 120s budget. A healthy emulator still returns as
-        # soon as it is ready, so a larger timeout costs nothing on the happy path.
+        # I/O pushed some starts past a 120s budget - and, on the slowest runners,
+        # occasionally past 300s as well. A healthy emulator still returns as soon as
+        # it is ready, so a larger timeout costs nothing on the happy path.
         run: |
           source .venv/bin/activate
           python -m localstack_cli.cli.main start -d
-          python -m localstack_cli.cli.main wait -t 300
+          python -m localstack_cli.cli.main wait -t 600
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
-          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y"
+          # GITHUB_API_TOKEN: the emulator's package installers query api.github.com
+          # (e.g. Azure Functions Core Tools releases when prebuilding the Functions
+          # image); anonymous calls share the runner egress IP's 60 req/h budget,
+          # which is routinely exhausted on GitHub-hosted runners. localstack-core's
+          # GitHubReleaseInstaller sends this token as a Bearer for the higher
+          # authenticated limit. The workflow token is ephemeral and contents:read.
+          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y -e GITHUB_API_TOKEN=${{ github.token }}"
           LS_LOG: "DEBUG"
           DISABLE_EVENTS: "1"
           ACTIVATE_PRO: "1"

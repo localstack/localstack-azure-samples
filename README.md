@@ -6,6 +6,9 @@
 
 This repository contains comprehensive sample projects demonstrating how to develop and test Azure cloud applications locally using [LocalStack for Azure](https://localstack.cloud/). Each sample provides complete infrastructure-as-code templates, application code, and deployment instructions for seamless local development.
 
+> [!NOTE]
+> Azure Kubernetes Service (AKS) samples and tutorials live in a separate repository, [localstack-samples/aks-samples](https://github.com/localstack-samples/aks-samples). It covers cluster provisioning, application deployments backed by Azure data services, and standalone walkthroughs of individual AKS capabilities such as network policies, KEDA autoscaling, the Gateway API, and the Key Vault CSI driver. Everything there runs unchanged against both Azure and the emulator.
+
 ## Prerequisites
 
 ### Required Tools
@@ -38,6 +41,7 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Web App and MySQL Database ](./samples/web-app-mysql-flexible-server/python/README.md) | Azure Web App using MySQL Database |
 | [Web App with Custom Docker Image](./samples/web-app-custom-image/python/README.md) | Azure Web App running a custom Docker image |
 | [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
+| [Container Apps and Blob Storage](./samples/container-apps-blob-storage/python/README.md) | Azure Container Apps running a guestbook app from ACR with Blob Storage, secrets, revisions, replicas and scale rules |
 | [Azure Service Bus with Spring Boot](./samples/servicebus/java/README.md) | Azure Service Bus used by a Spring Boot application |
 | [URL Shortener](./samples/url-shortener/python/README.md) | URL shortener composing Web App, Functions, Storage, Key Vault, Service Bus and PostgreSQL |
 | [Event Hubs Fraud Detection Pipeline](./samples/eventhubs/python/README.md) | Real-time payment stream processing with Event Hubs (AMQP, Kafka and HTTPS ingestion, Capture, Schema Registry), an Event Hubs-triggered Function App, Key Vault, Storage and a Web App dashboard |
@@ -78,6 +82,7 @@ container images Microsoft publishes for `amd64` alone, so there is no `arm64` i
 | `function-app-*` | ✅ | ✅ | built from a multi-arch `python` / `node` / `dotnet` base |
 | `web-app-custom-image` | ✅ | ✅ | the image the sample builds itself |
 | `aci-blob-storage` | ✅ | ✅ | the image the sample builds itself |
+| `container-apps-blob-storage` | ✅ | ✅ | the image the sample builds itself |
 | `web-app-*` (code deployment) | ✅ | emulated | `mcr.microsoft.com/oryx/<platform>` |
 | `eventhubs` | ✅ | emulated | deploys a dashboard web app (Oryx, as above) |
 | `servicebus/java` | ✅ | emulated | `mcr.microsoft.com/azure-app-service/java` |
