@@ -107,18 +107,6 @@ variable "app_settings" {
   default     = {}
 }
 
-variable "repo_url" {
-  description = "(Optional) Specifies the Git repository URL."
-  type        = string
-  default     = ""
-}
-
-variable "repo_branch" {
-  description = "(Optional) Specifies the Git repository branch."
-  type        = string
-  default     = "main"
-}
-
 variable "tags" {
   description = "(Optional) Specifies the tags to be applied to the resources."
   type        = map(any)

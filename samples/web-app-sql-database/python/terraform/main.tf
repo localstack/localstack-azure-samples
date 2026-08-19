@@ -136,7 +136,7 @@ resource "azurerm_key_vault" "example" {
   location                   = azurerm_resource_group.example.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  enable_rbac_authorization  = false
+  rbac_authorization_enabled = false
   soft_delete_retention_days = 7
   tags                       = var.tags
 
@@ -201,14 +201,4 @@ resource "azurerm_key_vault_certificate" "example" {
       ]
     }
   }
-}
-
-# Deploy code from a public GitHub repo
-resource "azurerm_app_service_source_control" "example" {
-  count                  = var.repo_url == "" ? 0 : 1
-  app_id                 = azurerm_linux_web_app.example.id
-  repo_url               = var.repo_url
-  branch                 = "main"
-  use_manual_integration = true
-  use_mercurial          = false
 }

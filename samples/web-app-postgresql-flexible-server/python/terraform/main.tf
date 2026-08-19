@@ -182,7 +182,6 @@ module "web_app" {
   http2_enabled                 = var.http2_enabled
   minimum_tls_version           = var.minimum_tls_version
   python_version                = var.python_version
-  repo_url                      = var.repo_url
   log_analytics_workspace_id    = module.log_analytics_workspace.id
   tags                          = var.tags
 

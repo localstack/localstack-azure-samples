@@ -40,18 +40,18 @@ resource "azurerm_storage_account" "main" {
 }
 
 resource "azurerm_storage_table" "links" {
-  name                 = "links"
-  storage_account_name = azurerm_storage_account.main.name
+  name               = "links"
+  storage_account_id = azurerm_storage_account.main.id
 }
 
 resource "azurerm_storage_queue" "qrjobs" {
-  name                 = "qrjobs"
-  storage_account_name = azurerm_storage_account.main.name
+  name               = "qrjobs"
+  storage_account_id = azurerm_storage_account.main.id
 }
 
 resource "azurerm_storage_container" "qrcodes" {
   name                  = "qrcodes"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "blob"
 }
 

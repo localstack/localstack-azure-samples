@@ -3,12 +3,8 @@ terraform {
 
   required_providers {
     azurerm = {
-      source = "hashicorp/azurerm"
-      # Pinned below 4.81.0: azurerm >= ~4.61 strictly parses the `sid` (secret id)
-      # returned for Key Vault certificates, and the LocalStack Azure emulator currently
-      # returns the certificate id in that field. Bump back to =4.81.0 once the emulator
-      # returns a proper `.../secrets/...` sid for certificates.
-      version = "=4.60.0"
+      source  = "hashicorp/azurerm"
+      version = "=5.1.0"
     }
   }
 }

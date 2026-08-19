@@ -8,7 +8,7 @@ locals {
 
   # Secret NAMES referenced from more than one block, kept in one place so the
   # references never drift apart.
-  storage_conn_secret_name     = "storage-conn"
+  storage_conn_secret_name      = "storage-conn"
   registry_password_secret_name = "registry-password"
 }
 

@@ -209,7 +209,6 @@ module "web_app" {
   docker_registry_url           = module.container_registry.login_server_url
   docker_registry_username      = module.container_registry.admin_username
   docker_registry_password      = module.container_registry.admin_password
-  repo_url                      = var.repo_url
   log_analytics_workspace_id    = module.log_analytics_workspace.id
   tags                          = var.tags
 
