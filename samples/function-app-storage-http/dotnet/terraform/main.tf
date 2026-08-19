@@ -100,11 +100,3 @@ resource "azurerm_linux_function_app" "example" {
     ]
   }
 }
-
-# Create an app source control configuration
-resource "azurerm_app_service_source_control" "example" {
-  count    = var.repo_url == "" ? 0 : 1
-  app_id   = azurerm_linux_function_app.example.id
-  repo_url = var.repo_url
-  branch   = "main"
-}

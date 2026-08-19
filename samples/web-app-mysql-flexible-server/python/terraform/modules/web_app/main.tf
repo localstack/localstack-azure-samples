@@ -32,16 +32,6 @@ resource "azurerm_linux_web_app" "example" {
   }
 }
 
-# Deploy code from a public GitHub repo
-resource "azurerm_app_service_source_control" "example" {
-  count                  = var.repo_url == "" ? 0 : 1
-  app_id                 = azurerm_linux_web_app.example.id
-  repo_url               = var.repo_url
-  branch                 = var.repo_branch
-  use_manual_integration = true
-  use_mercurial          = false
-}
-
 resource "azurerm_monitor_diagnostic_setting" "example" {
   name                       = "DiagnosticsSettings"
   target_resource_id         = azurerm_linux_web_app.example.id

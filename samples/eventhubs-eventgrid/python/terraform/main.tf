@@ -140,12 +140,12 @@ resource "azurerm_eventhub_namespace_authorization_rule" "pipeline_listen" {
 # A system topic is how a subscriber reaches the events a resource raises about itself; Event Hubs
 # raises exactly one, Microsoft.EventHub.CaptureFileCreated.
 resource "azurerm_eventgrid_system_topic" "namespace" {
-  name                   = local.system_topic_name
-  resource_group_name    = azurerm_resource_group.main.name
-  location               = azurerm_resource_group.main.location
-  source_arm_resource_id = azurerm_eventhub_namespace.main.id
-  topic_type             = "Microsoft.Eventhub.Namespaces"
-  tags                   = var.tags
+  name                = local.system_topic_name
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  source_resource_id  = azurerm_eventhub_namespace.main.id
+  topic_type          = "Microsoft.Eventhub.Namespaces"
+  tags                = var.tags
 }
 
 # Delivering to an event hub turns the notification into a stream event, so an ordinary Event Hubs
@@ -154,7 +154,7 @@ resource "azurerm_eventgrid_system_topic_event_subscription" "capture_to_eventhu
   name                  = var.event_subscription_name
   system_topic          = azurerm_eventgrid_system_topic.namespace.name
   resource_group_name   = azurerm_resource_group.main.name
-  eventhub_endpoint_id  = azurerm_eventhub.notifications.id
+  eventhub_id           = azurerm_eventhub.notifications.id
   event_delivery_schema = "EventGridSchema"
 }
 

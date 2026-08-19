@@ -333,17 +333,6 @@ variable "webapp_public_network_access_enabled" {
   default     = true
 }
 
-variable "repo_url" {
-  description = "(Optional) Specifies the Git repository URL."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.repo_url == "" || can(regex("^https?://", var.repo_url))
-    error_message = "The repo_url must be empty or a valid HTTP/HTTPS URL."
-  }
-}
-
 variable "login_name" {
   description = "(Required) Specifies the login name for the application."
   type        = string

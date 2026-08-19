@@ -31,16 +31,16 @@ variable "tags" {
   default     = {}
 }
 
-variable "disable_ip_masking" {
-  description = "(Optional) Specifies whether IP masking is disabled."
+variable "ip_masking_enabled" {
+  description = "(Optional) Specifies whether IP masking is enabled."
   type        = bool
-  default     = false
+  default     = true
 }
 
-variable "local_authentication_disabled" {
-  description = "(Optional) Specifies whether local authentication is disabled."
+variable "local_authentication_enabled" {
+  description = "(Optional) Specifies whether local authentication is enabled."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "internet_ingestion_enabled" {

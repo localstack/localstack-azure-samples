@@ -91,7 +91,7 @@ module "pe_subnet_network_security_group" {
   log_analytics_workspace_id = module.log_analytics_workspace.id
   tags                       = var.tags
   subnet_ids = {
-    (var.pe_subnet_name)     = module.virtual_network.subnet_ids[var.pe_subnet_name]
+    (var.pe_subnet_name) = module.virtual_network.subnet_ids[var.pe_subnet_name]
   }
 }
 
@@ -330,7 +330,6 @@ module "function_app" {
   python_version                = var.python_version
   managed_identity_type         = var.managed_identity_type
   managed_identity_id           = var.managed_identity_type == "UserAssigned" ? module.managed_identity.id : null
-  repo_url                      = var.repo_url
   log_analytics_workspace_id    = module.log_analytics_workspace.id
   tags                          = var.tags
 

@@ -202,17 +202,6 @@ variable "public_network_access_enabled" {
   default     = true
 }
 
-variable "repo_url" {
-  description = "(Optional) Specifies the Git repository URL."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.repo_url == "" || can(regex("^https?://", var.repo_url))
-    error_message = "The repo_url must be empty or a valid HTTP/HTTPS URL."
-  }
-}
-
 variable "input_container_name" {
   description = "(Optional) Specifies the name of the input container."
   type        = string

@@ -19,6 +19,9 @@ resource "azurerm_container_registry" "example" {
     content {
       location = georeplications.value
       tags     = var.tags
+      # Required since azurerm 5.0; true matches Azure's default of serving replicas
+      # through the geo-replicated login server (regional endpoints stay opt-in).
+      global_endpoint_routing_enabled = true
     }
   }
 
