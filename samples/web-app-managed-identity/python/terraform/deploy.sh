@@ -4,7 +4,7 @@
 PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
-MANAGED_IDENTITY_TYPE='SystemAssigned' # SystemAssigned or UserAssigned
+MANAGED_IDENTITY_TYPE='UserAssigned' # SystemAssigned or UserAssigned
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 
