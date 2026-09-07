@@ -124,7 +124,7 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 # Variables
 PREFIX='local'
 SUFFIX='test'
-RESOURCE_GROUP_NAME="${PREFIX}-web-app-rg"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CONTAINER_NAME='activities'
 APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"

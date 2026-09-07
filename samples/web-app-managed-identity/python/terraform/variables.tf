@@ -151,6 +151,8 @@ variable "python_version" {
 
   validation {
     condition = contains([
+      "3.14",
+      "3.13",
       "3.12",
       "3.11",
       "3.10",

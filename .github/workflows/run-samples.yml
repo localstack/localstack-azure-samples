@@ -144,14 +144,14 @@ jobs:
           sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev default-mysql-client postgresql-client
           find . -name "*.sh" -exec chmod +x {} +
 
-      - name: Pin Azure CLI to 2.88.0
+      - name: Install Azure CLI
         # SHORTCUT: runner image ubuntu22/20260810.260 bumped the preinstalled az to
         # 2.89.0, whose `az mysql flexible-server firewall-rule create` payload the
         # emulator answers with a 500 (AttributeError on a None `properties` in
         # mysql_flexible/apis/firewall_rules.py). Remove this pin once the released
         # emulator image parses the az 2.89 request shape. Both runner arches are
         # jammy, so one version string covers amd64 and arm64.
-        run: sudo apt-get install -y --allow-downgrades azure-cli=2.88.0-1~jammy
+        run: sudo apt-get install -y --allow-downgrades azure-cli
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
