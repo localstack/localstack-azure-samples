@@ -36,7 +36,7 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
   }
-  metadata_host="localhost.localstack.cloud:4566"
+  metadata_host="azure.localhost.localstack.cloud:4566"
   subscription_id = "00000000-0000-0000-0000-000000000000"
 }
 ```
