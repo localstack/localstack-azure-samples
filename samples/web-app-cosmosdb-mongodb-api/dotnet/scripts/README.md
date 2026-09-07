@@ -1,0 +1,271 @@
+# Azure CLI Deployment
+
+This directory includes Bash scripts designed for deploying and testing the sample Web App utilizing the `lstk` CLI. For further details about the sample application, refer to the [Azure Web App with Azure CosmosDB for MongoDB](../README.md).
+
+## Prerequisites
+
+Before deploying this solution, ensure you have the following tools installed:
+
+- [LocalStack for Azure](https://docs.localstack.cloud/azure/): Local Azure cloud emulator for development and testing
+- [Visual Studio Code](https://code.visualstudio.com/): Code editor installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms)
+- [Docker](https://docs.docker.com/get-docker/): Container runtime required for LocalStack
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli): Azure command-line interface
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/): LocalStack command-line interface (proxies the Azure CLI via `lstk az`)
+- [.NET SDK 10.0](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+- [jq](https://jqlang.org/): JSON processor for scripting and parsing command outputs
+
+### Installing lstk CLI
+
+Deploying to LocalStack requires the `lstk` CLI, which routes Azure CLI commands to the emulator (run `lstk az start-interception` before deploying). Install it using Homebrew:
+
+```bash
+brew install localstack/tap/lstk
+```
+
+or npm:
+
+```bash
+npm install -g @localstack/lstk
+```
+
+Alternatively, download a pre-built binary from the [lstk releases page](https://github.com/localstack/lstk/releases). For more information, see the [lstk CLI documentation](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) and the [lstk GitHub repository](https://github.com/localstack/lstk).
+
+## Architecture Overview
+
+This [deploy.sh](deploy.sh) script creates the following Azure resources using Azure CLI commands:
+
+1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): A logical container scoping all resources in this sample.
+2. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview): Hosts two subnets:
+	- *app-subnet*: Dedicated to [regional VNet integration](https://learn.microsoft.com/azure/azure-functions/functions-networking-options?tabs=azure-portal#outbound-networking-features) with the Function App.
+	- *pe-subnet*: Used for hosting Azure Private Endpoints.
+3. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone): Handles DNS resolution for the CosmosDB for MongoDB Private Endpoint within the virtual network.
+4. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): Secures network access to the CosmosDB for MongoDB account via a private IP within the VNet.
+5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Provides deterministic outbound connectivity for the Web App. Included for completeness; the sample app does not call any external services.
+6. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): Enforces inbound and outbound traffic rules across the virtual network's subnets.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution.
+8. [Azure Cosmos DB for MongoDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/introduction): A globally distributed database account optimized for MongoDB workloads, with multi-region failover enabled.
+9. [MongoDB Database](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `sampledb` database that holds all application data.
+10. [MongoDB Collection](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/overview): The `activities` collection within `sampledb`, used to store vacation activity records.
+11. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
+12. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the ASP.NET Core Razor Pages single-page application (*Vacation Planner*), connected to CosmosDB for MongoDB via VNet integration.
+13. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
+
+The web app enables users to plan and manage vacation activities, with all data persisted in a CosmosDB-backed MongoDB collection. For more information on the sample application, see [Azure Web App with Azure CosmosDB for MongoDB](../README.md).
+
+## Provisioning Scripts 
+
+See [deploy.sh](deploy.sh) for the complete deployment script. The script performs:
+
+- Detects environment (LocalStack vs Azure Cloud) and uses appropriate CLI
+- Creates resource group
+- Creates CosmosDB account with MongoDB kind (API version 7.0)
+- Retrieves document endpoint
+- Creates MongoDB database and collection with indexes and sharding
+- Retrieves CosmosDB connection string
+- Creates App Service Plan (Linux)
+- Creates Web App with the .NET (DOTNETCORE) runtime
+- Configures Web App settings (CosmosDB connection, database/collection names)
+- Creates zip package of the application
+- Deploys the zip to Azure Web App
+
+## Deployment
+
+You can set up the Azure emulator by utilizing LocalStack for Azure Docker image. Before starting, ensure you have a valid `LOCALSTACK_AUTH_TOKEN` to access the Azure emulator. Refer to the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/) to obtain your Auth Token and specify it in the `LOCALSTACK_AUTH_TOKEN` environment variable. The Azure Docker image is available on the [LocalStack Docker Hub](https://hub.docker.com/r/localstack/localstack-azure). To pull the Azure Docker image, execute the following command:
+
+```bash
+docker pull localstack/localstack-azure
+```
+
+Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+
+```bash
+# Set the authentication token
+export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
+
+# Start the LocalStack Azure emulator
+IMAGE_NAME=localstack/localstack-azure localstack start -d
+localstack wait -t 60
+
+# Route all Azure CLI calls to the LocalStack Azure emulator
+lstk az start-interception
+```
+
+Navigate to the `scripts` folder:
+
+```bash
+cd samples/web-app-cosmosdb-mongodb-api/dotnet/scripts
+```
+
+Make the script executable:
+
+```bash
+chmod +x deploy.sh
+```
+
+Run the deployment script:
+
+```bash
+./deploy.sh
+```
+
+## Validation
+
+Once the deployment completes, run the [validate.sh](../scripts/validate.sh) script to confirm that all resources were provisioned and configured as expected:
+
+```bash
+#!/bin/bash
+
+# Variables
+PREFIX='local'
+SUFFIX='test'
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+WEBAPP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
+PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
+NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
+VIRTUAL_NETWORK_NAME="${PREFIX}-vnet-${SUFFIX}"
+PRIVATE_DNS_ZONE_NAME="privatelink.mongo.cosmos.azure.com"
+PRIVATE_ENDPOINT_NAME="${PREFIX}-mongodb-pe-${SUFFIX}"
+APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
+WEBAPP_NAME="${PREFIX}-webapp-${SUFFIX}"
+COSMOSDB_ACCOUNT_NAME="${PREFIX}-mongodb-${SUFFIX}"
+MONGODB_DATABASE_NAME="sampledb"
+COLLECTION_NAME="activities"
+# Check resource group
+echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
+az group show \
+	--name "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check App Service Plan
+echo -e "\n[$APP_SERVICE_PLAN_NAME] app service plan:\n"
+az appservice plan show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Azure Web App
+echo -e "\n[$WEBAPP_NAME] web app:\n"
+az webapp show \
+	--name "$WEBAPP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Azure CosmosDB account
+echo -e "\n[$COSMOSDB_ACCOUNT_NAME] cosmosdb account:\n"
+az cosmosdb show \
+	--name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,DocumentEndpoint:documentEndpoint}' \
+	--output table \
+	--only-show-errors
+
+# Check MongoDB database
+echo -e "\n[$MONGODB_DATABASE_NAME] mongodb database:\n"
+az cosmosdb mongodb database show \
+	--name "$MONGODB_DATABASE_NAME" \
+	--account-name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,ResourceGroup:resourceGroup}' \
+	--output table \
+	--only-show-errors
+
+# Check MongoDB collection
+echo -e "\n[$COLLECTION_NAME] mongodb collection:\n"
+az cosmosdb mongodb collection show \
+	--name "$COLLECTION_NAME" \
+	--database-name "$MONGODB_DATABASE_NAME" \
+	--account-name "$COSMOSDB_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Log Analytics Workspace
+echo -e "\n[$LOG_ANALYTICS_NAME] log analytics workspace:\n"
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup}' \
+	--output table \
+	--only-show-errors
+
+# Check NAT Gateway
+echo -e "\n[$NAT_GATEWAY_NAME] nat gateway:\n"
+az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Virtual Network
+echo -e "\n[$VIRTUAL_NETWORK_NAME] virtual network:\n"
+az network vnet show \
+	--name "$VIRTUAL_NETWORK_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Private DNS Zone
+echo -e "\n[$PRIVATE_DNS_ZONE_NAME] private dns zone:\n"
+az network private-dns zone show \
+	--name "$PRIVATE_DNS_ZONE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,ResourceGroup:resourceGroup,RecordSets:recordSets,VirtualNetworkLinks:virtualNetworkLinks}' \
+	--output table \
+	--only-show-errors
+
+# Check Private Endpoint
+echo -e "\n[$PRIVATE_ENDPOINT_NAME] private endpoint:\n"
+az network private-endpoint show \
+	--name "$PRIVATE_ENDPOINT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Web App Subnet NSG
+echo -e "\n[$WEBAPP_SUBNET_NSG_NAME] network security group:\n"
+az network nsg show \
+	--name "$WEBAPP_SUBNET_NSG_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Private Endpoint Subnet NSG
+echo -e "\n[$PE_SUBNET_NSG_NAME] network security group:\n"
+az network nsg show \
+	--name "$PE_SUBNET_NSG_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+
+# List resources
+echo -e "\n[$RESOURCE_GROUP_NAME] all resources:\n"
+az resource list \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--output table \
+	--only-show-errors
+```
+
+## Cleanup
+
+To destroy all created resources:
+
+```bash
+# Delete resource group and all contained resources
+az group delete --name local-rg --yes --no-wait
+
+# Verify deletion
+az group list --output table
+```
+
+This will remove all Azure resources created by the CLI deployment script.
+
+## Related Documentation
+
+- [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
+- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [lstk GitHub repository](https://github.com/localstack/lstk)
