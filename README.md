@@ -33,13 +33,13 @@ This repository contains comprehensive sample projects demonstrating how to deve
 | [Function App and Front Door](./samples/function-app-front-door/python/README.md) | Azure Functions App exposed via Front Door |
 | [Function App and Managed Identities](./samples/function-app-managed-identity/python/README.md) | Azure Function App using Managed Identities |
 | [Function App and Service Bus](./samples/function-app-service-bus/dotnet/README.md) | Azure Function App using Service Bus |
-| [Web App and CosmosDB for MongoDB API ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) | Azure Web App using CosmosDB for MongoDB API |
-| [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) | Azure Web App using CosmosDB for NoSQL API |
-| [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) | Azure Web App using Managed Identities |
-| [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) | Azure Web App using SQL Database |
-| [Web App and PostgreSQL Database ](./samples/web-app-postgresql-flexible-server/python/README.md) | Azure Web App using PostgreSQL Database |
-| [Web App and MySQL Database ](./samples/web-app-mysql-flexible-server/python/README.md) | Azure Web App using MySQL Database |
-| [Web App with Custom Docker Image](./samples/web-app-custom-image/python/README.md) | Azure Web App running a custom Docker image |
+| [Web App and CosmosDB for MongoDB API ](./samples/web-app-cosmosdb-mongodb-api/python/README.md) ([.NET](./samples/web-app-cosmosdb-mongodb-api/dotnet/README.md)) | Azure Web App using CosmosDB for MongoDB API |
+| [Web App and CosmosDB for NoSQL API ](./samples/web-app-cosmosdb-nosql-api/python/README.md) ([.NET](./samples/web-app-cosmosdb-nosql-api/dotnet/README.md)) | Azure Web App using CosmosDB for NoSQL API |
+| [Web App and Managed Identities](./samples/web-app-managed-identity/python/README.md) ([.NET](./samples/web-app-managed-identity/dotnet/README.md)) | Azure Web App using Managed Identities |
+| [Web App and SQL Database ](./samples/web-app-sql-database/python/README.md) ([.NET](./samples/web-app-sql-database/dotnet/README.md)) | Azure Web App using SQL Database |
+| [Web App and PostgreSQL Database ](./samples/web-app-postgresql-flexible-server/python/README.md) ([.NET](./samples/web-app-postgresql-flexible-server/dotnet/README.md)) | Azure Web App using PostgreSQL Database |
+| [Web App and MySQL Database ](./samples/web-app-mysql-flexible-server/python/README.md) ([.NET](./samples/web-app-mysql-flexible-server/dotnet/README.md)) | Azure Web App using MySQL Database |
+| [Web App with Custom Docker Image](./samples/web-app-custom-image/python/README.md) ([.NET](./samples/web-app-custom-image/dotnet/README.md)) | Azure Web App running a custom Docker image |
 | [ACI and Blob Storage](./samples/aci-blob-storage/python/README.md) | Azure Container Instances with ACR, Key Vault, and Blob Storage |
 | [Container Apps and Blob Storage](./samples/container-apps-blob-storage/python/README.md) | Azure Container Apps running a guestbook app from ACR with Blob Storage, secrets, revisions, replicas and scale rules |
 | [Azure Service Bus with Spring Boot](./samples/servicebus/java/README.md) | Azure Service Bus used by a Spring Boot application |
