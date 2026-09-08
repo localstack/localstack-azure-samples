@@ -17,6 +17,11 @@ AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
 AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
 AURECOSMOSDB_PARTITION_KEY="/username"
 
+# run-samples.sh runs this script as `bash scripts/deploy.sh` from the sample root, so relative
+# paths such as ../src must resolve against the script's own location, not the caller's directory.
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$CURRENT_DIR" || exit
+
 # Validates if the resource group exists in the subscription, if not creates it
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists..."
 az group show --name $RESOURCE_GROUP_NAME &>/dev/null

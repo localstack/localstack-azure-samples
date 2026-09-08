@@ -65,6 +65,14 @@ get_docker_container_port_mapping() {
 	echo "$host_port"
 }
 
+# Distinguished names are compared after normalization: OpenSSL 3 prints "CN = value", Key Vault
+# returns "CN=value" and OpenSSL 1 printed "/CN=value" - the same subject in three spellings, which
+# a literal comparison reports as a mismatch.
+normalize_dn() {
+	echo "$1" | sed -e 's#^/##' -e 's#/#, #g' -e 's/[[:space:]]*=[[:space:]]*/=/g' \
+		-e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
 call_web_app() {
 	# Get the web app name
 	echo "Getting web app name..."
@@ -230,10 +238,12 @@ call_web_app() {
 		| openssl x509 -noout -subject \
 		| sed 's/subject=//')
 
-	if echo "$SSL_SUBJECT" | grep -q "$KV_SUBJECT"; then
+	KV_SUBJECT_DN=$(normalize_dn "$KV_SUBJECT")
+	SSL_SUBJECT_DN=$(normalize_dn "$SSL_SUBJECT")
+	if grep -Fq "$KV_SUBJECT_DN" <<<"$SSL_SUBJECT_DN"; then
 		echo "Certificate subject [$KV_SUBJECT] matches SSL certificate."
 	else
-		echo "Certificate subject mismatch! KV: $KV_SUBJECT, SSL: $SSL_SUBJECT"
+		echo "Certificate subject mismatch! KV: [$KV_SUBJECT_DN], SSL: [$SSL_SUBJECT_DN]"
 		exit 1
 	fi
 }

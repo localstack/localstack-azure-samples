@@ -15,7 +15,7 @@ public class DeleteModel(IActivityStore store, ILogger<DeleteModel> logger) : Pa
         {
             await store.DeleteAsync(id, cancellationToken);
             logger.LogInformation("Activity deleted: {Id}", id);
-            TempData["Flash"] = "Activity deleted successfully.";
+            TempData["Flash"] = "Activity deleted.";
         }
 
         return RedirectToPage("/Index");
