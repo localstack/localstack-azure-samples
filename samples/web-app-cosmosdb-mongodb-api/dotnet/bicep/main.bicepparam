@@ -1,0 +1,11 @@
+using 'main.bicep'
+
+param prefix = 'local'
+param suffix = 'test'
+param runtimeName = 'dotnetcore'
+param runtimeVersion = '10.0'
+param databaseName = 'sampledb'
+param collectionName = 'activities'
+param username = 'paolo'
+param primaryRegion = 'westeurope'
+param secondaryRegion = 'northeurope'

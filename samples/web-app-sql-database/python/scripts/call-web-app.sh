@@ -65,6 +65,14 @@ get_docker_container_port_mapping() {
 	echo "$host_port"
 }
 
+# Distinguished names are compared after normalization: OpenSSL 3 prints "CN = value", Key Vault
+# returns "CN=value" and OpenSSL 1 printed "/CN=value" - the same subject in three spellings, which
+# a literal comparison reports as a mismatch.
+normalize_dn() {
+	echo "$1" | sed -e 's#^/##' -e 's#/#, #g' -e 's/[[:space:]]*=[[:space:]]*/=/g' \
+		-e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
 call_web_app() {
 	# Get the web app name
 	echo "Getting web app name..."
@@ -196,12 +204,26 @@ call_web_app() {
 	fi
 
 	echo "Validating certificate from Key Vault..."
-	KV_RESPONSE=$(curl --max-time 10 -sk "https://$container_ip:8443/api/certificate")
+	if ! KV_RESPONSE=$(curl --max-time 10 -fsSk "https://$container_ip:8443/api/certificate"); then
+		# Only reachable when the app serves HTTPS itself (python app.py); under gunicorn the port
+		# is closed. Say so and skip, rather than comparing two empty thumbprints as equal.
+		echo "HTTPS on port 8443 is not served by this deployment; skipping the Key Vault certificate check."
+		return 0
+	fi
 	KV_THUMBPRINT=$(echo "$KV_RESPONSE" | jq -r '.thumbprint')
 	KV_NAME=$(echo "$KV_RESPONSE" | jq -r '.name')
 	KV_SUBJECT=$(echo "$KV_RESPONSE" | jq -r '.subject')
 
+	if [ -z "$KV_THUMBPRINT" ] || [ "$KV_THUMBPRINT" == "null" ]; then
+		echo "The certificate endpoint returned no thumbprint: $KV_RESPONSE"
+		exit 1
+	fi
+
 	SSL_CERT=$(echo | openssl s_client -connect "$container_ip:8443" 2>/dev/null | openssl x509)
+	if [ -z "$SSL_CERT" ]; then
+		echo "Failed to retrieve the TLS certificate served on $container_ip:8443"
+		exit 1
+	fi
 
 	SSL_THUMBPRINT=$(echo "$SSL_CERT" \
 		| openssl x509 -fingerprint -noout -sha1 \
@@ -219,10 +241,12 @@ call_web_app() {
 		| openssl x509 -noout -subject \
 		| sed 's/subject=//')
 
-	if echo "$SSL_SUBJECT" | grep -q "$KV_SUBJECT"; then
+	KV_SUBJECT_DN=$(normalize_dn "$KV_SUBJECT")
+	SSL_SUBJECT_DN=$(normalize_dn "$SSL_SUBJECT")
+	if grep -Fq "$KV_SUBJECT_DN" <<<"$SSL_SUBJECT_DN"; then
 		echo "Certificate subject [$KV_SUBJECT] matches SSL certificate."
 	else
-		echo "Certificate subject mismatch! KV: $KV_SUBJECT, SSL: $SSL_SUBJECT"
+		echo "Certificate subject mismatch! KV: [$KV_SUBJECT_DN], SSL: [$SSL_SUBJECT_DN]"
 		exit 1
 	fi
 }

@@ -1,0 +1,35 @@
+@page
+@model IndexModel
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@Model.AppName</title>
+  <link rel="stylesheet" href="~/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Azure Web App for Containers</p>
+      <h1>@Model.AppName</h1>
+      <p class="lede">This ASP.NET Core app is running from a custom Docker image on an emulated Azure Web App.</p>
+    </section>
+
+    <section class="details" aria-label="Deployment details">
+      <article>
+        <span>Image</span>
+        <strong>@Model.ImageName</strong>
+      </article>
+      <article>
+        <span>Host</span>
+        <strong>@Model.HostName</strong>
+      </article>
+      <article>
+        <span>Status endpoint</span>
+        <strong>/api/status</strong>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

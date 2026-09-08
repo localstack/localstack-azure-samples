@@ -9,7 +9,7 @@ application code with the Azure CLI.
 - `terraform` and `az` are on the PATH.
 
 The provider is already pointed at the emulator in `providers.tf`
-(`metadata_host = "localhost.localstack.cloud:4566"`), so no `tflocal` wrapper is needed.
+(`metadata_host = "azure.localhost.localstack.cloud:4566"`), so no `tflocal` wrapper is needed.
 
 ## Usage
 

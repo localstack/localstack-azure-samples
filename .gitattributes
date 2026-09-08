@@ -2,3 +2,6 @@
 *.yml text eol=lf
 *.bicep text eol=lf
 *.tf text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.cshtml text eol=lf
