@@ -1,13 +1,14 @@
 #!/bin/bash
 
 # Variables
-PREFIX='websql'
+PREFIX='local'
 SUFFIX='test'
 LOCATION='westeurope'
 ADMIN_USER='sqladmin'
 ADMIN_PASSWORD='P@ssw0rd1234!'
 DATABASE_USER_NAME='testuser'
 DATABASE_USER_PASSWORD='TestP@ssw0rd123'
+SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 DEPLOY_APP=1
@@ -27,7 +28,8 @@ terraform plan -out=tfplan \
 	-var "administrator_login=$ADMIN_USER" \
 	-var "administrator_login_password=$ADMIN_PASSWORD" \
 	-var "sql_database_username=$DATABASE_USER_NAME" \
-	-var "sql_database_password=$DATABASE_USER_PASSWORD"
+	-var "sql_database_password=$DATABASE_USER_PASSWORD" \
+	-var "secret_name=$SECRET_NAME"
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."

@@ -85,8 +85,17 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 ## Test
 
-1. Retrieve the port published and mapped to port 80 by the Docker container hosting the emulated Web App.
-2. Open a web browser and navigate to `http://localhost:<published-port>`.
+1. Retrieve the port published and mapped to port 80 by the Docker container hosting the emulated Web App. 
+2. Open a web browser and navigate to `http://localhost:<published-port>`. As an alternative, you can retrieve the URL using the following command and call the Web App using the HTTP or HTTPS protocol:
+
+   ```bash
+   az webapp show \
+       --name local-webapp-test \
+       --resource-group local-rg \
+       --query defaultHostName \
+       --output tsv
+   ```
+
 3. If the deployment was successful, you will see the following user interface for adding and removing activities:
 
 ![Architecture Diagram](./images/vacation-planner.png)
