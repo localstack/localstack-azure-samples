@@ -194,22 +194,29 @@ jobs:
         # I/O pushed some starts past a 120s budget - and, on the slowest runners,
         # occasionally past 300s as well. A healthy emulator still returns as soon as
         # it is ready, so a larger timeout costs nothing on the happy path.
+        # A start that never becomes ready is retried on a fresh container (see below).
         run: |
           source .venv/bin/activate
           # Even at 600s the wait occasionally expires: ~80 concurrent jobs compete for runner I/O
           # and image pulls, and a start that stalls failed the job before the sample ever ran.
           # Give it one clean retry, and print the container's logs when the first attempt expires.
-          for attempt in 1 2; do
+          # A healthy start reports ready in well under a minute, so a wait that reaches the
+          # timeout means the boot has stalled rather than slowed: observed on an arm64 runner,
+          # where the container logged nothing for the last ten minutes of the wait. Three shorter
+          # attempts therefore beat two long ones - same overall budget, one more chance, and a
+          # stalled container is replaced sooner.
+          attempts=3
+          for attempt in $(seq 1 "${attempts}"); do
             python -m localstack_cli.cli.main start -d
-            if python -m localstack_cli.cli.main wait -t 600; then
-              echo "Emulator ready (attempt ${attempt})."
+            if python -m localstack_cli.cli.main wait -t 400; then
+              echo "Emulator ready (attempt ${attempt}/${attempts})."
               exit 0
             fi
-            echo "::warning::Emulator was not ready within 600s (attempt ${attempt}/2)."
+            echo "::warning::Emulator was not ready within 400s (attempt ${attempt}/${attempts})."
             docker logs localstack-main --tail 100 2>&1 || true
             python -m localstack_cli.cli.main stop || true
           done
-          echo "::error::Emulator failed to become ready after two attempts."
+          echo "::error::Emulator failed to become ready after ${attempts} attempts."
           exit 1
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}

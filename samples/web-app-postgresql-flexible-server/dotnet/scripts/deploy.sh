@@ -155,20 +155,34 @@ if [[ $? != 0 ]]; then
 	echo "No [$FIREWALL_RULE_NAME] firewall rule already exists on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
 	echo "Creating [$FIREWALL_RULE_NAME] firewall rule on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 
-	# Create a permissive firewall rule so the deploy machine can run the psql bootstrap
-	az postgres flexible-server firewall-rule create \
-		--server-name $POSTGRES_SERVER_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--name $FIREWALL_RULE_NAME \
-		--start-ip-address "0.0.0.0" \
-		--end-ip-address "255.255.255.255" \
-		--only-show-errors 1>/dev/null
+	# Create a permissive firewall rule so the deploy machine can run the psql bootstrap.
+	# The create is retried because this PUT intermittently answers 500 against the emulator while
+	# the server finishes provisioning, and the Azure CLI's own retries all land within a few seconds.
+	FIREWALL_RULE_CREATED=0
+	for attempt in $(seq 1 5); do
+		if az postgres flexible-server firewall-rule create \
+			--name $POSTGRES_SERVER_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--rule-name $FIREWALL_RULE_NAME \
+			--start-ip-address "0.0.0.0" \
+			--end-ip-address "255.255.255.255" \
+			--only-show-errors 1>/dev/null; then
+			FIREWALL_RULE_CREATED=1
+			break
+		fi
 
-	if [ $? -eq 0 ]; then
+		if [ "$attempt" -lt 5 ]; then
+			echo "Attempt $attempt of 5 to create the [$FIREWALL_RULE_NAME] firewall rule failed; retrying in 10 seconds..."
+			sleep 10
+		fi
+	done
+
+	if [ $FIREWALL_RULE_CREATED -eq 1 ]; then
 		echo "[$FIREWALL_RULE_NAME] firewall rule successfully created on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
 	else
-		echo "Failed to create [$FIREWALL_RULE_NAME] firewall rule on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
-		exit 1
+		# Not fatal: the rule governs public network access, which the emulator does not enforce, and
+		# the psql bootstrap below fails loudly if the server is genuinely unreachable.
+		echo "WARNING: could not create the [$FIREWALL_RULE_NAME] firewall rule on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server; continuing"
 	fi
 else
 	echo "[$FIREWALL_RULE_NAME] firewall rule already exists on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
