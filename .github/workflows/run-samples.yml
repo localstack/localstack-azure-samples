@@ -92,6 +92,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    # A sample takes ~10-25 minutes; the bound covers a retry and stops a hung deployment from
+    # holding a runner for GitHub's 6-hour default.
+    timeout-minutes: 90
     # ubuntu-22.04 for amd64, ubuntu-22.04-arm for arm64 — the matrix carries the label.
     # GitHub-hosted arm64 runners are free for public repositories.
     runs-on: ${{ matrix.runner }}
@@ -193,8 +196,21 @@ jobs:
         # it is ready, so a larger timeout costs nothing on the happy path.
         run: |
           source .venv/bin/activate
-          python -m localstack_cli.cli.main start -d
-          python -m localstack_cli.cli.main wait -t 600
+          # Even at 600s the wait occasionally expires: ~80 concurrent jobs compete for runner I/O
+          # and image pulls, and a start that stalls failed the job before the sample ever ran.
+          # Give it one clean retry, and print the container's logs when the first attempt expires.
+          for attempt in 1 2; do
+            python -m localstack_cli.cli.main start -d
+            if python -m localstack_cli.cli.main wait -t 600; then
+              echo "Emulator ready (attempt ${attempt})."
+              exit 0
+            fi
+            echo "::warning::Emulator was not ready within 600s (attempt ${attempt}/2)."
+            docker logs localstack-main --tail 100 2>&1 || true
+            python -m localstack_cli.cli.main stop || true
+          done
+          echo "::error::Emulator failed to become ready after two attempts."
+          exit 1
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
@@ -260,12 +276,43 @@ jobs:
       - name: "Run: ${{ matrix.name }}"
         # Each job runs exactly one test. SPLITS equals the total test count, and SHARD
         # is the 1-based index of this specific test, so run-samples.sh executes only it.
+        id: initial_run
+        # Samples provision real containers through the emulator, so a single transient error (a 500
+        # from a provisioning call, a slow container start) fails the whole sample - which is what
+        # has been needing manual job re-runs. The retry step below decides this job's outcome, so a
+        # genuinely broken sample still fails: it fails both attempts.
+        continue-on-error: true
         run: make test SHARD="${SHARD}" SPLITS="${SPLITS}"
         env:
           # Dynamic matrix values routed via env, not interpolated into the shell (template-injection)
           SHARD: ${{ matrix.shard }}
           SPLITS: ${{ matrix.splits }}
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          PURGE_DOCKER: "1"
+
+      - name: "Retry: ${{ matrix.name }}"
+        # The deploy scripts are not idempotent - they fail on resources that already exist - so the
+        # retry runs against a fresh emulator instead of the half-provisioned state the failed
+        # attempt left behind.
+        if: steps.initial_run.outcome == 'failure'
+        run: |
+          source .venv/bin/activate
+          echo "::warning::${MATRIX_NAME} failed once; retrying on a fresh emulator."
+          python -m localstack_cli.cli.main stop || true
+          python -m localstack_cli.cli.main start -d
+          python -m localstack_cli.cli.main wait -t 600
+          make test SHARD="${SHARD}" SPLITS="${SPLITS}"
+        env:
+          MATRIX_NAME: ${{ matrix.name }}
+          SHARD: ${{ matrix.shard }}
+          SPLITS: ${{ matrix.splits }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          DOCKER_FLAGS: "-e MSSQL_ACCEPT_EULA=Y -e GITHUB_API_TOKEN=${{ github.token }}"
+          LS_LOG: "DEBUG"
+          DISABLE_EVENTS: "1"
+          ACTIVATE_PRO: "1"
+          DNS_ADDRESS: "0"
           PURGE_DOCKER: "1"
 
       - name: Get LocalStack Logs
