@@ -1,4 +1,5 @@
 using MongoDB.Bson;
+using MongoDB.Bson.IO;
 using MongoDB.Driver;
 using VacationPlanner.Models;
 
@@ -11,6 +12,9 @@ public sealed class MongoActivityStore : IActivityStore
     private readonly IMongoCollection<BsonDocument> _collection;
     private readonly MongoOptions _options;
     private readonly ILogger<MongoActivityStore> _logger;
+
+    /// <summary>Documents are logged indented, like the Python sample's <c>json.dumps(indent=3)</c> output.</summary>
+    private static readonly JsonWriterSettings Indented = new() { Indent = true };
 
     public MongoActivityStore(MongoOptions options, ILogger<MongoActivityStore> logger)
     {
@@ -45,10 +49,16 @@ public sealed class MongoActivityStore : IActivityStore
     {
         var filter = Builders<BsonDocument>.Filter.Eq("username", _options.Username);
         var documents = await _collection.Find(filter).ToListAsync(cancellationToken);
+        _logger.LogInformation(
+            "Retrieved {Count} document(s) from collection '{Collection}': {Documents}",
+            documents.Count,
+            _options.CollectionName,
+            documents.ToJson(Indented)
+        );
         return documents.Select(d => new Activity(d["_id"].AsString, d["activity"].AsString)).ToList();
     }
 
-    public Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task AddAsync(string text, CancellationToken cancellationToken)
     {
         var document = new BsonDocument
         {
@@ -57,17 +67,42 @@ public sealed class MongoActivityStore : IActivityStore
             ["activity"] = text,
             ["timestamp"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss.ffffff"),
         };
-        return _collection.InsertOneAsync(document, cancellationToken: cancellationToken);
+        await _collection.InsertOneAsync(document, cancellationToken: cancellationToken);
+        _logger.LogInformation(
+            "Inserted document into collection '{Collection}': {Document}",
+            _options.CollectionName,
+            document.ToJson(Indented)
+        );
     }
 
-    public Task UpdateAsync(string id, string text, CancellationToken cancellationToken) =>
-        _collection.UpdateOneAsync(
+    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    {
+        var result = await _collection.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             Builders<BsonDocument>.Update.Set("activity", text),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken
+        );
+        _logger.LogInformation(
+            "Updated {Count} document(s) with id {Id} in collection '{Collection}'",
+            result.ModifiedCount,
+            id,
+            _options.CollectionName
+        );
+    }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken) =>
-        _collection.DeleteOneAsync(Builders<BsonDocument>.Filter.Eq("_id", id), cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    {
+        var result = await _collection.DeleteOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            cancellationToken
+        );
+        _logger.LogInformation(
+            "Deleted {Count} document(s) with id {Id} from collection '{Collection}'",
+            result.DeletedCount,
+            id,
+            _options.CollectionName
+        );
+    }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)
     {

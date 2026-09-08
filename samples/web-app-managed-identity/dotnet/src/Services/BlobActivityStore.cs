@@ -9,6 +9,7 @@ namespace VacationPlanner.Services;
 public sealed class BlobActivityStore : IActivityStore
 {
     private readonly BlobContainerClient _container;
+    private readonly ILogger<BlobActivityStore> _logger;
 
     public BlobActivityStore(BlobStorageOptions options, ILogger<BlobActivityStore> logger)
     {
@@ -37,6 +38,7 @@ public sealed class BlobActivityStore : IActivityStore
         }
 
         _container = service.GetBlobContainerClient(options.ContainerName);
+        _logger = logger;
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
@@ -50,9 +52,19 @@ public sealed class BlobActivityStore : IActivityStore
         await foreach (var blob in _container.GetBlobsAsync(cancellationToken: cancellationToken))
         {
             var content = await _container.GetBlobClient(blob.Name).DownloadContentAsync(cancellationToken);
+            _logger.LogInformation(
+                "Found blob '{Blob}' with size {Size} bytes",
+                blob.Name,
+                blob.Properties.ContentLength
+            );
             activities.Add(new Activity(blob.Name, content.Value.Content.ToString()));
         }
 
+        _logger.LogInformation(
+            "Retrieved {Count} blob(s) from container '{Container}'",
+            activities.Count,
+            _container.Name
+        );
         return activities;
     }
 
@@ -67,6 +79,7 @@ public sealed class BlobActivityStore : IActivityStore
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
     {
         await _container.GetBlobClient(id).DeleteIfExistsAsync(cancellationToken: cancellationToken);
+        _logger.LogInformation("Deleted blob '{Blob}' from container '{Container}'", id, _container.Name);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)
@@ -77,5 +90,6 @@ public sealed class BlobActivityStore : IActivityStore
     private async Task UploadAsync(string name, string text, CancellationToken cancellationToken)
     {
         await _container.GetBlobClient(name).UploadAsync(new BinaryData(Encoding.UTF8.GetBytes(text)), overwrite: true, cancellationToken);
+        _logger.LogInformation("Uploaded blob '{Blob}' to container '{Container}'", name, _container.Name);
     }
 }

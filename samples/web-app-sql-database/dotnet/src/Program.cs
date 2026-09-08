@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using VacationPlanner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,6 +38,23 @@ builder.Services.AddHostedService(sp =>
     new StoreInitializer(sp.GetRequiredService<IActivityStore>(), sp.GetRequiredService<ILogger<StoreInitializer>>()));
 
 var app = builder.Build();
+
+// One log line per request, the equivalent of the gunicorn access log the Python sample produces.
+var requestLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("VacationPlanner.Requests");
+app.Use(
+    async (context, next) =>
+    {
+        var started = Stopwatch.GetTimestamp();
+        await next();
+        requestLogger.LogInformation(
+            "{Method} {Path} -> {StatusCode} in {Elapsed:0.0}ms",
+            context.Request.Method,
+            context.Request.Path,
+            context.Response.StatusCode,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds
+        );
+    }
+);
 
 app.UseStaticFiles();
 app.MapRazorPages();

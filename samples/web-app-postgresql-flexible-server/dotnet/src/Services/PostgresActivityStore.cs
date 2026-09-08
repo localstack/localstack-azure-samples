@@ -56,6 +56,11 @@ public sealed class PostgresActivityStore(PostgresOptions options, ILogger<Postg
             activities.Add(new Activity(reader.GetString(0), reader.GetString(1)));
         }
 
+        logger.LogInformation(
+            "Retrieved {Count} activities for user: {Username}",
+            activities.Count,
+            options.Username
+        );
         return activities;
     }
 

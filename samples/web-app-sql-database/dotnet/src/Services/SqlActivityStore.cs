@@ -47,6 +47,11 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
             activities.Add(new Activity(reader.GetGuid(0).ToString(), reader.GetString(1)));
         }
 
+        logger.LogInformation(
+            "Retrieved {Count} activities for user: {Username}",
+            activities.Count,
+            options.Username
+        );
         return activities;
     }
 
@@ -76,7 +81,10 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         if (rows == 0)
         {
             logger.LogWarning("No activity found with ID: {Id}", id);
+            return;
         }
+
+        logger.LogInformation("Updated activity with ID: {Id}", id);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
@@ -88,7 +96,10 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         if (rows == 0)
         {
             logger.LogWarning("No activity found with ID: {Id}", id);
+            return;
         }
+
+        logger.LogInformation("Deleted activity with ID: {Id}", id);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

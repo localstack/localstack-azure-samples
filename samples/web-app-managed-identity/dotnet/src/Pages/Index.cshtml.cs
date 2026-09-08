@@ -5,7 +5,7 @@ using VacationPlanner.Services;
 
 namespace VacationPlanner.Pages;
 
-public class IndexModel(IActivityStore store) : PageModel
+public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : PageModel
 {
     public IReadOnlyList<Activity> Activities { get; private set; } = [];
 
@@ -32,11 +32,13 @@ public class IndexModel(IActivityStore store) : PageModel
             if (!string.IsNullOrEmpty(id))
             {
                 await store.UpdateAsync(id, text, cancellationToken);
+                logger.LogInformation("Activity updated: {Id}", id);
                 TempData["Flash"] = "Activity updated successfully.";
             }
             else
             {
                 await store.AddAsync(text, cancellationToken);
+                logger.LogInformation("Activity added: {Activity}", text);
                 TempData["Flash"] = "Activity added successfully.";
             }
         }
