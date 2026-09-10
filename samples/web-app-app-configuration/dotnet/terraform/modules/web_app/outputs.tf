@@ -19,6 +19,6 @@ output "outbound_ip_addresses" {
 }
 
 output "principal_id" {
-  value       = azurerm_linux_web_app.example.identity[0].principal_id
-  description = "Specifies the Principal ID of the System Assigned Managed Identity"
+  value       = var.identity_type == "SystemAssigned" ? azurerm_linux_web_app.example.identity[0].principal_id : null
+  description = "Specifies the principal id of the system-assigned managed identity, or null when the Web App uses a user-assigned identity (its principal id comes from the azurerm_user_assigned_identity resource)"
 }

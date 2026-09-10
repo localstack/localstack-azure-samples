@@ -25,7 +25,7 @@ variable "subnet_id" {
 
 variable "is_manual_connection" {
   description = "(Optional) Specifies whether the Azure Private Endpoint connection requires manual approval from the remote resource owner."
-  type        = string
+  type        = bool
   default     = false
 }
 

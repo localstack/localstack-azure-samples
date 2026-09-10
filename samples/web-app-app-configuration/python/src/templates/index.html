@@ -70,7 +70,7 @@
           </button>
         </td>
         <td class="col-btn">
-          <form method="post" action="{{ url_for('delete', activity_id=loop.index0) }}" class="delete-form">
+          <form method="post" action="{{ url_for('delete', activity_id=activity[0]) }}" class="delete-form">
             <button type="button" class="btn-delete" title="Delete activity" aria-label="Delete {{ activity[1] | e }}">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>

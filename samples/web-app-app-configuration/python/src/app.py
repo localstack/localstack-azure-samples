@@ -84,10 +84,12 @@ def favicon():
     return app.send_static_file("favicon.ico")
 
 
-@app.route("/delete/<int:activity_id>", methods=["POST"])
-def delete(activity_id: int):
-    if 0 <= activity_id < len(activities):
-        db_client.delete_activity(activities[activity_id][0])
+@app.route("/delete/<activity_id>", methods=["POST"])
+def delete(activity_id: str):
+    # The template posts the database id of the row, so the delete does not depend on the position of the
+    # activity in the last rendered list (which differs between requests and gunicorn workers).
+    if activity_id.strip() and db_client.delete_activity(activity_id):
+        logger.info("Activity deleted: %s", activity_id)
         flash("Activity deleted.")
     return redirect(url_for("index"))
 
