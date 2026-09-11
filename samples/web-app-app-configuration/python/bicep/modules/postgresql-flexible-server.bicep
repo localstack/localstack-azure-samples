@@ -45,6 +45,36 @@ param storageSizeGB int = 32
 @maxValue(35)
 param backupRetentionDays int = 7
 
+@description('Specifies whether geo-redundant backup is enabled.')
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+param geoRedundantBackup string = 'Disabled'
+
+@description('Specifies the high availability mode of the server.')
+@allowed([
+  'Disabled'
+  'SameZone'
+  'ZoneRedundant'
+])
+param highAvailabilityMode string = 'Disabled'
+
+@description('Specifies the create mode of the server.')
+@allowed([
+  'Default'
+  'Create'
+  'Update'
+])
+param createMode string = 'Default'
+
+@description('Specifies whether the server accepts connections from public networks. The deploy machine reaches the server through the firewall rule for the psql bootstrap; the web app reaches it through its private endpoint.')
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+param publicNetworkAccess string = 'Enabled'
+
 @description('Specifies the name of the database to create on the server.')
 param databaseName string = 'PlannerDB'
 
@@ -66,33 +96,45 @@ param firewallEndIp string = '255.255.255.255'
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories enabled by the diagnostic settings.')
+param logCategories array = [
+  'PostgreSQLLogs'
+]
+
+@description('Specifies the metric categories enabled by the diagnostic settings.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
+param retentionPolicyEnabled bool = true
+
+@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
+param retentionPolicyDays int = 0
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {}
 
 //********************************************
 // Variables
 //********************************************
-var diagnosticSettingsName = 'default'
-var logCategories = [
-  'PostgreSQLLogs'
-]
-var metricCategories = [
-  'AllMetrics'
-]
 var logs = [for category in logCategories: {
   category: category
   enabled: true
   retentionPolicy: {
-    enabled: true
-    days: 0
+    enabled: retentionPolicyEnabled
+    days: retentionPolicyDays
   }
 }]
 var metrics = [for category in metricCategories: {
   category: category
   enabled: true
   retentionPolicy: {
-    enabled: true
-    days: 0
+    enabled: retentionPolicyEnabled
+    days: retentionPolicyDays
   }
 }]
 
@@ -116,19 +158,19 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     administratorLogin: administratorLogin
     administratorLoginPassword: administratorLoginPassword
     version: version
-    createMode: 'Default'
+    createMode: createMode
     storage: {
       storageSizeGB: storageSizeGB
     }
     backup: {
       backupRetentionDays: backupRetentionDays
-      geoRedundantBackup: 'Disabled'
+      geoRedundantBackup: geoRedundantBackup
     }
     highAvailability: {
-      mode: 'Disabled'
+      mode: highAvailabilityMode
     }
     network: {
-      publicNetworkAccess: 'Enabled'
+      publicNetworkAccess: publicNetworkAccess
     }
   }
 }

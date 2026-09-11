@@ -82,6 +82,26 @@ param reserved bool = true
 @description('Specifies whether the hosting plan is zone redundant.')
 param zoneRedundant bool = false
 
+@description('Specifies the maximum number of elastic workers of the hosting plan.')
+param maximumElasticWorkerCount int = 20
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories enabled by the diagnostic settings.')
+param logCategories array = []
+
+@description('Specifies the metric categories enabled by the diagnostic settings.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
+param retentionPolicyEnabled bool = true
+
+@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
+param retentionPolicyDays int = 0
+
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
@@ -92,18 +112,13 @@ param tags object = {}
 // Variables
 //********************************************
 
-var diagnosticSettingsName = 'default'
-var logCategories = []
-var metricCategories = [
-  'AllMetrics'
-]
 var logs = [
   for category in logCategories: {
     category: category
     enabled: true
     retentionPolicy: {
-      enabled: true
-      days: 0
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
     }
   }
 ]
@@ -112,8 +127,8 @@ var metrics = [
     category: category
     enabled: true
     retentionPolicy: {
-      enabled: true
-      days: 0
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
     }
   }
 ]
@@ -133,7 +148,7 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
   properties: {
     reserved: reserved
     zoneRedundant: zoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    maximumElasticWorkerCount: maximumElasticWorkerCount
   }
 }
 

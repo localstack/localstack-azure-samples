@@ -22,14 +22,58 @@ param skuName string = 'Standard'
 @maxValue(7)
 param softDeleteRetentionInDays int = 7
 
+@description('Specifies whether the access keys of the store are disabled. The keyValues children are written through Azure Resource Manager, which in the default Local authentication mode relies on the access keys, so they stay enabled.')
+param disableLocalAuth bool = false
+
+@description('Specifies whether purge protection is enabled for the store. Off so that a deleted store can be purged and its name reused.')
+param enablePurgeProtection bool = false
+
+@description('Specifies whether the store accepts requests from public networks. The deployment seeds the store from outside the virtual network; the web app reaches it through its private endpoint.')
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+param publicNetworkAccess string = 'Enabled'
+
 @description('Specifies the key-values to seed: objects with key, value and contentType (empty for a plain value).')
 param keyValues array
 
 @description('Specifies the principal id of the managed identity that reads the store (App Configuration Data Reader).')
 param dataReaderPrincipalId string
 
+@description('Specifies the principal type of the managed identity that reads the store.')
+@allowed([
+  'User'
+  'ServicePrincipal'
+  'Group'
+])
+param dataReaderPrincipalType string = 'ServicePrincipal'
+
+@description('Specifies the id of the built-in role assigned to the reading identity: App Configuration Data Reader by default.')
+param dataReaderRoleDefinitionId string = '516239f1-63e1-4d78-a4de-a74fb236a071'
+
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories enabled by the diagnostic settings.')
+param logCategories array = [
+  'HttpRequest'
+  'Audit'
+]
+
+@description('Specifies the metric categories enabled by the diagnostic settings.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
+param retentionPolicyEnabled bool = true
+
+@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
+param retentionPolicyDays int = 0
 
 @description('Specifies the resource tags.')
 param tags object
@@ -39,8 +83,27 @@ param tags object
 //********************************************
 
 // App Configuration Data Reader: Microsoft.AppConfiguration/configurationStores/*/read data actions.
-var appConfigurationDataReaderRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '516239f1-63e1-4d78-a4de-a74fb236a071')
-var diagnosticSettingsName = 'default'
+var dataReaderRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', dataReaderRoleDefinitionId)
+var logs = [
+  for category in logCategories: {
+    category: category
+    enabled: true
+    retentionPolicy: {
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
+    }
+  }
+]
+var metrics = [
+  for category in metricCategories: {
+    category: category
+    enabled: true
+    retentionPolicy: {
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
+    }
+  }
+]
 
 //********************************************
 // Resources
@@ -54,15 +117,10 @@ resource configurationStore 'Microsoft.AppConfiguration/configurationStores@2024
     name: skuName
   }
   properties: {
-    // Access keys stay enabled and the Azure Resource Manager authentication mode stays Local (the
-    // default): the keyValues children below are written through Azure Resource Manager, which in Local
-    // mode relies on the access keys, and the Azure CLI variant seeds the store with them too.
-    disableLocalAuth: false
-    enablePurgeProtection: false
+    disableLocalAuth: disableLocalAuth
+    enablePurgeProtection: enablePurgeProtection
     softDeleteRetentionInDays: softDeleteRetentionInDays
-    // Public network access stays enabled: the deployment runs outside the virtual network. The web app
-    // reaches the store through its private endpoint.
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: publicNetworkAccess
   }
 }
 
@@ -83,12 +141,12 @@ resource storeKeyValues 'Microsoft.AppConfiguration/configurationStores/keyValue
 ]
 
 resource appConfigurationDataReaderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(configurationStore.id, dataReaderPrincipalId, appConfigurationDataReaderRoleDefinitionId)
+  name: guid(configurationStore.id, dataReaderPrincipalId, dataReaderRoleId)
   scope: configurationStore
   properties: {
-    roleDefinitionId: appConfigurationDataReaderRoleDefinitionId
+    roleDefinitionId: dataReaderRoleId
     principalId: dataReaderPrincipalId
-    principalType: 'ServicePrincipal'
+    principalType: dataReaderPrincipalType
   }
 }
 
@@ -97,22 +155,8 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: configurationStore
   properties: {
     workspaceId: workspaceId
-    logs: [
-      {
-        category: 'HttpRequest'
-        enabled: true
-      }
-      {
-        category: 'Audit'
-        enabled: true
-      }
-    ]
-    metrics: [
-      {
-        category: 'AllMetrics'
-        enabled: true
-      }
-    ]
+    logs: logs
+    metrics: metrics
   }
 }
 

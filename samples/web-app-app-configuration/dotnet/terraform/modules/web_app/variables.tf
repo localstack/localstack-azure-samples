@@ -104,3 +104,27 @@ variable "log_analytics_workspace_id" {
   description = "Specifies the resource id of the Azure Log Analytics workspace."
   type        = string
 }
+
+variable "client_affinity_enabled" {
+  description = "(Optional) Specifies whether client affinity cookies, which pin a client to one instance, are enabled. Defaults to false."
+  type        = bool
+  default     = false
+}
+
+variable "diagnostic_setting_name" {
+  description = "(Optional) Specifies the name of the diagnostic setting of the Web App. Defaults to DiagnosticsSettings."
+  type        = string
+  default     = "DiagnosticsSettings"
+}
+
+variable "log_categories" {
+  description = "(Optional) Specifies the log categories the diagnostic setting enables."
+  type        = list(string)
+  default     = ["AppServiceHTTPLogs", "AppServiceConsoleLogs", "AppServiceAppLogs", "AppServiceAuditLogs", "AppServiceIPSecAuditLogs", "AppServicePlatformLogs", "AppServiceAuthenticationLogs"]
+}
+
+variable "metric_categories" {
+  description = "(Optional) Specifies the metric categories the diagnostic setting enables."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}

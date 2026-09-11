@@ -1,9 +1,9 @@
 resource "azurerm_public_ip" "example" {
-  name                = "${var.name}PublicIp"
+  name                = coalesce(var.public_ip_name, "${var.name}PublicIp")
   location            = var.location
   resource_group_name = var.resource_group_name
-  allocation_method   = "Static"
-  sku                 = "Standard"
+  allocation_method   = var.public_ip_allocation_method
+  sku                 = var.public_ip_sku
   zones               = var.zones
   tags                = var.tags
 

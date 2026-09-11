@@ -19,6 +19,15 @@ param privateLinkServiceId string
 @description('Specifies the resource ID of the private DNS zone.')
 param privateDnsZoneId string
 
+@description('Specifies the name of the private link service connection. Empty uses the private endpoint name followed by -pls-connection.')
+param privateLinkServiceConnectionName string = ''
+
+@description('Specifies the name of the private DNS zone group: default, the name the Azure CLI and Terraform variants use, so the three provisioning modes produce the same topology.')
+param privateDnsZoneGroupName string = 'default'
+
+@description('Specifies the name of the private DNS zone configuration inside the zone group.')
+param privateDnsZoneConfigName string = 'dnsConfig'
+
 @description('Specifies the resource tags.')
 param tags object
 
@@ -34,7 +43,7 @@ resource privateEndpoint 'Microsoft.Network/privateEndpoints@2025-05-01' = {
   properties: {
     privateLinkServiceConnections: [
       {
-        name: '${name}-pls-connection'
+        name: empty(privateLinkServiceConnectionName) ? '${name}-pls-connection' : privateLinkServiceConnectionName
         properties: {
           privateLinkServiceId: privateLinkServiceId
           groupIds: groupIds
@@ -47,15 +56,13 @@ resource privateEndpoint 'Microsoft.Network/privateEndpoints@2025-05-01' = {
   }
 }
 
-// Named 'default' like the zone groups the Azure CLI and Terraform variants create, so all three
-// provisioning modes produce the same topology.
-resource privateDnsZoneGroupName 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2025-05-01' = {
+resource privateDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2025-05-01' = {
   parent: privateEndpoint
-  name: 'default'
+  name: privateDnsZoneGroupName
   properties: {
     privateDnsZoneConfigs: [
       {
-        name: 'dnsConfig'
+        name: privateDnsZoneConfigName
         properties: {
           privateDnsZoneId: privateDnsZoneId
         }

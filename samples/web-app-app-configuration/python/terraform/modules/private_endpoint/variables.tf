@@ -56,6 +56,8 @@ variable "tags" {
   default     = {}
 }
 
-variable "private_dns" {
-  default = {}
+variable "private_service_connection_name" {
+  description = "(Optional) Specifies the name of the private service connection. Defaults to the private endpoint name followed by Connection."
+  type        = string
+  default     = null
 }

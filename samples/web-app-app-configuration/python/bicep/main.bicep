@@ -64,6 +64,9 @@ param repoUrl string = ' '
 @description('Specifies the username for the application (used to scope activities).')
 param username string = 'paolo'
 
+@description('Specifies the port the application listens on inside its container (WEBSITES_PORT).')
+param websitesPort int = 8000
+
 //
 // PostgreSQL flexible server
 //
@@ -104,6 +107,35 @@ param pgAppUser string = 'testuser'
 @description('Password of the PostgreSQL application role. Stored in Key Vault as the pg-password secret.')
 @secure()
 param pgAppPassword string
+
+@description('Name of the Key Vault secret holding the PostgreSQL application role name (alphanumerics and hyphens only).')
+param pgUserSecretName string = 'pg-user'
+
+@description('Name of the Key Vault secret holding the PostgreSQL application role password (alphanumerics and hyphens only).')
+param pgPasswordSecretName string = 'pg-password'
+
+@description('Key of the App Configuration key-value holding the PostgreSQL host name. The application reads this key.')
+param pgHostKeyName string = 'PG_HOST'
+
+@description('Key of the App Configuration key-value holding the PostgreSQL port. The application reads this key.')
+param pgPortKeyName string = 'PG_PORT'
+
+@description('Key of the App Configuration key-value holding the PostgreSQL database name. The application reads this key.')
+param pgDatabaseKeyName string = 'PG_DATABASE'
+
+@description('Key of the App Configuration Key Vault reference to the application role name secret. The application reads this key.')
+param pgUserKeyName string = 'PG_USER'
+
+@description('Key of the App Configuration Key Vault reference to the application role password secret. The application reads this key.')
+// The value is the name of a key-value, not a credential; the linter reacts to the word in the parameter name.
+#disable-next-line secure-secrets-in-params
+param pgPasswordKeyName string = 'PG_PASSWORD'
+
+@description('PostgreSQL port stored in the PG_PORT key-value when the server fully qualified domain name carries none (Azure); the emulator name carries the port of its TCP proxy.')
+param pgDefaultPort string = '5432'
+
+@description('Content type that marks an App Configuration key-value as a Key Vault reference.')
+param keyVaultReferenceContentType string = 'application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8'
 
 //
 // App Configuration and Key Vault
@@ -159,6 +191,12 @@ param peSubnetAddressPrefix string = '10.0.1.0/24'
 @description('Specifies the name of the NSG associated to the private-endpoint subnet.')
 param peSubnetNsgName string = ''
 
+@description('Specifies the service the Web App subnet is delegated to, required for regional virtual network integration.')
+param webAppSubnetDelegationServiceName string = 'Microsoft.Web/serverfarms'
+
+@description('Specifies the name of the public IP prefix of the Azure NAT Gateway.')
+param natGatewayPublicIpPrefixName string = ''
+
 @description('Specifies the length of the Public IP Prefix.')
 @minValue(28)
 @maxValue(32)
@@ -181,6 +219,30 @@ param appConfigurationPrivateEndpointName string = ''
 
 @description('Specifies the name of the private endpoint targeting the key vault.')
 param keyVaultPrivateEndpointName string = ''
+
+@description('Specifies the private DNS zone of the PostgreSQL flexible server private endpoint.')
+param postgresPrivateDnsZoneName string = 'privatelink.postgres.database.azure.com'
+
+@description('Specifies the private DNS zone of the App Configuration private endpoint.')
+param appConfigurationPrivateDnsZoneName string = 'privatelink.azconfig.io'
+
+@description('Specifies the private DNS zone of the Key Vault private endpoint.')
+param keyVaultPrivateDnsZoneName string = 'privatelink.vaultcore.azure.net'
+
+@description('Specifies the group ids (sub-resources) of the PostgreSQL flexible server private endpoint.')
+param postgresPrivateEndpointGroupIds array = [
+  'postgresqlServer'
+]
+
+@description('Specifies the group ids (sub-resources) of the App Configuration private endpoint.')
+param appConfigurationPrivateEndpointGroupIds array = [
+  'configurationStores'
+]
+
+@description('Specifies the group ids (sub-resources) of the Key Vault private endpoint.')
+param keyVaultPrivateEndpointGroupIds array = [
+  'vault'
+]
 
 //
 // Observability
@@ -207,10 +269,6 @@ param tags object = {
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var pgServerName = '${prefix}-pgflex-${suffix}'
-var postgresPrivateDnsZoneName = 'privatelink.postgres.database.azure.com'
-var appConfigurationPrivateDnsZoneName = 'privatelink.azconfig.io'
-var keyVaultPrivateDnsZoneName = 'privatelink.vaultcore.azure.net'
-var keyVaultReferenceContentType = 'application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8'
 
 // The PostgreSQL flexible-server emulator embeds the LS-side TCP-proxy port directly in
 // fullyQualifiedDomainName (e.g. "<srv>.postgres.database.localhost.localstack.cloud:4515").
@@ -218,7 +276,7 @@ var keyVaultReferenceContentType = 'application/vnd.microsoft.appconfig.keyvault
 // right host + port without any post-deploy shell logic.
 var pgFqdnParts = split(postgresqlServer.outputs.fqdn, ':')
 var pgHost = pgFqdnParts[0]
-var pgPort = length(pgFqdnParts) > 1 ? pgFqdnParts[1] : '5432'
+var pgPort = length(pgFqdnParts) > 1 ? pgFqdnParts[1] : pgDefaultPort
 
 // The five settings the web app used to receive as app settings, seeded into the App Configuration store:
 // three plain key-values and two Key Vault references to the secrets created by the key-vault module.
@@ -227,27 +285,27 @@ var pgPort = length(pgFqdnParts) > 1 ? pgFqdnParts[1] : '5432'
 // emulator's template engine renders string() of an object as a Python dictionary instead of JSON today.
 var appConfigurationKeyValues = [
   {
-    key: 'PG_HOST'
+    key: pgHostKeyName
     value: pgHost
     contentType: ''
   }
   {
-    key: 'PG_PORT'
+    key: pgPortKeyName
     value: pgPort
     contentType: ''
   }
   {
-    key: 'PG_DATABASE'
+    key: pgDatabaseKeyName
     value: postgresqlServer.outputs.databaseName
     contentType: ''
   }
   {
-    key: 'PG_USER'
+    key: pgUserKeyName
     value: '{"uri":"${keyVault.outputs.secretUris.pgUser}"}'
     contentType: keyVaultReferenceContentType
   }
   {
-    key: 'PG_PASSWORD'
+    key: pgPasswordKeyName
     value: '{"uri":"${keyVault.outputs.secretUris.pgPassword}"}'
     contentType: keyVaultReferenceContentType
   }
@@ -280,10 +338,10 @@ module network 'modules/virtual-network.bicep' = {
     peSubnetNsgName: empty(peSubnetNsgName) ? toLower('${prefix}-pe-subnet-nsg-${suffix}') : peSubnetNsgName
     natGatewayName: empty(natGatewayName) ? toLower('${prefix}-nat-gateway-${suffix}') : natGatewayName
     natGatewayZones: natGatewayZones
-    natGatewayPublicIpPrefixName: toLower('${prefix}-nat-gateway-pip-prefix-${suffix}')
+    natGatewayPublicIpPrefixName: empty(natGatewayPublicIpPrefixName) ? toLower('${prefix}-nat-gateway-pip-prefix-${suffix}') : natGatewayPublicIpPrefixName
     natGatewayPublicIpPrefixLength: natGatewayPublicIpPrefixLength
     natGatewayIdleTimeoutMins: natGatewayIdleTimeoutMins
-    delegationServiceName: 'Microsoft.Web/serverfarms'
+    delegationServiceName: webAppSubnetDelegationServiceName
     workspaceId: workspace.outputs.id
     location: location
     tags: tags
@@ -323,7 +381,9 @@ module keyVault 'modules/key-vault.bicep' = {
     name: empty(keyVaultName) ? toLower('${prefix}-keyvault-${suffix}') : keyVaultName
     location: location
     skuName: keyVaultSkuName
+    pgUserSecretName: pgUserSecretName
     pgAppUser: pgAppUser
+    pgPasswordSecretName: pgPasswordSecretName
     pgAppPassword: pgAppPassword
     identityPrincipalId: managedIdentity.outputs.principalId
     deployerPrincipalId: deployerPrincipalId
@@ -364,9 +424,7 @@ module postgresPrivateEndpoint 'modules/private-endpoint.bicep' = {
     privateLinkServiceId: postgresqlServer.outputs.id
     privateDnsZoneId: postgresPrivateDnsZone.outputs.id
     subnetId: network.outputs.peSubnetId
-    groupIds: [
-      'postgresqlServer'
-    ]
+    groupIds: postgresPrivateEndpointGroupIds
     location: location
     tags: tags
   }
@@ -390,9 +448,7 @@ module appConfigurationPrivateEndpoint 'modules/private-endpoint.bicep' = {
     privateLinkServiceId: appConfiguration.outputs.id
     privateDnsZoneId: appConfigurationPrivateDnsZone.outputs.id
     subnetId: network.outputs.peSubnetId
-    groupIds: [
-      'configurationStores'
-    ]
+    groupIds: appConfigurationPrivateEndpointGroupIds
     location: location
     tags: tags
   }
@@ -416,9 +472,7 @@ module keyVaultPrivateEndpoint 'modules/private-endpoint.bicep' = {
     privateLinkServiceId: keyVault.outputs.id
     privateDnsZoneId: keyVaultPrivateDnsZone.outputs.id
     subnetId: network.outputs.peSubnetId
-    groupIds: [
-      'vault'
-    ]
+    groupIds: keyVaultPrivateEndpointGroupIds
     location: location
     tags: tags
   }
@@ -461,6 +515,7 @@ module webApp 'modules/web-app.bicep' = {
     managedIdentityClientId: managedIdentity.outputs.clientId
     appConfigurationEndpoint: appConfiguration.outputs.endpoint
     username: username
+    websitesPort: websitesPort
     workspaceId: workspace.outputs.id
     tags: tags
   }

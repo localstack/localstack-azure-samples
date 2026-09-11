@@ -8,11 +8,11 @@ resource "azurerm_postgresql_flexible_server" "this" {
   sku_name                     = var.sku_name
   storage_mb                   = var.storage_mb
   backup_retention_days        = var.backup_retention_days
-  geo_redundant_backup_enabled = false
+  geo_redundant_backup_enabled = var.geo_redundant_backup_enabled
   # Public access is enabled and a permissive firewall rule lets the deploy machine reach the
   # server just long enough to run the post-deploy psql bootstrap. The Web App itself reaches
   # the server through a Private Endpoint (see the private_endpoint module in main.tf).
-  public_network_access_enabled = true
+  public_network_access_enabled = var.public_network_access_enabled
 
   tags = var.tags
 
@@ -42,15 +42,21 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_all" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "this" {
-  name                       = "DiagnosticsSettings"
+  name                       = var.diagnostic_setting_name
   target_resource_id         = azurerm_postgresql_flexible_server.this.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
-  enabled_log {
-    category = "PostgreSQLLogs"
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
   }
 
-  enabled_metric {
-    category = "AllMetrics"
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }

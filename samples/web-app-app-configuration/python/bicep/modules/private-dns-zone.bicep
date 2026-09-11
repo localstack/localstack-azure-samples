@@ -4,6 +4,15 @@
 @description('Specifies the name of the private DNS zone.')
 param name string
 
+@description('Specifies the location of the private DNS zone and of its virtual network links: private DNS zones are global.')
+param location string = 'global'
+
+@description('Specifies the name of the virtual network link: link-to-vnet, the name the Azure CLI and Terraform variants use, so the three provisioning modes produce the same topology.')
+param virtualNetworkLinkName string = 'link-to-vnet'
+
+@description('Specifies whether auto-registration of virtual machine records in the zone is enabled for the linked virtual network.')
+param registrationEnabled bool = false
+
 @description('Specifies the resource ID of the virtual network where private endpoints will be created.')
 param vnetId string
 
@@ -17,17 +26,17 @@ param tags object
 // Private DNS Zones
 resource privateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   name: name
-  location: 'global'
+  location: location
   tags: tags
 }
 
 // Virtual Network Links
 resource privateDnsZoneVirtualNetworkLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
   parent: privateDnsZone
-  name: 'link-to-vnet'
-  location: 'global'
+  name: virtualNetworkLinkName
+  location: location
   properties: {
-    registrationEnabled: false
+    registrationEnabled: registrationEnabled
     virtualNetwork: {
       id: vnetId
     }

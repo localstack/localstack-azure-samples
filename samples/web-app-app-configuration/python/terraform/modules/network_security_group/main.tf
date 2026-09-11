@@ -39,15 +39,21 @@ resource "azurerm_subnet_network_security_group_association" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "settings" {
-  name                       = "DiagnosticsSettings"
+  name                       = var.diagnostic_setting_name
   target_resource_id         = azurerm_network_security_group.example.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
-  enabled_log {
-    category = "NetworkSecurityGroupEvent"
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
   }
 
-  enabled_log {
-    category = "NetworkSecurityGroupRuleCounter"
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }

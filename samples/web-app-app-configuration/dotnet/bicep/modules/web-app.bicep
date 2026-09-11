@@ -57,6 +57,39 @@ param publicNetworkAccess string = 'Enabled'
 @description('Specifies whether HTTPS is enforced for the Azure Web App.')
 param httpsOnly bool = true
 
+@description('Specifies whether all outbound traffic of the Azure Web App is routed into the virtual network, so that the private endpoints of the store, the vault and the database are used.')
+param vnetRouteAllEnabled bool = true
+
+@description('Specifies the type of managed identity of the Azure Web App. The user-assigned identity is always attached: AZURE_CLIENT_ID selects it in the app.')
+@allowed([
+  'UserAssigned'
+  'SystemAssigned, UserAssigned'
+])
+param identityType string = 'UserAssigned'
+
+@description('Specifies whether App Service builds the deployed zip with Oryx (SCM_DO_BUILD_DURING_DEPLOYMENT).')
+@allowed([
+  'true'
+  'false'
+])
+param scmDoBuildDuringDeployment string = 'true'
+
+@description('Specifies whether the Oryx build runs for the deployed zip (ENABLE_ORYX_BUILD).')
+@allowed([
+  'true'
+  'false'
+])
+param enableOryxBuild string = 'true'
+
+@description('Specifies the port the application listens on inside its container (WEBSITES_PORT).')
+param websitesPort int = 8000
+
+@description('Specifies the branch of the optional Git repository.')
+param repoBranch string = 'master'
+
+@description('Specifies whether the optional Git repository is integrated manually.')
+param isManualIntegration bool = true
+
 @description('Specifies the name of the hosting plan.')
 param hostingPlanName string
 
@@ -78,6 +111,31 @@ param subnetName string
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories enabled by the diagnostic settings.')
+param logCategories array = [
+  'AppServiceHTTPLogs'
+  'AppServiceConsoleLogs'
+  'AppServiceAppLogs'
+  'AppServiceAuditLogs'
+  'AppServiceIPSecAuditLogs'
+  'AppServicePlatformLogs'
+  'AppServiceAuthenticationLogs'
+]
+
+@description('Specifies the metric categories enabled by the diagnostic settings.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
+param retentionPolicyEnabled bool = true
+
+@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
+param retentionPolicyDays int = 0
+
 @description('Specifies the username for the application.')
 param username string = 'paolo'
 
@@ -91,26 +149,13 @@ param tags object
 // Variables
 //********************************************
 
-var diagnosticSettingsName = 'default'
-var logCategories = [
-  'AppServiceHTTPLogs'
-  'AppServiceConsoleLogs'
-  'AppServiceAppLogs'
-  'AppServiceAuditLogs'
-  'AppServiceIPSecAuditLogs'
-  'AppServicePlatformLogs'
-  'AppServiceAuthenticationLogs'
-]
-var metricCategories = [
-  'AllMetrics'
-]
 var logs = [
   for category in logCategories: {
     category: category
     enabled: true
     retentionPolicy: {
-      enabled: true
-      days: 0
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
     }
   }
 ]
@@ -119,8 +164,8 @@ var metrics = [
     category: category
     enabled: true
     retentionPolicy: {
-      enabled: true
-      days: 0
+      enabled: retentionPolicyEnabled
+      days: retentionPolicyDays
     }
   }
 ]
@@ -152,7 +197,7 @@ resource webApp 'Microsoft.Web/sites@2025-03-01' = {
     serverFarmId: hostingPlan.id
     virtualNetworkSubnetId: subnet.id
     outboundVnetRouting: {
-      allTraffic: true
+      allTraffic: vnetRouteAllEnabled
     }
     siteConfig: {
       linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
@@ -163,7 +208,7 @@ resource webApp 'Microsoft.Web/sites@2025-03-01' = {
   // The user-assigned managed identity that App Configuration Data Reader and Key Vault Secrets User are
   // assigned to. AZURE_CLIENT_ID below tells DefaultAzureCredential in the app to use it.
   identity: {
-    type: 'UserAssigned'
+    type: identityType
     userAssignedIdentities: {
       '${managedIdentityId}': {}
     }
@@ -174,15 +219,15 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   parent: webApp
   name: 'appsettings'
   properties: {
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    ENABLE_ORYX_BUILD: 'true'
+    SCM_DO_BUILD_DURING_DEPLOYMENT: scmDoBuildDuringDeployment
+    ENABLE_ORYX_BUILD: enableOryxBuild
     // No PG_* setting: the app loads PG_HOST, PG_PORT, PG_DATABASE, PG_USER and PG_PASSWORD from the App
     // Configuration store with the in-process provider, which also resolves the two Key Vault references.
     // Endpoints__AppConfiguration is the setting the provider reads the store endpoint from (the .NET
     // variant sees it as Endpoints:AppConfiguration).
     Endpoints__AppConfiguration: appConfigurationEndpoint
     AZURE_CLIENT_ID: managedIdentityClientId
-    WEBSITES_PORT: '8000'
+    WEBSITES_PORT: string(websitesPort)
     LOGIN_NAME: username
   }
 }
@@ -192,8 +237,8 @@ resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = i
   parent: webApp
   properties: {
     repoUrl: repoUrl
-    branch: 'master'
-    isManualIntegration: true
+    branch: repoBranch
+    isManualIntegration: isManualIntegration
   }
 }
 

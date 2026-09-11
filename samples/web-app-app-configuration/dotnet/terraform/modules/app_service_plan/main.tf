@@ -15,11 +15,21 @@ resource "azurerm_service_plan" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "example" {
-  name                       = "DiagnosticsSettings"
+  name                       = var.diagnostic_setting_name
   target_resource_id         = azurerm_service_plan.example.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
-  enabled_metric {
-    category = "AllMetrics"
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
+  }
+
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }

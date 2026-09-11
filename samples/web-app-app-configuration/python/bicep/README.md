@@ -34,6 +34,8 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans) (`app-service-plan.bicep`).
 11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) (`web-app.bicep`) with regional VNet integration into *app-subnet*, the user-assigned identity, and the app settings `Endpoints__AppConfiguration` (the store endpoint) and `AZURE_CLIENT_ID` (the identity client id) next to `LOGIN_NAME`, `WEBSITES_PORT` and the Oryx build flags. The template sets **no** `PG_*` app setting: the app loads the five settings from the store.
 
+Every configurable value of a module is a parameter with a default (SKUs, network access, soft-delete retention, role definition ids, principal types, diagnostic categories, Private DNS zone link names, zone group names), and every value `main.bicep` passes is one of its own parameters with a default (secret names, key names, the Key Vault reference content type, the default PostgreSQL port, Private DNS zone names, private endpoint group ids, the subnet delegation). No resource definition carries a literal, so a deployment can be adapted by overriding parameters in `main.bicepparam` instead of editing the modules.
+
 Two remarks about the store's key-values:
 
 - The `keyValues` children are written through Azure Resource Manager, which authorizes them with the store's [Azure Resource Manager authentication mode](https://learn.microsoft.com/en-us/azure/azure-app-configuration/quickstart-deployment-overview). The store keeps the default `Local` mode and access keys enabled, so the deploying principal only needs Contributor. If you disable access keys, switch the store to `Pass-through` and grant the deploying principal App Configuration Data Owner, otherwise the key-value writes fail on Azure.
@@ -104,7 +106,7 @@ The script will:
 
 The template creates the key-values itself, which keeps the whole topology in one deployment. If the `keyValues` children ever prove unreliable on one of the targets (for example because access keys are disabled and the store's Azure Resource Manager authentication mode is still `Local`), the same key-values can be seeded from `deploy.sh` after the deployment, the way the Azure CLI variant does:
 
-1. Remove the `keyValues` resource and the `keyValues` parameter from `modules/app-configuration.bicep`, and the `appConfigurationKeyValues` variable from `main.bicep`. Never keep both: two owners of the same key-value drift on every deployment.
+1. Pass an empty array as the `keyValues` parameter of the `appConfiguration` module in `main.bicep` (and drop the `appConfigurationKeyValues` variable). Never keep both: two owners of the same key-value drift on every deployment.
 2. After the deployment, read the outputs `appConfigurationName`, `keyVaultUri`, `postgresFqdn` and `databaseName` and run, once per key, `az appconfig kv set --name <store> --key PG_HOST --value <host> --yes` (and `PG_PORT`, `PG_DATABASE`) and `az appconfig kv set-keyvault --name <store> --key PG_USER --secret-identifier <vault URI>/secrets/pg-user --yes` (and `PG_PASSWORD`), probing each key with `az appconfig kv show` first so the step stays idempotent.
 3. The seeded key-values must match the template's exactly (keys, no label, content types, values), so `validate.sh` and the app behave the same. The commands use the data plane: they need access keys enabled (the default) or `--auth-mode login` with App Configuration Data Owner.
 

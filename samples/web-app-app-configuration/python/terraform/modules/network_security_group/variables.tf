@@ -49,3 +49,21 @@ variable "log_analytics_workspace_id" {
   description = "Specifies the resource id of the Azure Log Analytics workspace"
   type        = string
 }
+
+variable "diagnostic_setting_name" {
+  description = "(Optional) Specifies the name of the diagnostic setting. Defaults to DiagnosticsSettings."
+  type        = string
+  default     = "DiagnosticsSettings"
+}
+
+variable "log_categories" {
+  description = "(Optional) Specifies the log categories the diagnostic setting enables."
+  type        = list(string)
+  default     = ["NetworkSecurityGroupEvent", "NetworkSecurityGroupRuleCounter"]
+}
+
+variable "metric_categories" {
+  description = "(Optional) Specifies the metric categories the diagnostic setting enables."
+  type        = list(string)
+  default     = []
+}

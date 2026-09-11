@@ -25,7 +25,7 @@ resource "azurerm_subnet" "example" {
   dynamic "delegation" {
     for_each = each.value.delegation != null ? [each.value.delegation] : []
     content {
-      name = "delegation"
+      name = var.delegation_name
 
       service_delegation {
         name = delegation.value
@@ -41,18 +41,21 @@ resource "azurerm_subnet" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "example" {
-  name                       = "DiagnosticsSettings"
+  name                       = var.diagnostic_setting_name
   target_resource_id         = azurerm_virtual_network.example.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
-  # NOTE: we deliberately do NOT add `enabled_metric { category = "AllMetrics" }` here.
-  # Many Azure subscriptions have a built-in or org-level Azure Policy
-  # (DeployIfNotExists) that auto-creates a `diagnosticSettings` resource on every new VNet
-  # forwarding `AllMetrics` to a workspace. Azure rejects a second diag setting that targets
-  # the same (resource, category, sink) triplet with a 409 Conflict — even if its name is
-  # different. The policy-managed one already covers AllMetrics; we contribute only the
-  # VMProtectionAlerts logs (typically NOT included by the default policy).
-  enabled_log {
-    category = "VMProtectionAlerts"
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
+  }
+
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }

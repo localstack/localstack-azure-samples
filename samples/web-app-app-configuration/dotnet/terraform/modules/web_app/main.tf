@@ -6,7 +6,7 @@ resource "azurerm_linux_web_app" "example" {
   https_only                    = var.https_only
   virtual_network_subnet_id     = var.virtual_network_subnet_id
   public_network_access_enabled = var.public_network_access_enabled
-  client_affinity_enabled       = false
+  client_affinity_enabled       = var.client_affinity_enabled
   tags                          = var.tags
 
   identity {
@@ -34,39 +34,21 @@ resource "azurerm_linux_web_app" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "example" {
-  name                       = "DiagnosticsSettings"
+  name                       = var.diagnostic_setting_name
   target_resource_id         = azurerm_linux_web_app.example.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
-  enabled_log {
-    category = "AppServiceHTTPLogs"
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
   }
 
-  enabled_log {
-    category = "AppServiceConsoleLogs"
-  }
-
-  enabled_log {
-    category = "AppServiceAppLogs"
-  }
-
-  enabled_log {
-    category = "AppServiceAuditLogs"
-  }
-
-  enabled_log {
-    category = "AppServiceIPSecAuditLogs"
-  }
-
-  enabled_log {
-    category = "AppServicePlatformLogs"
-  }
-
-  enabled_log {
-    category = "AppServiceAuthenticationLogs"
-  }
-
-  enabled_metric {
-    category = "AllMetrics"
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }
