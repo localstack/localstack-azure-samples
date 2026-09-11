@@ -30,55 +30,37 @@ The deploy scripts and templates follow the same pattern as the sibling [`web-ap
 
 ### Configuration design
 
-The original sample hands the five PostgreSQL settings to the Web App as app settings. This sample partitions them by sensitivity:
+The application needs five PostgreSQL connection settings. They are stored by sensitivity: the three connection details are key-values in the App Configuration store, and the two credentials are secrets in the Key Vault, exposed to the application through Key Vault references in the same store.
 
-| Setting       | Lives in                                   | Key or secret name          | Content type                                                         |
-| ------------- | ------------------------------------------ | --------------------------- | -------------------------------------------------------------------- |
-| `PG_HOST`     | App Configuration key-value                | `PG_HOST`                   | none                                                                 |
-| `PG_PORT`     | App Configuration key-value                | `PG_PORT`                   | none                                                                 |
-| `PG_DATABASE` | App Configuration key-value                | `PG_DATABASE`               | none                                                                 |
+| Setting       | Stored in                                   | Key or secret name                      | Content type                                                         |
+| ------------- | ------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------- |
+| `PG_HOST`     | App Configuration key-value                 | `PG_HOST`                               | none                                                                 |
+| `PG_PORT`     | App Configuration key-value                 | `PG_PORT`                               | none                                                                 |
+| `PG_DATABASE` | App Configuration key-value                 | `PG_DATABASE`                           | none                                                                 |
 | `PG_USER`     | Key Vault secret, referenced from the store | `PG_USER` referencing `pg-user`         | `application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8` |
 | `PG_PASSWORD` | Key Vault secret, referenced from the store | `PG_PASSWORD` referencing `pg-password` | `application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8` |
 
-The keys keep the names of the former environment variables, carry no label, and the two Key Vault references hold the versionless identifier of their secret (`{"uri":"https://<vault>.vault.azure.net/secrets/pg-user"}`), so they always follow the latest version. Key Vault secret names allow only alphanumerics and hyphens, which is why the secrets are called `pg-user` and `pg-password`. The App Configuration store is the app's single configuration source: a reader of the store sees where every setting comes from, and the secrets never leave Key Vault except when the authorized identity resolves them.
+**How the settings are stored.** The key-values are named like the environment variables the application reads, carry no label, and hold plain values: `PG_HOST` and `PG_PORT` come from the fully qualified domain name of the PostgreSQL flexible server, `PG_DATABASE` is `PlannerDB`. `PG_USER` and `PG_PASSWORD` are Key Vault references: key-values whose content type is `application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8` and whose value is the identifier of a secret, `{"uri":"https://<vault>.vault.azure.net/secrets/pg-user"}`. The identifier is versionless, so a reference always follows the latest version of its secret. The store never holds the secret values; they live only in the vault, as the secrets `pg-user` and `pg-password` (Key Vault secret names allow only alphanumerics and hyphens). Whoever reads the store sees where every setting comes from, and only an identity with read access to the vault can turn the two references into values.
 
-There are two ways for an App Service app to consume such a store:
+**How the application reads them.** The Web App receives two app settings: `Endpoints__AppConfiguration`, the store endpoint, and `AZURE_CLIENT_ID`, the client id of its user-assigned managed identity. At startup the application loads the `PG_*` keys with the [Azure App Configuration .NET provider](https://learn.microsoft.com/en-us/azure/azure-app-configuration/reference-dotnet-provider) (`Microsoft.Azure.AppConfiguration.AspNetCore`) and one `DefaultAzureCredential`: on App Service the credential is the user-assigned managed identity selected by `AZURE_CLIENT_ID`, on a developer machine it is the signed-in Azure CLI user. The provider reads the key-values from the store (the identity holds App Configuration Data Reader on it), recognizes the two Key Vault references by their content type and fetches the secrets from the vault with the same credential (the identity holds Key Vault Secrets User on it), so the application ends up with five plain settings. Both calls travel through the Private Endpoints of the store and the vault, resolved by the Private DNS Zones linked to the VNet. See `src/Services/AppConfigurationSettings.cs`:
 
-1. **In-process App Configuration provider** (the path this sample uses, on Azure and on the emulator). The app receives only the store endpoint and the identity client id, loads the `PG_*` keys itself with the [Azure App Configuration .NET provider](https://learn.microsoft.com/en-us/azure/azure-app-configuration/reference-dotnet-provider) (`Microsoft.Azure.AppConfiguration.AspNetCore`) and lets the provider resolve the Key Vault references with the same credential. One `DefaultAzureCredential` serves both stores: on App Service it resolves to the user-assigned managed identity selected by `AZURE_CLIENT_ID`, on a developer machine to the signed-in Azure CLI user. See `src/Services/AppConfigurationSettings.cs`:
+```csharp
+var credential = new DefaultAzureCredential();
+var settings = new ConfigurationBuilder()
+    .AddAzureAppConfiguration(options =>
+    {
+        options.Connect(new Uri(endpoint), credential)
+            .Select("PG_*")
+            .ConfigureKeyVault(keyVault => keyVault.SetCredential(credential))
+            .ConfigureStartupOptions(startup => startup.Timeout = TimeSpan.FromSeconds(60));
+    })
+    .Build();
+builder.Configuration.AddConfiguration(settings);
+```
 
-   ```csharp
-   var credential = new DefaultAzureCredential();
-   var settings = new ConfigurationBuilder()
-       .AddAzureAppConfiguration(options =>
-       {
-           options.Connect(new Uri(endpoint), credential)
-               .Select("PG_*")
-               .ConfigureKeyVault(keyVault => keyVault.SetCredential(credential))
-               .ConfigureStartupOptions(startup => startup.Timeout = TimeSpan.FromSeconds(60));
-       })
-       .Build();
-   builder.Configuration.AddConfiguration(settings);
-   ```
+The load is retried for a few minutes, so a role assignment that has not propagated yet produces log lines rather than a crash loop, and the application logs which keys it loaded and how many Key Vault references it resolved, never the values. The settings are read once at startup; a changed key-value or secret takes effect when the app restarts. The application reads the endpoint as `Endpoints:AppConfiguration`, which the .NET configuration system maps from the `Endpoints__AppConfiguration` app setting; the Python variant reads the same app setting, so both languages share one name.
 
-   The load is retried for a few minutes, so a role assignment that has not propagated yet produces log lines rather than a crash loop, and the app logs which keys it loaded and how many Key Vault references it resolved, never the values. The app reads the endpoint as `Endpoints:AppConfiguration`, which the .NET configuration system maps from the `Endpoints__AppConfiguration` app setting; the Python variant reads the same app setting, so both languages share one name.
-
-2. **App Service configuration references** (Azure only, documented here as the alternative, not used by the deployed sample). App Service can resolve app settings of the form `@Microsoft.AppConfiguration(Endpoint=https://<store>.azconfig.io; Key=<key>; Label=<label>)` at startup, without any code in the app, and a referenced key-value that is itself a Key Vault reference is resolved through the same identity. To switch this sample to that path on Azure, keep the store as it is and apply these settings to the Web App (the user-assigned identity must be selected explicitly, because the platform uses the system-assigned identity by default and the property name is misleading):
-
-   ```bash
-   STORE_ENDPOINT=$(az appconfig show --name local-appconfig-test --resource-group local-rg --query endpoint --output tsv)
-   IDENTITY_ID=$(az identity show --name local-identity-test --resource-group local-rg --query id --output tsv)
-   az webapp update --name local-webapp-test --resource-group local-rg --set keyVaultReferenceIdentity="$IDENTITY_ID"
-   az webapp config appsettings set --name local-webapp-test --resource-group local-rg --settings \
-     PG_HOST="@Microsoft.AppConfiguration(Endpoint=$STORE_ENDPOINT; Key=PG_HOST)" \
-     PG_PORT="@Microsoft.AppConfiguration(Endpoint=$STORE_ENDPOINT; Key=PG_PORT)" \
-     PG_DATABASE="@Microsoft.AppConfiguration(Endpoint=$STORE_ENDPOINT; Key=PG_DATABASE)" \
-     PG_USER="@Microsoft.AppConfiguration(Endpoint=$STORE_ENDPOINT; Key=PG_USER)" \
-     PG_PASSWORD="@Microsoft.AppConfiguration(Endpoint=$STORE_ENDPOINT; Key=PG_PASSWORD)"
-   ```
-
-   The identity needs the same two roles (App Configuration Data Reader on the store, Key Vault Secrets User on the vault). App Service resolves the references when the app starts and again on every restart; there is no automatic refresh. An unresolved reference (missing role, wrong key, syntax error) is not an error: the app sees the literal `@Microsoft.AppConfiguration(...)` string, which this app detects and reports instead of passing it to the PostgreSQL driver. See [Use App Configuration references for App Service](https://learn.microsoft.com/en-us/azure/app-service/app-service-configuration-references) and [Use Key Vault references as app settings](https://learn.microsoft.com/en-us/azure/app-service/app-service-key-vault-references). **Emulator note:** LocalStack for Azure hands app settings to the app container verbatim and does not resolve either reference syntax yet, so this path works on Azure only; the in-process path above works on both.
-
-Emulator note on endpoints: on Azure the store endpoint is `https://<store>.azconfig.io` and the vault URI is `https://<vault>.vault.azure.net/`; on the emulator they are `https://<store>.azure.localhost.localstack.cloud:4566` and `https://<vault>.vault.azure.localhost.localstack.cloud:4566`. The scripts and templates read both values back from the service and never assemble them from a name, so the same code runs on both targets.
+On Azure the store endpoint is `https://<store>.azconfig.io` and the vault URI is `https://<vault>.vault.azure.net/`; on the emulator they are `https://<store>.azure.localhost.localstack.cloud:4566` and `https://<vault>.vault.azure.localhost.localstack.cloud:4566`. The scripts and templates read both values back from the service and never assemble them from a name, so the same code runs on both targets.
 
 ## Prerequisites
 
@@ -91,14 +73,6 @@ Emulator note on endpoints: on Azure the store endpoint is `https://<store>.azco
 - [PostgreSQL client tools](https://www.postgresql.org/download/) (`psql`), required by the deploy scripts to create the application role and seed data
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform
-
-When you deploy to a real Azure subscription, also take care of the following:
-
-- **Roles of the deploying principal.** Contributor on the subscription or resource group creates every resource, including the role assignments' target resources. Writing the role assignments themselves needs `Microsoft.Authorization/roleAssignments/write` (Owner, User Access Administrator or Role Based Access Control Administrator). The Azure CLI and Terraform variants write the two secrets through the Key Vault data plane, so the deploying principal also needs [Key Vault Secrets Officer](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/security#key-vault-secrets-officer) on the vault: the scripts assign it to the signed-in user or service principal when they can resolve its object id, and retry the secret writes while the assignment propagates. The `az appconfig kv` commands authenticate with the store's access keys (the default `--auth-mode key`); if you disable access keys, pass `--auth-mode login` and grant the deploying principal App Configuration Data Owner on the store, and switch the store's Azure Resource Manager authentication mode to `Pass-through` so the Bicep and Terraform key-value writes keep working.
-- **Globally unique names.** The App Configuration store (5 to 50 alphanumerics and hyphens) and the Key Vault (3 to 24 alphanumerics and hyphens) have globally unique names, and the defaults `local-appconfig-test` and `local-keyvault-test` will collide with other people's resources. Export your own `SUFFIX` (or `PREFIX`) before running any of the three variants.
-- **Role assignment propagation.** A new role assignment can take up to 10 minutes to take effect ([Troubleshoot Azure RBAC](https://learn.microsoft.com/en-us/azure/role-based-access-control/troubleshooting)). The app retries its configuration load and App Service restarts it if needed, so it comes up on its own once the assignment is effective.
-- **Soft delete.** Deleting the store or the vault only soft-deletes it and keeps its name reserved for the retention period (7 days here). The scripts recover a soft-deleted store or vault of the same name before creating it; to free the name instead run `az appconfig purge` and `az keyvault purge`. The Terraform variant is the exception: after a resource-group deletion, purge both before running it again, because the azurerm provider recovers the soft-deleted vault with its secrets and then refuses to adopt the existing `pg-user` and `pg-password` secrets (see `terraform/README.md`).
-- **Costs and cleanup.** The App Service plan (S1), the PostgreSQL flexible server, the NAT gateway, the Standard App Configuration store and the Key Vault are billed for as long as they exist. Delete the resource group when you are done (`az group delete --name local-rg --yes`) and purge the soft-deleted store and vault.
 
 ## Deployment
 
@@ -122,6 +96,8 @@ Deploy the application using one of these methods:
 - [Terraform Deployment](./terraform/README.md)
 
 All three variants provision the same topology: a VNet whose *pe-subnet* hosts three Private Endpoints, to a public-access PostgreSQL flexible server, to the App Configuration store and to the Key Vault, each with its Private DNS Zone linked to the VNet; the store seeded with the three plain key-values and the two Key Vault references; the vault seeded with the two secrets; the user-assigned managed identity with its two role assignments; and the Web App configured with the store endpoint and the identity client id only.
+
+The store and the vault have globally unique names: on Azure, export your own `SUFFIX` (or `PREFIX`) before running a variant. When you are done, delete the resource group and purge the soft-deleted store and vault (`az appconfig purge`, `az keyvault purge`) so that their names are released.
 
 > **Note**
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process pulls and builds Docker images (LocalStack itself plus the `postgres:18` backing container for the flexible-server emulator). This is a one-time operation; subsequent deployments are much faster.
@@ -164,7 +140,7 @@ PostgreSQL schema initialized
 - **`az keyvault create` or `az appconfig create` fails because the name exists in a deleted state.** A previous run soft-deleted the resource. The scripts recover it automatically; to start from scratch, purge it: `az keyvault purge --name <vault> --location <location>` and `az appconfig purge --name <store> --location <location> --yes`.
 - **`KeyVaultReferenceException` or `No key vault credential or secret resolver callback configured`.** The provider found a Key Vault reference but has no credential for Key Vault. The sample passes the same credential with `keyvault_credential=credential` (Python) or `ConfigureKeyVault(kv => kv.SetCredential(credential))` (.NET); keep that call.
 - **`The setting Endpoints__AppConfiguration was not found.`** The Web App has no store endpoint app setting. Set it to the value of `az appconfig show --name <store> --query endpoint --output tsv`.
-- **A literal `@Microsoft.AppConfiguration(...)` value reaches the app.** You configured App Service references (the Azure-only alternative) and they were not resolved: the identity lacks a role, the key does not exist, `keyVaultReferenceIdentity` does not point at the user-assigned identity, or you are running on the emulator, which does not resolve them yet. The app fails fast with a message naming the setting.
+- **The app stops with a message about a literal `@Microsoft.AppConfiguration(...)` value.** The Web App holds an App Service configuration reference as an app setting and the platform did not resolve it (LocalStack for Azure hands app settings to the container verbatim). This sample expects the plain store endpoint in `Endpoints__AppConfiguration` and loads the settings itself.
 - **`az keyvault secret set` keeps failing with `Forbidden` on Azure.** The deploying principal has no Key Vault Secrets Officer assignment on the vault (the script could not resolve its object id) or the assignment is still propagating. Assign the role and re-run; the scripts are idempotent.
 
 ## PostgreSQL Tooling
