@@ -1,284 +1,206 @@
-# Azure Function App and Azure Front Door (Azure CLI)
+# Front Door and Function Apps: a catalog API published through an edge
 
-This sample creates a minimal Python Azure Function App that responds to `/{name}` and configures Azure Front Door (Standard SKU) to route traffic to it. It can target real Azure or LocalStack's Azure emulation via `lstk az` interception.
+This sample demonstrates [Azure Front Door Standard](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview) in front of two [Azure Function Apps](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview). The Function Apps serve a small *Catalog* API and are otherwise identical: each one reports its own name in every response, so which origin answered, which route matched and what path the origin was asked for can all be read straight off the body.
 
-## Overview
+Clients only ever call the Front Door endpoint. Between the client and the function, the edge picks an origin by priority, decides which of two routes applies, caches what the origin allows it to cache, and runs a [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine) that stamps a response header, rewrites one path prefix into another and answers a retired path with a redirect without calling an origin at all.
 
-- **`scripts/deploy_all.sh`**: One script that provisions all scenarios below in a single resource group:
-  1. Basic single-origin routing
-  2. Multiple origins with priority/weight selection
-  3. Route specificity/precedence
-  4. Rules Engine demo (three rules: response header, rewrite, redirect)
-  5. Endpoint enabled/disabled state toggle
-- **`scripts/cleanup_all.sh`**: Deletes the resource group created by `deploy_all.sh`
+The sample exercises both halves of Front Door on the LocalStack Azure emulator: the control plane (profile, endpoint, origin groups, origins, routes, rule set, rules, purge) and the data plane (routing, origin selection, health probes, caching, the rules engine and the headers the edge adds).
 
-## Architecture at a Glance (Diagrams)
-The following diagrams visualize each scenario provisioned by `deploy_all.sh`. They help you see the wiring between AFD endpoints, routes, origin groups/origins, and the Function App(s).
+## Architecture
 
-### Basic Single-Origin
-  
-![Basic single-origin](./images/basic.png)
+The solution is composed of the following Azure resources:
 
-**What to notice:** One Endpoint → one Route (`/*`) → one Origin Group → one Origin → Function App.
+1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): A logical container scoping all resources in this sample.
+2. [Azure Storage Accounts](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview) (two): The Function Apps' runtime storage (`AzureWebJobsStorage`), one each.
+3. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans) (Linux, B1): Shared by both Function Apps.
+4. [Azure Function Apps](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) (Python v2 model), **primary** and **secondary**: the *Catalog* origin, with four HTTP routes — `GET /api/catalog/{item}` (cacheable, `Cache-Control: public, max-age=300`), `GET /api/whoami` (what the origin received, `no-store`), `GET /api/status` and `GET|HEAD /api/health` (the health probe target). An `ORIGIN_NAME` app setting is the only difference between the two apps.
+5. [Azure Front Door Standard](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview) profile:
+   - One **endpoint**, the address clients call.
+   - The **catalog origin group**, holding the primary origin at priority 1 and the secondary as a priority-2 standby, with a [health probe](https://learn.microsoft.com/en-us/azure/frontdoor/health-probes) that sends `HEAD /api/health` every 30 seconds.
+   - The **status origin group**, holding the secondary origin alone.
+   - The **catalog route** (`/*`), which sends traffic to the catalog origin group with [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching) switched on and the rule set attached.
+   - The **status route** (`/status`), a more specific pattern pointing at the other origin group, with no caching and no rules.
+   - The **catalogrules** [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine): `stampHeader` (adds `X-Served-By` to every response), `rewriteShop` (`/shop/*` → `/catalog/*` on the way to the origin) and `redirectLegacy` (`/legacy` → `302` to `/status`, answered at the edge).
 
-### Multi-Origin (Priority/Weight)
-  
-![Multi-origin (priority/weight)](./images/multi.png)
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart LR
+    client((Client))
 
-**What to notice:** Two Origins in a single Origin Group with explicit `priority` and `weight`. A group-level health probe (HEAD `/`, 120s) gates origin eligibility; selection prefers the lowest priority and distributes by weight among equally prioritized healthy origins.
+    subgraph afd["Front Door Standard profile"]
+        direction TB
+        routes["Routes<br/>/* · /status"]
+        rules["Rule set catalogrules<br/>stampHeader · rewriteShop · redirectLegacy"]
+        cache["Edge cache<br/>on the /* route"]
+        routes --> rules --> cache
+    end
 
-### Route Specificity
-  
-![Route specificity](./images/spec.png)
+    subgraph origins["Origin groups"]
+        direction TB
+        primary["catalog-origin-group<br/>primary (priority 1)<br/>standby (priority 2)"]
+        secondary["status-origin-group<br/>secondary"]
+    end
 
-**What to notice:** Two Routes on the same Endpoint and Origin Group: a catch-all (`/*`) and a specific (`/john`). The most specific matching route should be chosen by the data plane.
+    subgraph apps["Function Apps (Python)"]
+        direction TB
+        app1["primary<br/>/api/catalog/{item} · /api/whoami<br/>/api/status · /api/health"]
+        app2["secondary<br/>same code, ORIGIN_NAME=secondary"]
+    end
 
-### Rules Engine
-  
-![Rules engine](./images/rules.png)
-  
-**What to notice:** A Route with an attached Rule Set (three rules):
-- **Rule 1**: ModifyResponseHeader on GET → `X-CDN: MSFT`
-- **Rule 2**: UrlRewrite when path begins with `/api` → `/`
-- **Rule 3**: UrlRedirect when path begins with `/old` → `/new` (302 Found)
+    client -->|"1: GET /catalog/1"| routes
+    cache -->|"2: on a miss, GET /api/catalog/1<br/>+ X-Forwarded-Host · X-Azure-ClientIP · X-Azure-FDID"| primary
+    primary --> app1
+    secondary --> app2
+    cache -->|"3: 200 + X-Served-By + X-Cache"| client
+    client -. "GET /status: the more specific route" .-> secondary
 
-### Endpoint Enabled/Disabled State
-  
-![Endpoint enabled/disabled state](./images/disabled_state.png)
+    style afd fill:#ffffff,stroke:#999999,color:#333333
+    style origins fill:#ffffff,stroke:#999999,color:#333333
+    style apps fill:#ffffff,stroke:#999999,color:#333333
+```
 
-**What to notice:** The Endpoint's `enabled-state` can be toggled; when Disabled, requests should return a 4xx (e.g., 403). Re-enabling restores normal behavior.
-
-### Notes for LocalStack Runs
-
-- The printed test URLs use `*.afd.localhost.localstack.cloud:4566` for AFD and `*.website.localhost.localstack.cloud:4566` for the Function App, so requests flow through the emulator's edge.
+The life of a request: the client calls `GET /catalog/1` on the endpoint → the `/*` route matches, since no more specific pattern does → the rule set runs → the edge looks in its cache, and on a miss picks the healthy origin with the lowest priority number → the route's origin path puts `/api` back on the front of the path and the request goes to the primary Function App as `GET /api/catalog/1` → the response comes back, is stored because its `Cache-Control` allows it, gets `X-Served-By` from the rule set and `X-Cache`/`X-Azure-Ref` from Front Door, and reaches the client. The second identical request never leaves the edge.
 
 ## Prerequisites
 
-- Bash (e.g., Git Bash, WSL, or Linux/macOS shell)
-- Azure CLI installed and logged in (`az login`) for real Azure
-- **Optional**: `lstk` (LocalStack CLI) in PATH to target the emulator via `lstk az` interception
-- `zip` utility in PATH (used for zip deploy to Azure)
+- [Docker](https://docs.docker.com/get-docker/)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+- [jq](https://jqlang.org/) and `zip`
+- A LocalStack account with a valid `LOCALSTACK_AUTH_TOKEN` (see the [Auth Token guide](https://docs.localstack.cloud/getting-started/auth-token/))
 
-## Quick Start
+## Setup
 
-1. **Start the LocalStack Azure emulator**
-  ```bash
-  # Start the LocalStack Azure emulator
-  IMAGE_NAME=localstack/localstack-azure localstack start -d
-  localstack wait -t 60
-
-  # Route all Azure CLI calls to the LocalStack Azure emulator
-  lstk az start-interception
-  ```
-
-2. **Deploy against real Azure** (eastus by default):
-   ```bash
-   bash ./scripts/deploy_all.sh --name-prefix mydemo
-   ```
-
-3. **Deploy against LocalStack emulator**:
-   ```bash
-   bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack
-   ```
-
-The script prints:
-- Resource group name
-- AFD endpoint hostnames for each scenario and sample URLs (e.g., `https://<endpoint>.z01.azurefd.net/john`)
-
-## Scenarios Deployed by deploy_all.sh
-
-### 1. Basic Single-Origin
-- One Function App, one AFD endpoint with a catch-all route
-- Test URL: printed as `[Basic]` in the output
-
-### 2. Multiple Origins (Priority/Weight)
-- Two Function Apps (A primary, B secondary by default), one origin group with priorities/weights
-- Call repeatedly to observe distribution; the function response includes `"from <WEBSITE_HOSTNAME>"` to visualize selected origin
-
-### 3. Route Specificity
-- One endpoint with two routes pointing to the same origin group: catch-all (`/*`) and a specific (`/john`) route
-- Compare responses for `/john` vs other paths
-
-### 4. Rules Engine Demo
-Creates a Rule Set with three rules and attaches it to the route:
-- **ModifyResponseHeader** on GET: sets header `X-CDN: MSFT`
-- **UrlRewrite**: when UrlPath begins with `/api`, rewrites to `/`
-- **UrlRedirect**: when UrlPath begins with `/old`, redirects (302 Found) to `/new`
-
-If the `az afd rule-set`/`az afd rule` commands are unavailable, the script skips rule creation gracefully.
-
-### 5. Endpoint Enabled/Disabled State
-Provisions a dedicated endpoint you can toggle with:
-```bash
-az afd endpoint update -g <RG> --profile-name <PROFILE> --endpoint-name <ENDPOINT> --enabled-state Disabled
-az afd endpoint update -g <RG> --profile-name <PROFILE> --endpoint-name <ENDPOINT> --enabled-state Enabled
-```
-
-## Unified Scripts Details
-
-### deploy_all.sh (What It Provisions/Tests)
-- Creates one AFD Profile and up to five Endpoints (one per scenario):
-  - Basic: single origin, catch‑all route
-  - Multi: two origins in one origin group with priority/weight and a HEAD health probe
-  - Spec: two routes on one endpoint to demonstrate route specificity (`/*` vs `/john`)
-  - Rules: a rules engine Rule Set attached to the endpoint’s route (three rules listed above)
-  - State: an endpoint to toggle Enabled/Disabled
-- Creates the necessary Function App(s): one main app for Basic/Spec/Rules/State, and two apps (A/B) for Multi.
-- Publishes the function code with zip deploy (`az functionapp deployment source config-zip`) for both Azure and LocalStack.
-- Prints convenient test URLs for each scenario
-- Writes an environment file for cleanup at: `scripts/.last_deploy_all.env`
-
-### deploy_all.sh (How to Run)
-
-**Azure (cloud):**
-```bash
-bash ./scripts/deploy_all.sh --name-prefix mydemo
-```
-
-**LocalStack (emulator):**
-```bash
-bash ./scripts/deploy_all.sh --name-prefix mydemo --use-localstack
-```
-
-**Useful flags:**
-- `-p, --name-prefix`: base name used for resources (auto-sanitized to lowercase/digits)
-- `-l, --location`: Azure region (default: `eastus`)
-- `-g, --resource-group`: use a specific RG instead of an auto-generated one
-- `--python-version`: Python runtime for Function Apps (default: `3.11`)
-- **Scenario toggles** (all enabled by default): `--no-basic`, `--no-multi`, `--no-spec`, `--no-rules`, `--no-state`
-
-### deploy_all.sh (Outputs to Expect)
-
-- Resource group name, e.g., `rg-<prefix>-<suffix>`
-- Scenario endpoints (Azure or LocalStack hosts) and example URLs, e.g.:
-  ```
-  [Rules] AFD Local Endpoint: https://ep-<prefix>-rules-<suffix>.afd.localhost.localstack.cloud:4566/john
-  ```
-- For LocalStack runs, the function host and AFD local endpoint names will use `*.localhost.localstack.cloud:4566`
-- The script also writes `scripts/.last_deploy_all.env` with variables like:
-  - `RESOURCE_GROUP`, `PROFILE_NAME`, `EP_BASIC`, `EP_MULTI`, `EP_SPEC`, `EP_RULES`, `EP_STATE`, `FUNC_MAIN`, `FUNC_A`, `FUNC_B`
-  - The Rules Engine rule set name follows the pattern `rs<prefix><suffix>` (alphanumeric), which can be derived from `PROFILE_NAME`:
-    ```bash
-    BASE="${PROFILE_NAME#afd-}"; RULE_SET="rs${BASE//-/}"
-    ```
-
-### cleanup_all.sh (What It Does)
-
-- Deletes the entire resource group created by `deploy_all.sh` using `az group delete --no-wait`
-- Supports two ways to specify the resource group:
-  1. `--env-file ./scripts/.last_deploy_all.env` (recommended after a fresh deploy)
-  2. `-g/--resource-group <rg-name>`
-- Supports `--use-localstack` to intercept the `az` CLI for emulator cleanup
-
-### cleanup_all.sh (How to Run)
-
-**Using the env file created by the deploy:**
-```bash
-bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env
-```
-
-**Passing RG explicitly:**
-```bash
-bash ./scripts/cleanup_all.sh --resource-group rg-<prefix>-<suffix>
-```
-
-**LocalStack cleanup:**
-Add `--use-localstack` to either command above.
-
-## Verifying the Rules Engine Scenario Quickly (LocalStack)
-
-Assume you ran with `--name-prefix mydemo` and got `ep-mydemo-rules-12345`:
+Start LocalStack for Azure and point the Azure CLI at it:
 
 ```bash
-HOST="https://ep-mydemo-rules-12345.afd.localhost.localstack.cloud:4566"
-
-# 1) ModifyResponseHeader on GET → expect X-CDN: MSFT
-curl -i "$HOST/" | grep -i "^X-CDN:\s*MSFT" || echo "Header X-CDN not present"
-
-# 2) UrlRewrite for /api → /
-curl -i "$HOST/api" | head -n 1
-
-# 3) UrlRedirect for /old → /new
-curl -i -L "$HOST/old" | head -n 5
+export LOCALSTACK_AUTH_TOKEN=<your-auth-token>
+IMAGE_NAME=localstack/localstack-azure localstack start -d
+lstk az start-interception
+az login --service-principal -u any-app -p any-pass --tenant any-tenant
+az account set --subscription 00000000-0000-0000-0000-000000000000
 ```
 
-## Deploy to Azure (Cloud) and Test
+Every command below is the same against real Azure; sign in with `az login` instead.
 
-1. **Sign in/select subscription:**
-   ```bash
-   az login
-   az account set --subscription "<SUBSCRIPTION_ID_OR_NAME>"
-   ```
+## Deployment
 
-2. **Run deployment** (avoid `--use-localstack`):
-   ```bash
-   cd samples/function-app-front-door/python
-   bash ./scripts/deploy_all.sh --name-prefix mydemo --location eastus
-   ```
-
-3. **Note the printed outputs** (resource group and endpoints) and test as instructed. Allow 2–10 minutes for AFD readiness.
-
-## If You Closed the Terminal and Need Hostnames Later
-
-**Function host:**
 ```bash
-az functionapp show -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --query defaultHostName -o tsv
+bash scripts/deploy.sh
 ```
 
-**AFD endpoint hostname:**
+The script provisions the resource group, the App Service plan, the two storage accounts and the two Function Apps, deploys the same zip package to both, then creates the Front Door profile, endpoint, origin groups, origins, rule set, rules and routes. It finishes by printing the endpoint URL and a handful of `curl` commands to try.
+
+It is safe to re-run: the Azure resources it creates are either checked for first or created with an idempotent `PUT`.
+
+## Testing
+
 ```bash
-az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <ENDPOINT_NAME> --query hostName -o tsv
+bash scripts/validate.sh
+bash scripts/call-front-door.sh
 ```
 
-**List resources by RG:**
-- Function Apps:
-  ```bash
-  az functionapp list -g <RESOURCE_GROUP> --query "[].{name:name,host:defaultHostName}"
-  ```
-- AFD profiles:
-  ```bash
-  az afd profile list -g <RESOURCE_GROUP> --query "[].name"
-  ```
-- AFD endpoints:
-  ```bash
-  az afd endpoint list -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --query "[].{name:name,host:hostName}"
-  ```
+`validate.sh` walks the whole chain and exits non-zero on any failure:
 
-## Common Notes and Troubleshooting
+| # | Check | What it proves |
+|---|-------|----------------|
+| 1 | Both Function Apps answer `/api/health`, including on `HEAD` | The origins are up and answer the method the health probe uses |
+| 2 | `GET /catalog/1` through the endpoint | The catch-all route, the priority-1 origin, and the route's origin path |
+| 3 | `X-Served-By` and `X-Azure-Ref` on the response | The rule set ran; the edge stamped its reference id |
+| 4 | `GET /status` | A more specific route wins, and sends the request to a different origin group |
+| 5 | `GET /shop/2` | The `UrlRewrite` rule: the origin is asked for `/api/catalog/2` |
+| 6 | `GET /legacy` | The `UrlRedirect` rule answers `302` at the edge, without calling an origin |
+| 7 | `/catalog/3` twice, then a purge, then a `no-store` path | Caching, `X-Cache`, `Age`, purge, and the origin's power to refuse caching |
+| 8 | `GET /whoami` | `X-Forwarded-Host`, `X-Azure-ClientIP` and `X-Azure-FDID` reach the origin |
+| 9 | Ten requests to an uncached path | Priority is a strict tier: the standby answers none of them |
+| 10 | `GET /catalog/99` | The origin's own `404` passes through the edge untouched |
+| 11 | The endpoint disabled, then enabled again | `enabledState` takes the endpoint out of service and back |
 
-- **Windows users**: Use Git Bash or WSL to run bash scripts
-- **Authentication**: The function trigger is Anonymous; no keys required
-- **Function response**: Returns plain text and echoes `WEBSITE_HOSTNAME` to help testing multi-origins
-- **Application Insights**: Disabled by default via `--disable-app-insights`
-- **Deployment method**: zip deploy via the Azure CLI for both Azure and LocalStack
-- **AFD readiness**: 2–10 minutes typical; check provisioning state:
-  ```bash
-  az afd endpoint show -g <RESOURCE_GROUP> --profile-name <AFD_PROFILE_NAME> --endpoint-name <ENDPOINT_NAME> --query provisioningState -o tsv
-  ```
-- **Region/runtime**: Change with `--location`/`--python-version` in `deploy_all.sh`
+`call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received.
+
+### Calling the endpoint by hand
+
+```bash
+ENDPOINT_URL=http://local-catalog-test.afd.azure.localhost.localstack.cloud:4566
+
+# A cacheable response: the first request is a miss, the second a hit
+curl -si $ENDPOINT_URL/catalog/1 | grep -iE "^(HTTP|x-cache|age|x-served-by)"
+```
+
+```text
+HTTP/1.1 200 OK
+x-served-by: front-door
+x-cache: MISS
+```
+
+```bash
+# The rules engine rewrites the path before the origin sees it
+curl -s $ENDPOINT_URL/shop/2 | jq '{origin, path, sku: .item.sku}'
+```
+
+```json
+{
+  "origin": "primary",
+  "path": "/api/catalog/2",
+  "sku": "AFD-002"
+}
+```
+
+```bash
+# What Front Door tells the origin about the caller and about itself
+curl -s $ENDPOINT_URL/whoami | jq .front_door_headers
+```
+
+```json
+{
+  "host": "local-catalog-primary-test.azurewebsites.azure.localhost.localstack.cloud:4566",
+  "via": "1.1 Azure",
+  "x-azure-clientip": "127.0.0.1",
+  "x-azure-fdid": "8c7dc56e48154939834f0469a7e5c1bf",
+  "x-azure-requestchain": "hops=1",
+  "x-azure-socketip": "127.0.0.1",
+  "x-forwarded-for": "127.0.0.1",
+  "x-forwarded-host": "local-catalog-test.afd.azure.localhost.localstack.cloud",
+  "x-forwarded-proto": "http"
+}
+```
+
+```bash
+# Empty the cache for a set of paths
+az afd endpoint purge \
+  --endpoint-name local-catalog-test \
+  --profile-name local-catalog-afd-test \
+  --resource-group local-rg \
+  --content-paths '/catalog/*'
+```
 
 ## Cleanup
 
-Delete all resources by removing the resource group (non-blocking delete):
-
-**Using env file:**
 ```bash
-bash ./scripts/cleanup_all.sh --env-file ./scripts/.last_deploy_all.env
+bash scripts/cleanup.sh
 ```
 
-**Or directly:**
-```bash
-bash ./scripts/cleanup_all.sh --resource-group <rg-name>
-```
+## LocalStack notes
 
-## Additional Notes
+- **The endpoint's local address.** Front Door assigns the endpoint a `*.azurefd.net` host name, and the emulator reports one too, but that name only resolves once [LocalStack's DNS server](https://docs.localstack.cloud/aws/capabilities/networking/dns-server/) is in front of the machine. The scripts use the emulator's own alias instead, `http://<endpoint-name>.afd.azure.localhost.localstack.cloud:4566`, which resolves to `127.0.0.1` without any DNS setup.
+- **Plain HTTP to the origins.** The emulator serves Function Apps over HTTP on port 4566, so the routes forward with `HttpOnly` and do not redirect HTTP to HTTPS. Against real Azure the same script uses `HttpsOnly` and `--https-redirect Enabled`, because `*.azurewebsites.net` is HTTPS-only. This is the only difference in what the script deploys.
+- **The origin's host name and port.** An origin's `--host-name` is a bare host name, so the script splits the `host:4566` the emulator reports and passes the port as `--http-port`. The `--origin-host-header` keeps the port, because that is the name the emulator routes the Function App by.
+- **Cache status values.** The emulator reports `X-Cache: HIT`, `MISS` and `UNCACHEABLE`; Azure reports `TCP_HIT`, `TCP_MISS` and friends. `validate.sh` looks for the word, not the whole value.
 
-- Azure Front Door is a global resource; the script uses `Standard_AzureFrontDoor` SKU and links the route to the default domain of the endpoint
-- The function removes the `/api` prefix so you can call `/john` directly
-- The deployment uses zip deploy; because the function has no heavy dependencies, it should work without additional build steps. If you add dependencies that require native builds, consider using the Azure Functions Core Tools for publishing
+## Two Azure details worth knowing
+
+- **`UrlPath` conditions drop the leading slash.** A rule that should fire on `/shop/2` matches on `shop`, not `/shop`; `UrlRewrite`'s `--source-pattern`, on the other hand, keeps it (`/shop`). A rule with a leading slash in the match value is accepted, stored and silently never matches.
+- **`az afd rule create` has two spellings.** Up to Azure CLI 2.83 the `afd` commands are part of the CLI and take one flattened condition and action per rule (`--match-variable`, `--action-name`, …). From 2.85 they live in the [`cdn` extension](https://github.com/Azure/azure-cli-extensions/tree/main/src/cdn), which takes `--conditions` and `--actions` in its own shorthand syntax, and spells the route's rule sets and caching differently too. `deploy.sh` detects which one is installed and uses it.
+
+## What this sample does not cover
+
+[Custom domains](https://learn.microsoft.com/en-us/azure/frontdoor/standard-premium/how-to-add-custom-domain) and their certificates, [WAF policies and security policies](https://learn.microsoft.com/en-us/azure/web-application-firewall/afds/afds-overview), [private link origins](https://learn.microsoft.com/en-us/azure/frontdoor/private-link), and the older [classic Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview) and [classic CDN](https://learn.microsoft.com/en-us/azure/cdn/cdn-overview) profiles. The emulator implements all of them; see the [Front Door coverage page](https://docs.localstack.cloud/azure/services/front-door/) for what each one supports.
 
 ## References
 
-- [LocalStack for Azure Documentation](https://docs.localstack.cloud/azure/)
-- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
-- [lstk GitHub repository](https://github.com/localstack/lstk)
+- [Azure Front Door documentation](https://learn.microsoft.com/en-us/azure/frontdoor/)
+- [Routing architecture](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-routing-architecture) and [route matching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-routing-methods)
+- [Rules engine actions](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine-actions) and [match conditions](https://learn.microsoft.com/en-us/azure/frontdoor/rules-match-conditions)
+- [Caching with Azure Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)
+- [How Front Door forwards requests to origins](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-http-headers-protocol)
+- [LocalStack for Azure: Front Door](https://docs.localstack.cloud/azure/services/front-door/)

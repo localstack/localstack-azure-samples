@@ -32,7 +32,7 @@ SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
-  "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd|"
+  "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
   "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
@@ -201,7 +201,10 @@ if [[ "${1:-}" == "--list" ]]; then
       watch=("$path" "$(dirname "$path")/src" "$(dirname "$path")/scripts")
       name="${path#samples/}"
     else
-      watch=("$path/scripts" "$path/src")
+      # A sample's application code lives in src/ or, for the Function App samples, function/;
+      # a change there has to re-run the sample as surely as a change to its scripts. Folders that
+      # do not exist simply never match a changed file.
+      watch=("$path/scripts" "$path/src" "$path/function")
       name="${path#samples/}/scripts"
     fi
 
