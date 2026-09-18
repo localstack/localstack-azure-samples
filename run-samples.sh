@@ -32,7 +32,12 @@ SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
+<<<<<<< HEAD
   "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh"
+=======
+  "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd|"
+  "samples/api-management-function-app/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-api.sh"
+>>>>>>> d35cb2e (Add an API Management and Function App sample (gateway, subscription keys, policies, named values))
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
   "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
@@ -61,6 +66,7 @@ TERRAFORM_SAMPLES=(
   "samples/servicebus/java/terraform|bash deploy.sh"
   "samples/eventhubs/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/eventhubs-eventgrid/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/api-management-function-app/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/terraform|bash deploy.sh"
   "samples/function-app-storage-http/dotnet/terraform|bash deploy.sh"
@@ -86,6 +92,7 @@ BICEP_SAMPLES=(
   "samples/servicebus/java/bicep|bash deploy.sh"
   "samples/eventhubs/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/eventhubs-eventgrid/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/api-management-function-app/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
   #"samples/web-app-sql-database/python/bicep|bash deploy.sh"
   "samples/function-app-managed-identity/python/bicep|bash deploy.sh"
   "samples/function-app-service-bus/dotnet/bicep|bash deploy.sh"
@@ -138,6 +145,7 @@ TOTAL=${#ALL_SAMPLES[@]}
 # test_deploy_zip_without_basic_auth) are still marked @only_on_amd64.
 ARM64_SAMPLE_DIRS=(
   "samples/aci-blob-storage/python"
+  "samples/api-management-function-app/python"
   "samples/container-apps-blob-storage/python"
   "samples/function-app-front-door/python"
   "samples/function-app-managed-identity/python"

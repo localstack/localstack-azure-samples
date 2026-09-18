@@ -1,0 +1,53 @@
+<!--
+  Policy of the Inventory API. It applies to every operation of the API, on top of whatever the
+  global policy does (<base />). The same document is used by the Azure CLI, Terraform and Bicep
+  deployments.
+-->
+<policies>
+  <inbound>
+    <!-- Browser preflights are answered by the gateway itself, so a single-page app can call the API. -->
+    <cors allow-credentials="false">
+      <allowed-origins>
+        <origin>*</origin>
+      </allowed-origins>
+      <allowed-methods>
+        <method>GET</method>
+        <method>OPTIONS</method>
+      </allowed-methods>
+      <allowed-headers>
+        <header>*</header>
+      </allowed-headers>
+      <expose-headers>
+        <header>X-Served-By</header>
+      </expose-headers>
+    </cors>
+    <base />
+    <!-- Ten calls a minute per subscription; the eleventh is refused with a 429 and a Retry-After. -->
+    <rate-limit calls="10" renewal-period="60" />
+    <!--
+      The backend answers only requests that carry the shared secret. The secret lives in a secret
+      named value, so this document never contains it, and exists-action="override" means a client
+      cannot smuggle its own value through.
+    -->
+    <set-header name="X-Backend-Secret" exists-action="override">
+      <value>{{backend-secret}}</value>
+    </set-header>
+    <!-- Tell the backend who is calling, and keep the subscription key out of its logs. -->
+    <set-header name="X-Caller-Subscription" exists-action="override">
+      <value>@(context.Subscription.Id)</value>
+    </set-header>
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+    <set-header name="X-Served-By" exists-action="override">
+      <value>Azure API Management</value>
+    </set-header>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>
