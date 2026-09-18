@@ -174,9 +174,12 @@ class SqlHelper:
         # (https://learn.microsoft.com/sql/connect/odbc/major-version-differences#encryption-changes).
         # That works against Azure SQL Database and against LocalStack for Azure alike, because the
         # emulator serves a publicly trusted certificate for the host name it returns in
-        # fullyQualifiedDomainName. Add TrustServerCertificate=yes only if LocalStack could not
-        # download that certificate (for example with SKIP_SSL_CERT_DOWNLOAD=1), in which case the
-        # server presents a certificate issued by the LocalStack root certificate authority.
+        # fullyQualifiedDomainName. If LocalStack could not download that certificate (for example
+        # with SKIP_SSL_CERT_DOWNLOAD=1) it serves one issued by the LocalStack root certificate
+        # authority instead: install that authority in the client's trust store, which keeps both
+        # encryption and validation. TrustServerCertificate=yes is a last resort, because it stops
+        # the driver validating the certificate at all and exposes the connection to an
+        # adversary-in-the-middle.
 
         if not self.use_azure_credential:
             # Traditional SQL authentication
