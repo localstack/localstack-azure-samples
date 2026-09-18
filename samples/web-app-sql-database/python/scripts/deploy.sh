@@ -360,7 +360,7 @@ else
 fi
 
 # Build connection string
-SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
+SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;Connection Timeout=30;"
 
 # Create secret
 echo "Creating secret [$SECRET_NAME] in Key Vault..."
