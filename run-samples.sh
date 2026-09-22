@@ -32,12 +32,8 @@ SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
-<<<<<<< HEAD
   "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh"
-=======
-  "samples/function-app-front-door/python|bash scripts/deploy_all.sh --name-prefix testafd|"
   "samples/api-management-function-app/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-api.sh"
->>>>>>> d35cb2e (Add an API Management and Function App sample (gateway, subscription keys, policies, named values))
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
   "samples/function-app-storage-http/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-triggers.sh"
