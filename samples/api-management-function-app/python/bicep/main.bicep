@@ -29,6 +29,13 @@ param publisherName string = 'LocalStack'
 @description('E-mail address API Management sends its notifications to.')
 param publisherEmail string = 'noreply@localstack.cloud'
 
+@description('Scheme API Management uses to call the Function App. The emulator serves it over plain HTTP; use https on real Azure.')
+@allowed([
+  'http'
+  'https'
+])
+param backendScheme string = 'http'
+
 @description('Shared secret the gateway adds to every backend call; generated per run by deploy.sh.')
 @secure()
 param backendSecret string
@@ -82,10 +89,15 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
   location: location
   kind: 'functionapp,linux'
   properties: {
-    httpsOnly: false
+    // Plain HTTP while the gateway calls this app over http:// -- the emulator serves the Function
+    // App that way; with backendScheme = https the app accepts only HTTPS, as on real Azure.
+    httpsOnly: backendScheme == 'https'
     reserved: true
     serverFarmId: appServicePlan.id
     siteConfig: {
+      // On a Dedicated (App Service) plan the Functions host goes idle without this, and a gateway
+      // call then waits for a cold start. Both sibling Function App samples set it.
+      alwaysOn: true
       linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
       appSettings: [
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
@@ -144,7 +156,7 @@ resource inventoryApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
       'https'
     ]
     subscriptionRequired: true
-    serviceUrl: 'http://${functionApp.properties.defaultHostName}/api'
+    serviceUrl: '${backendScheme}://${functionApp.properties.defaultHostName}/api'
     format: 'openapi+json'
     value: loadTextContent('../apim/openapi.json')
   }

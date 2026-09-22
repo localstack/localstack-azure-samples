@@ -309,7 +309,9 @@ fi
 # * accepts whatever ETag the entity currently has.
 echo "Applying the API policy to the [$API_ID] API..."
 POLICY_URL="$APIM_ID/apis/$API_ID/policies/policy?api-version=$APIM_API_VERSION"
-POLICY_BODY=$(jq -n --rawfile xml "$APIM_DIR/inventory-api-policy.xml" '{properties: {format: "xml", value: $xml}}')
+# rawxml, matching bicep/main.bicep: the shared document is uploaded verbatim, so a policy
+# expression containing &&, < or & needs no XML escaping and cannot break this variant alone.
+POLICY_BODY=$(jq -n --rawfile xml "$APIM_DIR/inventory-api-policy.xml" '{properties: {format: "rawxml", value: $xml}}')
 az rest --method get --url "$POLICY_URL" &>/dev/null
 
 if [[ $? == 0 ]]; then

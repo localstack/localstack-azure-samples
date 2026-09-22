@@ -11,8 +11,11 @@ API_ID='inventory-api'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
 RATE_LIMIT_CALLS=10
-BODY_FILE='/tmp/inventory_body.json'
-HEADERS_FILE='/tmp/inventory_headers.txt'
+# mktemp rather than fixed paths: two runs of this script must not write the same file, and
+# `curl -o` would follow a symlink a third party had left at a predictable name.
+BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_body.XXXXXX.json")"
+HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_headers.XXXXXX.txt")"
+trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 FAILED=0
 
@@ -69,8 +72,13 @@ OPERATIONS=$(az apim api operation list \
 	--query "[].name" \
 	--output tsv | sort | tr '\n' ' ')
 echo "Operations: $OPERATIONS"
-for OPERATION in getItem listItems whoAmI; do
-	if ! echo "$OPERATIONS" | grep -qw "$OPERATION"; then
+# API Management normalises operationId into the operation's resource name, and the first rule is
+# "convert to lower case", so a real import of apim/openapi.json produces listitems/getitem/whoami
+# while the emulator preserves the document's casing. Matched case-insensitively so the same check
+# holds on both.
+# https://learn.microsoft.com/azure/api-management/api-management-api-import-restrictions
+for OPERATION in getitem listitems whoami; do
+	if ! echo "$OPERATIONS" | grep -qwi "$OPERATION"; then
 		echo "Operation [$OPERATION] was not imported"
 		FAILED=1
 	fi
@@ -180,6 +188,19 @@ else
 	FAILED=1
 fi
 
+# 8b. The key passed as the query parameter is also stripped before the backend. The policy
+# deletes both forms, so neither reaches the function nor its logs.
+echo "Calling [$API_URL/whoami] with the key as the subscription-key query parameter..."
+QUERY_KEY_STATUS=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$API_URL/whoami?subscription-key=$KEY")
+FORWARDED_URL=$(jq -r '.url // ""' "$BODY_FILE" 2>/dev/null)
+echo "HTTP $QUERY_KEY_STATUS, backend saw: $FORWARDED_URL"
+if [[ "$QUERY_KEY_STATUS" == "200" && "$FORWARDED_URL" != *"subscription-key"* ]]; then
+	echo "The query-parameter key authenticated the call and was stripped before the backend"
+else
+	echo "Expected 200 with no subscription-key in the URL the backend received"
+	FAILED=1
+fi
+
 # 9. A browser preflight is answered by the gateway itself, from the cors policy, without a key.
 # On the emulator this is not yet observable: LocalStack answers CORS for every hostname it serves
 # (its own origin allow-list, see EXTRA_CORS_ALLOWED_ORIGINS), the API Management gateway included,
@@ -206,7 +227,9 @@ fi
 echo "Calling [$API_URL/nothing-here]..."
 UNKNOWN_STATUS=$(curl -s -m 10 -o "$BODY_FILE" -w "%{http_code}" -H "Ocp-Apim-Subscription-Key: $KEY" "$API_URL/nothing-here")
 echo "HTTP $UNKNOWN_STATUS: $(cat "$BODY_FILE")"
-if [[ "$UNKNOWN_STATUS" == "404" ]] && grep -q "Resource not found" "$BODY_FILE"; then
+# Case-insensitive like the two 401 checks above: Microsoft's own troubleshooting page renders
+# this as "Resource Not Found" while the JSON body is conventionally lower case.
+if [[ "$UNKNOWN_STATUS" == "404" ]] && grep -qi "Resource not found" "$BODY_FILE"; then
 	echo "Unknown operations get the gateway's 404"
 else
 	echo "Expected the gateway's 404 for an unknown operation"

@@ -8,8 +8,10 @@ APIM_NAME="${PREFIX}-inventory-apim-${SUFFIX}"
 APIM_API_VERSION='2022-08-01'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
-BODY_FILE='/tmp/inventory_call.json'
-HEADERS_FILE='/tmp/inventory_call_headers.txt'
+# mktemp rather than fixed paths, as in validate.sh: parallel-safe, and cleaned up on exit.
+BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_call.XXXXXX.json")"
+HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_call_headers.XXXXXX.txt")"
+trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 # Retrieve the API Management service
 echo "Retrieving the [$APIM_NAME] API Management service..."

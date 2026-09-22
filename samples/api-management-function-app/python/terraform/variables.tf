@@ -28,6 +28,17 @@ variable "python_version" {
   default     = "3.11"
 }
 
+variable "backend_scheme" {
+  description = "Scheme API Management uses to call the Function App. The emulator serves it over plain HTTP; use https on real Azure."
+  type        = string
+  default     = "http"
+
+  validation {
+    condition     = contains(["http", "https"], var.backend_scheme)
+    error_message = "backend_scheme must be http or https."
+  }
+}
+
 variable "apim_sku_name" {
   description = "SKU of the API Management service, as <tier>_<capacity>. Consumption provisions in minutes; the classic tiers take much longer."
   type        = string

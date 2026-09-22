@@ -37,6 +37,11 @@
       <value>@(context.Subscription.Id)</value>
     </set-header>
     <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <!--
+      A key may also arrive as the subscription-key query parameter. Deleting only the header would
+      leave that copy in the URL the backend receives, and in its logs.
+    -->
+    <set-query-parameter name="subscription-key" exists-action="delete" />
   </inbound>
   <backend>
     <base />

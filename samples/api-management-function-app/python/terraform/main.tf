@@ -57,6 +57,10 @@ resource "azurerm_linux_function_app" "inventory" {
   functions_extension_version = "~4"
 
   site_config {
+    # On a Dedicated (App Service) plan the Functions host goes idle without this, and a gateway
+    # call then waits for a cold start. Both sibling Function App samples set it.
+    always_on = true
+
     application_stack {
       python_version = var.python_version
     }
@@ -112,7 +116,7 @@ resource "azurerm_api_management_api" "inventory" {
   description           = "Stock levels served by an Azure Function App and published through Azure API Management."
   path                  = local.api_path
   protocols             = ["https"]
-  service_url           = "http://${azurerm_linux_function_app.inventory.default_hostname}/api"
+  service_url           = "${var.backend_scheme}://${azurerm_linux_function_app.inventory.default_hostname}/api"
   subscription_required = true
 
   import {

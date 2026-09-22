@@ -27,7 +27,10 @@ def reject_without_secret(req):
     """401 unless the request carries the shared secret the gateway injects."""
     expected = os.environ.get("BACKEND_SECRET", "")
     supplied = req.headers.get(SECRET_HEADER, "")
-    if expected and hmac.compare_digest(supplied, expected):
+    # Encoded before comparing: compare_digest refuses str operands that are not ASCII-only, and a
+    # client can put any bytes in the header, so comparing the strings turns an intended 401 into an
+    # unhandled 500.
+    if expected and hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         return None
     return json_response(
         {
