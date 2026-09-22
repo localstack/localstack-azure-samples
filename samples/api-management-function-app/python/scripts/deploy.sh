@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+# Overridable so the same scripts can deploy to real Azure, where the API Management service, the
+# storage account and the Function App all need globally unique names:
+#   PREFIX=apimdemo SUFFIX=$RANDOM bash scripts/deploy.sh
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}invstorage${SUFFIX}"

@@ -108,7 +108,7 @@ bash scripts/call-api.sh
 `validate.sh` walks the whole chain and exits non-zero on any failure:
 
 1. The Function App refuses a direct call without the shared secret (401): the gateway is the only way in.
-2. The OpenAPI import produced the three operations. Matched case-insensitively: API Management normalises `operationId` into the operation's name and lower-cases it, so real Azure stores `listitems`/`getitem`/`whoami` while the emulator keeps the document's casing.
+2. The OpenAPI import produced the three operations, matched case-insensitively. API Management normalises `operationId` into the operation's name — it replaces characters that are not allowed and truncates at 76 — and Microsoft's import-restrictions page also lists lower-casing, though a deployment to real Azure kept the casing (`getItems` stayed `getItems`, `Get Items` became `Get-Items`). The check does not depend on either behaviour.
 3. A keyless call is refused with Azure's *missing subscription key* message, and a wrong key with its *invalid subscription key* message.
 4. With the subscription key, `listItems` and `getItem` are authorised, matched (including the `{id}` template parameter) and answered by the function; a 404 from the backend passes through untouched; every response carries the outbound `X-Served-By` header.
 5. `whoAmI` shows what the backend received: the injected secret, the calling subscription in `X-Caller-Subscription`, and no `Ocp-Apim-Subscription-Key`. The same holds for a key passed as the `subscription-key` query parameter: it authenticates the call and is stripped from the URL the function sees.

@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+# Overridable so the same scripts can deploy to real Azure, where the API Management service, the
+# storage account and the Function App all need globally unique names:
+#   PREFIX=apimdemo SUFFIX=$RANDOM bash deploy.sh
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 DEPLOYMENT_NAME='api-management-function-app'
@@ -60,6 +63,17 @@ if [[ $? != 0 ]]; then
 	fi
 fi
 
+# main.bicepparam reads all four of these from the environment. The scheme is picked the way
+# scripts/deploy.sh picks it: the emulator serves the Function App over plain HTTP, real Azure over
+# HTTPS, and the template derives the app's httpsOnly from the same value.
+ENVIRONMENT_NAME=$(az account show --query environmentName --output tsv)
+if [[ "$ENVIRONMENT_NAME" == "LocalStack" ]]; then
+	export BACKEND_SCHEME='http'
+else
+	export BACKEND_SCHEME='https'
+fi
+export PREFIX SUFFIX
+
 # Generate the shared secret the gateway adds to every backend call; main.bicepparam reads it
 # from the environment, and the template stores it both as the Function App's setting and as the
 # secret named value the policy references.
@@ -82,12 +96,12 @@ fi
 
 # Deploy the Bicep template
 echo "Deploying the [$TEMPLATE] Bicep template..."
-DEPLOYMENT_OUTPUTS=$(az deployment group create \
+az deployment group create \
 	--name $DEPLOYMENT_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
-	--query properties.outputs)
+	--output none
 
 if [[ $? == 0 ]]; then
 	echo "[$TEMPLATE] Bicep template successfully deployed"
@@ -96,11 +110,22 @@ else
 	exit 1
 fi
 
-FUNCTION_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .functionAppName.value)
-APIM_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .apimName.value)
-API_PATH=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .apiPath.value)
-APIM_SUBSCRIPTION_ID=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .subscriptionName.value)
-GATEWAY_URL=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .gatewayUrl.value)
+# Each output is read back on its own rather than parsed out of the create's stdout: the Azure CLI
+# prefixes that stdout with lines such as "Bicep CLI is already installed at ...", which is not JSON,
+# so piping it into jq fails and every name comes back empty. Seen on real Azure, not on the emulator.
+deployment_output() {
+	az deployment group show \
+		--name $DEPLOYMENT_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--query "properties.outputs.$1.value" \
+		--output tsv
+}
+
+FUNCTION_APP_NAME=$(deployment_output functionAppName)
+APIM_NAME=$(deployment_output apimName)
+API_PATH=$(deployment_output apiPath)
+APIM_SUBSCRIPTION_ID=$(deployment_output subscriptionName)
+GATEWAY_URL=$(deployment_output gatewayUrl)
 
 if [[ -z "$FUNCTION_APP_NAME" || -z "$APIM_NAME" ]]; then
 	echo "Function App Name or API Management Name is empty. Exiting."

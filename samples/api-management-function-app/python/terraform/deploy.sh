@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+# Overridable so the same scripts can deploy to real Azure, where the API Management service, the
+# storage account and the Function App all need globally unique names:
+#   PREFIX=apimdemo SUFFIX=$RANDOM bash deploy.sh
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 APIM_NAME="${PREFIX}-inventory-apim-${SUFFIX}"
@@ -12,6 +15,20 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+
+# The emulator serves the Function App over plain HTTP under its own hostname; real Azure serves
+# *.azurewebsites.net over HTTPS. Picked here the way scripts/deploy.sh picks it, so neither
+# deployment needs the file edited.
+ENVIRONMENT_NAME=$(az account show --query environmentName --output tsv)
+if [[ "$ENVIRONMENT_NAME" == "LocalStack" ]]; then
+	BACKEND_SCHEME='http'
+	# What points the azurerm provider at the emulator instead of the real Azure endpoints.
+	export ARM_METADATA_HOSTNAME='localhost.localstack.cloud:4566'
+	export ARM_SUBSCRIPTION_ID='00000000-0000-0000-0000-000000000000'
+else
+	BACKEND_SCHEME='https'
+	export ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv)
+fi
 
 # A deleted API Management instance is soft-deleted and keeps its name reserved until it is
 # purged, so an earlier run's instance (the scripts variant's, say) would make Terraform's create
@@ -43,7 +60,8 @@ echo "Planning Terraform deployment..."
 terraform plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION"
+	-var "location=$LOCATION" \
+	-var "backend_scheme=$BACKEND_SCHEME"
 
 if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."

@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+# Overridable so the same scripts can deploy to real Azure, where the API Management service, the
+# storage account and the Function App all need globally unique names:
+#   PREFIX=apimdemo SUFFIX=$RANDOM bash scripts/deploy.sh
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 FUNCTION_APP_NAME="${PREFIX}-inventory-functionapp-${SUFFIX}"
 APIM_NAME="${PREFIX}-inventory-apim-${SUFFIX}"
@@ -72,10 +75,11 @@ OPERATIONS=$(az apim api operation list \
 	--query "[].name" \
 	--output tsv | sort | tr '\n' ' ')
 echo "Operations: $OPERATIONS"
-# API Management normalises operationId into the operation's resource name, and the first rule is
-# "convert to lower case", so a real import of apim/openapi.json produces listitems/getitem/whoami
-# while the emulator preserves the document's casing. Matched case-insensitively so the same check
-# holds on both.
+# API Management normalises operationId into the operation's resource name: it replaces characters
+# that are not allowed and truncates at 76. Microsoft's import-restrictions page also lists "convert
+# to lower case", but a probe against real Azure kept the casing -- getItems stayed getItems, and
+# "Get Items" became "Get-Items" -- so this is matched case-insensitively rather than depending on
+# either behaviour.
 # https://learn.microsoft.com/azure/api-management/api-management-api-import-restrictions
 for OPERATION in getitem listitems whoami; do
 	if ! echo "$OPERATIONS" | grep -qwi "$OPERATION"; then
