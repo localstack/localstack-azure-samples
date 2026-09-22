@@ -17,7 +17,7 @@ This directory contains the Terraform configuration for the sample. For details 
 bash deploy.sh
 ```
 
-The script runs `terraform init`, `plan` and `apply`, then deploys the function from a zip package with the Azure CLI. It picks its target from `az account show`: against the emulator it exports `ARM_METADATA_HOSTNAME` and `ARM_SUBSCRIPTION_ID` so the provider talks to LocalStack, and against real Azure it leaves them unset and uses the subscription the CLI is logged in to, with `backend_scheme=https`. Running `terraform` directly rather than through this script needs those two variables exported for an emulator deployment:
+The script runs `terraform init`, `plan` and `apply`, then deploys the function from a zip package with the Azure CLI. It picks its target from `az account show`: against the emulator it exports `ARM_METADATA_HOSTNAME` and `ARM_SUBSCRIPTION_ID` so the provider talks to LocalStack. Against real Azure it *clears* `ARM_METADATA_HOSTNAME` — so a value inherited from an earlier emulator run in the same shell cannot redirect the provider — and exports `ARM_SUBSCRIPTION_ID` from the account the CLI is logged in to, since the pinned provider requires a subscription, with `backend_scheme=https`. Running `terraform` directly rather than through this script needs those two variables exported for an emulator deployment:
 
 ```bash
 export ARM_METADATA_HOSTNAME=localhost.localstack.cloud:4566

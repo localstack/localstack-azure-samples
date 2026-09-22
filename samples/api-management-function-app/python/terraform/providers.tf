@@ -27,8 +27,9 @@ provider "azurerm" {
   #     ARM_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000000 when `az account show` reports the
   #     LocalStack cloud, which is what points the provider at the emulator and stops it calling the
   #     real Azure endpoints;
-  #   * real Azure - both are left unset and the provider uses the subscription the Azure CLI is
-  #     logged in to.
+  #   * real Azure - deploy.sh clears ARM_METADATA_HOSTNAME, so the provider uses the public
+  #     cloud's metadata endpoint, and exports ARM_SUBSCRIPTION_ID from the account the Azure CLI is
+  #     logged in to, because the pinned provider version requires a subscription.
   #
   # Running `terraform` directly rather than through deploy.sh needs those two variables exported
   # for an emulator deployment.

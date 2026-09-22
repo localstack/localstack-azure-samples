@@ -27,6 +27,12 @@ if [[ "$ENVIRONMENT_NAME" == "LocalStack" ]]; then
 	export ARM_SUBSCRIPTION_ID='00000000-0000-0000-0000-000000000000'
 else
 	BACKEND_SCHEME='https'
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in
+	# the same shell would keep the provider doing metadata discovery against LocalStack while the
+	# CLI is on real Azure.
+	unset ARM_METADATA_HOSTNAME
+	# The pinned provider needs a subscription, and on real Azure it is whichever one the CLI is
+	# logged in to.
 	export ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv)
 fi
 
