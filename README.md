@@ -33,6 +33,7 @@ Each sample is a self-contained project with its own README, Azure CLI scripts a
 |--------|-------------|
 | [Function App and Storage (.NET)](./samples/function-app-storage-http/dotnet/README.md) | A gaming scoreboard built on Azure Functions (isolated worker): HTTP triggers record player scores in Table Storage, publish messages to Queue Storage and write game-session summaries to Blob Storage, all against the emulated storage account. |
 | [Function App and Front Door (Python)](./samples/function-app-front-door/python/README.md) | Two Python Function Apps serving a small *Catalog* API, published through an Azure Front Door (Standard) endpoint: the edge picks an origin by priority, matches the more specific of two routes, caches what the origin allows, and runs a rule set that stamps a response header, rewrites `/shop` to `/catalog` and redirects a retired path without calling the origin at all. |
+| [API Management and Function App (Python)](./samples/api-management-function-app/python/README.md) | A Python Function App serving a small *Inventory* API, published through an Azure API Management (Consumption) gateway: clients present a product-scoped subscription key, and the API policy injects a shared secret from a secret named value, enforces a rate limit, strips the key and answers CORS preflights before the request reaches the function; deployable with Azure CLI scripts, Terraform and Bicep. |
 | [Function App and Managed Identities (Python)](./samples/function-app-managed-identity/python/README.md) | A serverless text processor: an Azure Functions app reads text blobs from an `input` container, converts them to uppercase and writes the result to an `output` container, authenticating to the storage account with a managed identity instead of keys. |
 | [Function App and Service Bus (.NET)](./samples/function-app-service-bus/dotnet/README.md) | An Azure Functions app on an App Service plan that exchanges messages through Service Bus queues: an HTTP trigger sends greetings and a queue trigger consumes them, connecting with either a connection string or a managed identity. |
 | Web App and CosmosDB for MongoDB API ([Python](./samples/web-app-cosmosdb-mongodb-api/python/README.md), [.NET](./samples/web-app-cosmosdb-mongodb-api/dotnet/README.md)) | The *Vacation Planner* single-page web app on an Azure Web App with regional VNet integration, storing activities in the `activities` collection of an Azure Cosmos DB for MongoDB account reached through a private endpoint. |
@@ -83,6 +84,7 @@ container images Microsoft publishes for `amd64` alone, so there is no `arm64` i
 | Sample | Native amd64 | Native arm64 | Backing image |
 | --- | :---: | :---: | --- |
 | `function-app-*` | ✅ | ✅ | built from a multi-arch `python` / `node` / `dotnet` base |
+| `api-management-function-app` | ✅ | ✅ | the API Management gateway runs inside the emulator; its Function App backend is built from the multi-arch `python` base |
 | `web-app-custom-image` | ✅ | ✅ | the image the sample builds itself |
 | `aci-blob-storage` | ✅ | ✅ | the image the sample builds itself |
 | `container-apps-blob-storage` | ✅ | ✅ | the image the sample builds itself |
