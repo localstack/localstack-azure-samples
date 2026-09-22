@@ -8,8 +8,9 @@ PRIMARY_FUNCTION_APP_NAME="${PREFIX}-catalog-primary-${SUFFIX}"
 SECONDARY_FUNCTION_APP_NAME="${PREFIX}-catalog-secondary-${SUFFIX}"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
-BODY_FILE='/tmp/front_door_body.json'
-HEADERS_FILE='/tmp/front_door_headers.txt'
+BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_body.XXXXXX")"
+HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_headers.XXXXXX")"
+trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 FAILED=0
 
@@ -40,7 +41,10 @@ else
 	SECONDARY_URL="https://$SECONDARY_HOST_NAME/api"
 	ENDPOINT_HOST_NAME=$(az afd endpoint show --endpoint-name $ENDPOINT_NAME --profile-name $PROFILE_NAME --resource-group $RESOURCE_GROUP_NAME --query hostName --output tsv)
 	ENDPOINT_URL="https://$ENDPOINT_HOST_NAME"
-	PROPAGATION_ATTEMPTS=60
+	# Microsoft budgets up to ten minutes for a purge to reach every PoP, and the loops that wait
+	# on one sleep five seconds, so ten minutes is 120 attempts. The endpoint-serving loop sleeps
+	# ten, which gives a new endpoint twenty minutes to come up.
+	PROPAGATION_ATTEMPTS=120
 fi
 
 echo "Primary origin:  $PRIMARY_URL"
@@ -210,8 +214,16 @@ if echo "$FIRST_CACHE" | grep -qi "hit"; then
 	echo "Expected the first request after a purge to reach the origin (got: $FIRST_CACHE)"
 	FAILED=1
 fi
-curl -s -m 20 -o "$BODY_FILE" -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
-SECOND_CACHE=$(grep -i "^x-cache:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
+# Each Front Door edge site manages its own cache and a request may be served by a different
+# one, so a second request that lands on a cold PoP is a miss rather than a failure. Locally
+# there is one cache and the first attempt always hits.
+SECOND_CACHE=''
+for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
+	curl -s -m 20 -o "$BODY_FILE" -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
+	SECOND_CACHE=$(grep -i "^x-cache:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
+	echo "$SECOND_CACHE" | grep -qi "hit" && break
+	sleep 5
+done
 CACHE_AGE=$(grep -i "^age:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 echo "First request: X-Cache: ${FIRST_CACHE:-(none)}; second request: X-Cache: ${SECOND_CACHE:-(none)} Age: ${CACHE_AGE:-(none)}"
 if echo "$SECOND_CACHE" | grep -qi "hit"; then
@@ -281,15 +293,19 @@ fi
 # 9. Priority is a strict tier: while the priority-1 origin is healthy the standby gets nothing.
 # /whoami is not cached, so each of these requests reaches an origin.
 echo "Sending ten requests to check origin selection..."
+# Counting the primary's answers rather than only the standby's: a failed request produces no
+# origin name at all, which would otherwise read as "the standby answered none of them".
+PRIMARY_ANSWERS=0
 STANDBY_ANSWERS=0
 for i in $(seq 1 10); do
 	WHO=$(curl -s -m 20 "$ENDPOINT_URL/whoami" | jq -r '.origin' 2>/dev/null)
+	[[ "$WHO" == "primary" ]] && PRIMARY_ANSWERS=$((PRIMARY_ANSWERS + 1))
 	[[ "$WHO" == "secondary" ]] && STANDBY_ANSWERS=$((STANDBY_ANSWERS + 1))
 done
-if [[ $STANDBY_ANSWERS == 0 ]]; then
+if [[ $PRIMARY_ANSWERS == 10 ]]; then
 	echo "All ten requests were answered by the priority-1 origin"
 else
-	echo "The priority-2 standby answered $STANDBY_ANSWERS of ten requests while the primary was healthy"
+	echo "Expected ten answers from the priority-1 origin (got $PRIMARY_ANSWERS; the standby answered $STANDBY_ANSWERS)"
 	FAILED=1
 fi
 

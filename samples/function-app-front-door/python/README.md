@@ -20,7 +20,7 @@ The solution is composed of the following Azure resources:
    - The **status origin group**, holding the secondary origin alone.
    - The **catalog route** (`/*`), which sends traffic to the catalog origin group with [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching) switched on and the rule set attached.
    - The **status route** (`/status`), a more specific pattern pointing at the other origin group, with no caching and no rules.
-   - The **catalogrules** [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine): `stampHeader` (adds `X-Served-By` to every response), `rewriteShop` (`/shop/*` → `/catalog/*` on the way to the origin) and `redirectLegacy` (`/legacy` → `302` to `/status`, answered at the edge).
+   - The **catalogrules** [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine): `stampHeader` (adds `X-Served-By` to every GET response, which is what its `RequestMethod Equal GET` condition matches), `rewriteShop` (`/shop/*` → `/catalog/*` on the way to the origin) and `redirectLegacy` (`/legacy` → `302` to `/status`, answered at the edge).
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 70}}}%%
@@ -112,7 +112,7 @@ bash scripts/call-front-door.sh
 | 6 | `GET /legacy` | The `UrlRedirect` rule answers `302` at the edge, without calling an origin |
 | 7 | `/catalog/3` twice, then a purge, then a `no-store` path | Caching, `X-Cache`, `Age`, purge, and the origin's power to refuse caching |
 | 8 | `GET /whoami` | `X-Forwarded-Host`, `X-Azure-ClientIP` and `X-Azure-FDID` reach the origin |
-| 9 | Ten requests to an uncached path | Priority is a strict tier: the standby answers none of them |
+| 9 | Ten requests to an uncached path | Priority is a strict tier: all ten are answered by the priority-1 origin |
 | 10 | `GET /catalog/99` | The origin's own `404` passes through the edge untouched |
 | 11 | The endpoint disabled, then enabled again | `enabledState` takes the endpoint out of service and back |
 
@@ -189,7 +189,7 @@ bash scripts/cleanup.sh
 
 ## Two Azure details worth knowing
 
-- **`UrlPath` conditions drop the leading slash.** A rule that should fire on `/shop/2` matches on `shop`, not `/shop`; `UrlRewrite`'s `--source-pattern`, on the other hand, keeps it (`/shop`). A rule with a leading slash in the match value is accepted, stored and silently never matches.
+- **`UrlPath` conditions see the path without its leading slash.** A rule that should fire on `/shop/2` matches on `shop`; `UrlRewrite`'s `--source-pattern`, on the other hand, keeps it (`/shop`). Real Azure [ignores a leading slash in the match value](https://learn.microsoft.com/en-us/azure/frontdoor/rules-match-conditions), so `/shop` matches there too, while the emulator compares the configured value as written. Writing the match value without the slash works on both.
 - **`az afd rule create` has two spellings.** Up to Azure CLI 2.83 the `afd` commands are part of the CLI and take one flattened condition and action per rule (`--match-variable`, `--action-name`, …). From 2.85 they live in the [`cdn` extension](https://github.com/Azure/azure-cli-extensions/tree/main/src/cdn), which takes `--conditions` and `--actions` in its own shorthand syntax, and spells the route's rule sets and caching differently too. `deploy.sh` detects which one is installed and uses it.
 
 ## What this sample does not cover

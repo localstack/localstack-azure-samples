@@ -6,8 +6,9 @@ SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
-BODY_FILE='/tmp/front_door_call.json'
-HEADERS_FILE='/tmp/front_door_call_headers.txt'
+BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_call.XXXXXX")"
+HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_call_headers.XXXXXX")"
+trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 # Retrieve the Front Door profile
 echo "Retrieving the [$PROFILE_NAME] Front Door profile..."

@@ -21,7 +21,7 @@ PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 PROFILE_SKU='Standard_AzureFrontDoor'
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
 PRIMARY_ORIGIN_GROUP='catalog-origin-group'
-STANDBY_ORIGIN_GROUP='status-origin-group'
+STATUS_ORIGIN_GROUP='status-origin-group'
 PRIMARY_ORIGIN='primary'
 STANDBY_ORIGIN='standby'
 SECONDARY_ORIGIN='secondary'
@@ -290,7 +290,7 @@ create_origin_group() {
 }
 
 create_origin_group $PRIMARY_ORIGIN_GROUP
-create_origin_group $STANDBY_ORIGIN_GROUP
+create_origin_group $STATUS_ORIGIN_GROUP
 
 # Priority is a strict tier, not a preference: while a priority-1 origin is healthy, the
 # priority-2 origin receives nothing at all.
@@ -325,7 +325,7 @@ create_origin() {
 
 create_origin $PRIMARY_ORIGIN_GROUP $PRIMARY_ORIGIN "$PRIMARY_HOST_NAME" "$PRIMARY_HOST_HEADER" "$PRIMARY_HTTP_PORT" "$PRIMARY_HTTPS_PORT" 1
 create_origin $PRIMARY_ORIGIN_GROUP $STANDBY_ORIGIN "$SECONDARY_HOST_NAME" "$SECONDARY_HOST_HEADER" "$SECONDARY_HTTP_PORT" "$SECONDARY_HTTPS_PORT" 2
-create_origin $STANDBY_ORIGIN_GROUP $SECONDARY_ORIGIN "$SECONDARY_HOST_NAME" "$SECONDARY_HOST_HEADER" "$SECONDARY_HTTP_PORT" "$SECONDARY_HTTPS_PORT" 1
+create_origin $STATUS_ORIGIN_GROUP $SECONDARY_ORIGIN "$SECONDARY_HOST_NAME" "$SECONDARY_HOST_HEADER" "$SECONDARY_HTTP_PORT" "$SECONDARY_HTTPS_PORT" 1
 
 # The rule set: three rules, each one action, applied to the catch-all route.
 echo "Creating the [$RULE_SET_NAME] rule set..."
@@ -486,7 +486,7 @@ az afd route create \
 	--endpoint-name $ENDPOINT_NAME \
 	--profile-name $PROFILE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
-	--origin-group $STANDBY_ORIGIN_GROUP \
+	--origin-group $STATUS_ORIGIN_GROUP \
 	--origin-path $ORIGIN_PATH \
 	--patterns-to-match '/status' \
 	--supported-protocols Http Https \
