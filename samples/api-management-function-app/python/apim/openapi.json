@@ -1,0 +1,89 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Inventory API",
+    "description": "Stock levels served by an Azure Function App and published through Azure API Management.",
+    "version": "1.0"
+  },
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List the items in stock",
+        "responses": {
+          "200": {
+            "description": "The items in stock",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ItemList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Read one item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The numeric id of the item",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          },
+          "404": {
+            "description": "No item has that id"
+          }
+        }
+      }
+    },
+    "/whoami": {
+      "get": {
+        "operationId": "whoAmI",
+        "summary": "Echo the request as the backend received it",
+        "description": "Shows the headers the gateway's policies added and removed on the way to the backend.",
+        "responses": {
+          "200": {
+            "description": "The request as the backend saw it"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Item": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "sku": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "integer" }
+        }
+      },
+      "ItemList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Item" }
+          },
+          "count": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
