@@ -6,6 +6,8 @@ locals {
   app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
   web_app_name          = "${var.prefix}-webapp-${var.suffix}"
   key_vault_name        = "${var.prefix}-kv-${var.suffix}"
+  sql_identity_name     = "${var.prefix}-tde-identity-${var.suffix}"
+  tde_key_name          = "${var.prefix}-tde-key-${var.suffix}"
 }
 
 # Retrieve the current Azure client configuration
@@ -16,6 +18,20 @@ resource "azurerm_resource_group" "example" {
   name     = local.resource_group_name
   location = var.location
   tags     = var.tags
+}
+
+# Create the user-assigned managed identity the SQL server uses to reach the TDE protector key
+resource "azurerm_user_assigned_identity" "sql_server" {
+  name                = local.sql_identity_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  tags                = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      tags
+    ]
+  }
 }
 
 # Create a SQL server
@@ -29,11 +45,19 @@ resource "azurerm_mssql_server" "example" {
   public_network_access_enabled        = var.public_network_access_enabled
   outbound_network_restriction_enabled = var.outbound_network_restriction_enabled
   version                              = var.sql_version
+  primary_user_assigned_identity_id    = azurerm_user_assigned_identity.sql_server.id
   tags                                 = var.tags
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.sql_server.id]
+  }
+
+  # The TDE protector is managed by azurerm_mssql_server_transparent_data_encryption below
   lifecycle {
     ignore_changes = [
-      tags
+      tags,
+      transparent_data_encryption_key_vault_key_id
     ]
   }
 }
@@ -138,6 +162,7 @@ resource "azurerm_key_vault" "example" {
   sku_name                   = "standard"
   rbac_authorization_enabled = false
   soft_delete_retention_days = 7
+  purge_protection_enabled   = true
   tags                       = var.tags
 
   lifecycle {
@@ -163,11 +188,72 @@ resource "azurerm_key_vault_access_policy" "web_app" {
   ]
 }
 
+# Grant the identity running Terraform access to manage the Key Vault key, secret and certificate
+resource "azurerm_key_vault_access_policy" "deployer" {
+  key_vault_id = azurerm_key_vault.example.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  key_permissions = [
+    "Create",
+    "Delete",
+    "Get",
+    "GetRotationPolicy",
+  ]
+
+  secret_permissions = [
+    "Delete",
+    "Get",
+    "Set",
+  ]
+
+  certificate_permissions = [
+    "Create",
+    "Delete",
+    "Get",
+  ]
+}
+
+# Grant the SQL server managed identity access to the TDE protector key
+resource "azurerm_key_vault_access_policy" "sql_server" {
+  key_vault_id = azurerm_key_vault.example.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_user_assigned_identity.sql_server.principal_id
+
+  key_permissions = [
+    "Get",
+    "UnwrapKey",
+    "WrapKey",
+  ]
+}
+
+# Create the RSA key that protects the database encryption keys of the SQL server
+resource "azurerm_key_vault_key" "tde" {
+  name         = local.tde_key_name
+  key_vault_id = azurerm_key_vault.example.id
+  key_type     = "RSA"
+  key_size     = 2048
+  key_opts     = ["unwrapKey", "wrapKey"]
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
+}
+
+# Make the Key Vault key the TDE protector of the SQL server
+resource "azurerm_mssql_server_transparent_data_encryption" "example" {
+  server_id             = azurerm_mssql_server.example.id
+  key_vault_key_id      = azurerm_key_vault_key.tde.id
+  auto_rotation_enabled = true
+
+  depends_on = [azurerm_key_vault_access_policy.sql_server]
+}
+
 # Create a Key Vault secret for SQL connection string
 resource "azurerm_key_vault_secret" "sql_connection_string" {
   name         = var.secret_name
   value        = "Server=tcp:${azurerm_mssql_server.example.fully_qualified_domain_name},1433;Database=${azurerm_mssql_database.example.name};User ID=${var.sql_database_username};Password=${var.sql_database_password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
   key_vault_id = azurerm_key_vault.example.id
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # Create a self-signed certificate in Key Vault
@@ -201,4 +287,6 @@ resource "azurerm_key_vault_certificate" "example" {
       ]
     }
   }
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
 }

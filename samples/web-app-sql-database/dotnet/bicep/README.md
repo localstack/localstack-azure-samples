@@ -40,7 +40,8 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 3. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
 4. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the ASP.NET Core Razor Pages single-page application (*Vacation Planner*), connected to Azure SQL Database.
 5. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
-6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret.
+6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret and the RSA key that serves as the [TDE protector](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) of the SQL server, registered by the [transparent-data-encryption.bicep](modules/transparent-data-encryption.bicep) module.
+7. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
 
 The web app allows users to plan and manage vacation activities, storing all activity data in the `Activities` table in the `PlannerDB` database. For more information, see [Azure Web App with Azure SQL Database and Azure Key Vault](../README.md).
 
@@ -100,6 +101,7 @@ SQL_DATABASE_NAME='PlannerDB'
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
+TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -129,6 +131,44 @@ az sql db show \
 --server "$SQL_SERVER_NAME" \
 --resource-group "$RESOURCE_GROUP_NAME" \
 --output table
+
+# Check that the Key Vault key is the TDE protector of the Azure SQL Server
+echo -e "\n[$SQL_SERVER_NAME] SQL server TDE protector:\n"
+# Read the key through Azure Resource Manager: the Bicep variant grants the caller no Key Vault data-plane access.
+KEY_VAULT_ID=$(az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "id" \
+--output tsv)
+TDE_KEY_ID=$(az resource show \
+--ids "$KEY_VAULT_ID/keys/$TDE_KEY_NAME" \
+--api-version 2024-11-01 \
+--query "properties.keyUriWithVersion" \
+--output tsv)
+TDE_PROTECTOR=$(az sql server tde-key show \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--output json)
+echo "$TDE_PROTECTOR" | jq '{serverKeyType, uri, autoRotationEnabled}'
+if [[ "$(jq -r .serverKeyType <<< "$TDE_PROTECTOR")" != "AzureKeyVault" ||
+	"$(jq -r .uri <<< "$TDE_PROTECTOR")" != "$TDE_KEY_ID" ||
+	"$(jq -r .autoRotationEnabled <<< "$TDE_PROTECTOR")" != "true" ]]; then
+	echo "The TDE protector of [$SQL_SERVER_NAME] is not the auto-rotated Key Vault key [$TDE_KEY_ID]"
+	exit 1
+fi
+
+# Check that TDE is enabled on the Azure SQL Database
+TDE_STATE=$(az sql db tde show \
+--database "$SQL_DATABASE_NAME" \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "state" \
+--output tsv)
+echo -e "\n[$SQL_DATABASE_NAME] SQL database TDE state: [$TDE_STATE]"
+if [[ "$TDE_STATE" != "Enabled" ]]; then
+	echo "TDE is not enabled on [$SQL_DATABASE_NAME]"
+	exit 1
+fi
 
 # Check Azure Key Vault
 echo -e "\n[$KEY_VAULT_NAME] Key Vault:\n"

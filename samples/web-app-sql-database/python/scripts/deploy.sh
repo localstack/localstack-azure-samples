@@ -6,6 +6,7 @@ SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SQL_SERVER_NAME="${PREFIX}-sqlserver-${SUFFIX}"
+SQL_SERVER_IDENTITY_NAME="${PREFIX}-tde-identity-${SUFFIX}"
 FIREWALL_RULE_NAME="AllowAllIPs"
 ADMIN_USER='sqladmin'
 ADMIN_PASSWORD='P@ssw0rd1234!'
@@ -24,6 +25,7 @@ DEPLOY_APP=1
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 CERT_NAME="${PREFIX}-cert-${SUFFIX}"
+TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -38,6 +40,38 @@ if [ $? -eq 0 ]; then
 	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
 else
 	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	exit 1
+fi
+
+# Create the user-assigned managed identity the SQL server uses to reach the TDE protector key
+echo "Creating user-assigned managed identity [$SQL_SERVER_IDENTITY_NAME]..."
+az identity create \
+	--name "$SQL_SERVER_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--location "$LOCATION" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "User-assigned managed identity [$SQL_SERVER_IDENTITY_NAME] created successfully."
+else
+	echo "Failed to create user-assigned managed identity [$SQL_SERVER_IDENTITY_NAME]."
+	exit 1
+fi
+
+SQL_SERVER_IDENTITY_ID=$(az identity show \
+	--name "$SQL_SERVER_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "id" \
+	--output tsv)
+
+SQL_SERVER_IDENTITY_PRINCIPAL_ID=$(az identity show \
+	--name "$SQL_SERVER_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "principalId" \
+	--output tsv)
+
+if [[ -z "$SQL_SERVER_IDENTITY_ID" || -z "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" ]]; then
+	echo "Failed to retrieve the resource ID or principalId of [$SQL_SERVER_IDENTITY_NAME]"
 	exit 1
 fi
 
@@ -60,7 +94,9 @@ else
 		--admin-user $ADMIN_USER \
 		--admin-password $ADMIN_PASSWORD \
 		--assign-identity \
-		--identity-type SystemAssigned \
+		--identity-type UserAssigned \
+		--user-assigned-identity-id "$SQL_SERVER_IDENTITY_ID" \
+		--primary-user-assigned-identity-id "$SQL_SERVER_IDENTITY_ID" \
 		--minimal-tls-version 1.2 \
 		--tags environment=test \
 		--only-show-errors 1>/dev/null
@@ -334,6 +370,8 @@ az keyvault create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--enable-rbac-authorization false \
+	--enable-purge-protection true \
+	--retention-days 7 \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -394,6 +432,78 @@ if [ $? -eq 0 ]; then
 	echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
 else
 	echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."
+	exit 1
+fi
+
+# Assign access policy to the SQL server managed identity
+echo "Assigning Key Vault access policy to the SQL server identity [$SQL_SERVER_IDENTITY_NAME]..."
+az keyvault set-policy \
+	--name "$KEY_VAULT_NAME" \
+	--object-id "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" \
+	--key-permissions get wrapKey unwrapKey \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Key Vault access policy for [$SQL_SERVER_IDENTITY_NAME] assigned successfully."
+else
+	echo "Failed to assign Key Vault access policy for [$SQL_SERVER_IDENTITY_NAME]."
+	exit 1
+fi
+
+# Create the RSA key that protects the database encryption keys of the SQL server
+echo "Creating key [$TDE_KEY_NAME] in Key Vault [$KEY_VAULT_NAME]..."
+TDE_KEY_ID=$(az keyvault key create \
+	--vault-name "$KEY_VAULT_NAME" \
+	--name "$TDE_KEY_NAME" \
+	--kty RSA \
+	--size 2048 \
+	--ops wrapKey unwrapKey \
+	--query "key.kid" \
+	--output tsv \
+	--only-show-errors)
+
+if [ -n "$TDE_KEY_ID" ]; then
+	echo "Key [$TDE_KEY_ID] created successfully."
+else
+	echo "Failed to create key [$TDE_KEY_NAME] in Key Vault [$KEY_VAULT_NAME]."
+	exit 1
+fi
+
+# Register the key on the SQL server and make it the TDE protector. The generic az resource create
+# is used because az sql server key create and az sql server tde-key set only accept key ids on the
+# public Key Vault domains, which rejects the key ids the LocalStack emulator issues.
+SQL_SERVER_ID=$(az sql server show \
+	--name "$SQL_SERVER_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "id" \
+	--output tsv)
+SERVER_KEY_NAME="${KEY_VAULT_NAME}_${TDE_KEY_NAME}_${TDE_KEY_ID##*/}"
+
+echo "Adding key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server..."
+az resource create \
+	--id "$SQL_SERVER_ID/keys/$SERVER_KEY_NAME" \
+	--api-version 2023-08-01 \
+	--properties "{\"serverKeyType\": \"AzureKeyVault\", \"uri\": \"$TDE_KEY_ID\"}" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Key [$TDE_KEY_NAME] added successfully to the [$SQL_SERVER_NAME] sql server."
+else
+	echo "Failed to add key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server."
+	exit 1
+fi
+
+echo "Setting key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server..."
+az resource create \
+	--id "$SQL_SERVER_ID/encryptionProtector/current" \
+	--api-version 2023-08-01 \
+	--properties "{\"serverKeyType\": \"AzureKeyVault\", \"serverKeyName\": \"$SERVER_KEY_NAME\", \"autoRotationEnabled\": true}" \
+	--only-show-errors 1>/dev/null
+
+if [ $? -eq 0 ]; then
+	echo "Key [$TDE_KEY_NAME] set successfully as the TDE protector of the [$SQL_SERVER_NAME] sql server."
+else
+	echo "Failed to set key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server."
 	exit 1
 fi
 

@@ -40,7 +40,8 @@ The [deploy.sh](deploy.sh) Bash script creates the following Azure resources usi
 4. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
 5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to Azure SQL Database.
 6. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
-7. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret.
+7. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret and the RSA key that serves as the [TDE protector](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) of the SQL server.
+8. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
 
 The system implements a Vacation Planner web application that stores and retrieves activity data from Azure SQL Database. For more information, see [Azure Web App with Azure SQL Database and Azure Key Vault](../README.md).
 
@@ -117,6 +118,12 @@ az sql server show \
 # Check Azure SQL Database
 az sql db show \
 --name PlannerDB \
+--server local-sqlserver-test \
+--resource-group local-rg \
+--output table
+
+# Check the TDE protector of the Azure SQL Server
+az sql server tde-key show \
 --server local-sqlserver-test \
 --resource-group local-rg \
 --output table
