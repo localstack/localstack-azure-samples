@@ -153,9 +153,6 @@ param administratorLoginPassword string = 'P@ssw0rd1234!'
 @description('Conditional. The Azure Active Directory (AAD) administrator authentication. Required if no `administratorLogin` & `administratorLoginPassword` is provided.')
 param administrators object?
 
-@description('Specifies the conditional Developmentresource ID of a user-assigned identityDevelopment to be used by default. This is required if `userAssignedIdentities` is not empty.')
-param primaryUserAssignedIdentityResourceId string?
-
 @allowed([
   '1.0'
   '1.1'
@@ -324,15 +321,25 @@ var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var keyVaultName = '${prefix}-kv-${suffix}'
 var sqlConnectionStringSecretName = '${prefix}-secret-${suffix}'
-var identity = {
-    type: 'SystemAssigned'
-  }
+var sqlServerIdentityName = '${prefix}-tde-identity-${suffix}'
+var tdeKeyName = '${prefix}-tde-key-${suffix}'
+
+resource sqlServerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: sqlServerIdentityName
+  location: location
+  tags: tags
+}
 
 resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
   name: sqlServerName
   location: location
   tags: tags
-  identity: identity
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${sqlServerIdentity.id}': {}
+    }
+  }
   properties: {
     administratorLogin: administratorLogin
     administratorLoginPassword: administratorLoginPassword
@@ -341,7 +348,7 @@ resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
     isIPv6Enabled: isIPv6Enabled
     version: version
     minimalTlsVersion: minimalTlsVersion
-    primaryUserAssignedIdentityId: primaryUserAssignedIdentityResourceId
+    primaryUserAssignedIdentityId: sqlServerIdentity.id
     publicNetworkAccess: publicNetworkAccess
     restrictOutboundNetworkAccess: restrictOutboundNetworkAccess
   }
@@ -452,10 +459,45 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
           ]
         }
       }
+      {
+        tenantId: subscription().tenantId
+        objectId: sqlServerIdentity.properties.principalId
+        permissions: {
+          keys: [
+            'get'
+            'wrapKey'
+            'unwrapKey'
+          ]
+        }
+      }
     ]
     enableRbacAuthorization: false
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
+    enablePurgeProtection: true
+  }
+}
+
+resource tdeKey 'Microsoft.KeyVault/vaults/keys@2024-11-01' = {
+  parent: keyVault
+  name: tdeKeyName
+  properties: {
+    kty: 'RSA'
+    keySize: 2048
+    keyOps: [
+      'wrapKey'
+      'unwrapKey'
+    ]
+  }
+}
+
+module transparentDataEncryption 'modules/transparent-data-encryption.bicep' = {
+  name: 'transparentDataEncryption'
+  params: {
+    sqlServerName: sqlServer.name
+    keyVaultName: keyVault.name
+    keyName: tdeKey.name
+    keyUri: tdeKey.properties.keyUriWithVersion
   }
 }
 

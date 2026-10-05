@@ -1,6 +1,6 @@
 # Azure Web App with Azure SQL Database and Azure Key Vault
 
-This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in an `activities` table within the `sampledb` database on an [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/) instance. The connection string of the SQL database is stored as a secret in [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview). The application also retrieves its certificate from Key Vault to serve traffic over HTTPS. 
+This sample demonstrates a Python Flask single-page web application called *Vacation Planner* hosted on an [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview). The app runs on an Azure App Service Plan and stores activity data in an `Activities` table within the `PlannerDB` database on an [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/) instance. The connection string of the SQL database is stored as a secret in [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview). The application also retrieves its certificate from Key Vault to serve traffic over HTTPS. The SQL server encrypts its databases at rest with [Transparent Data Encryption (TDE)](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) protected by a customer-managed key: an RSA key in Key Vault that the server reaches through a user-assigned managed identity.
 
 
 ## Architecture
@@ -11,8 +11,9 @@ The following diagram illustrates the architecture of the solution:
 
 - **Azure Web App**: Hosts the Python Flask application
 - **Azure App Service Plan**: Provides compute resources for the web app
-- **Azure SQL Database**: Stores activity data in a relational table
-- **Azure Key Vault**: Stores the database connection string and the certificate used to secure HTTPS traffic
+- **Azure SQL Database**: Stores activity data in a relational table, encrypted at rest with TDE
+- **Azure Key Vault**: Stores the database connection string, the certificate used to secure HTTPS traffic, and the RSA key that serves as the TDE protector of the SQL server
+- **User-Assigned Managed Identity**: The identity the SQL server uses to wrap and unwrap its database encryption keys with the Key Vault key
 
 ## Prerequisites
 
@@ -44,11 +45,15 @@ The Vacation Planner Web App supports two common approaches for accessing Azure 
 This flexibility allows the app to run securely in Azure or in emulated environments like [LocalStack for Azure](https://docs.localstack.cloud/azure/). The client code supports both authentication modes using [`ClientSecretCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.clientsecretcredential?view=azure-python) or [`DefaultAzureCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python) from the Azure SDK.
 
 ## Azure Key Vault Integration
-The application integrates with Azure Key Vault for managing secrets and certificates:
+The application integrates with Azure Key Vault for managing secrets and certificates, and the SQL server uses a Key Vault key to protect its data at rest:
 
 Secrets: The SQL connection string is stored as a secret in Key Vault. At runtime, the app retrieves it using the Azure Key Vault Secrets SDK. This is configured via the KEY_VAULT_NAME and SECRET_NAME environment variables.
 
 Certificates: A self-signed certificate is created in Key Vault during deployment. The app exposes a GET /api/certificate endpoint that retrieves the certificate using the Azure Key Vault Certificates SDK and returns its name, confirming the integration works. This is configured via the KEYVAULT_URI and CERT_NAME environment variables.
+
+Keys: An RSA key in Key Vault is the TDE protector of the SQL server, the customer-managed key that encrypts the database encryption key of every database on the server. The server reaches the key through its user-assigned managed identity, which holds the `get`, `wrapKey` and `unwrapKey` key permissions, and picks up new versions of the key automatically (auto-rotation). Azure requires soft delete and purge protection on the vault. With purge protection, a deleted vault cannot be purged: after the resource group is deleted, the vault stays soft-deleted for the 7-day retention period, and its name cannot be reused anywhere until then. Vault names are global, so a soft-deleted vault from any earlier deployment of this sample, yours or someone else's, blocks the name for everyone. To deploy to Azure under a new name, change `PREFIX` or `SUFFIX` in the deployment script you use and in `scripts/validate.sh`; `scripts/call-web-app.sh` finds the web app by itself.
+
+On LocalStack, the emulator registers the key on the server and checks that the key exists and that the server identity holds `get`, `wrapKey` and `unwrapKey` on it, but it does not encrypt the database with it, and unlike Azure it does not require purge protection on the vault. The Azure CLI variant registers the key and the protector with `az resource create`, because `az sql server key create` and `az sql server tde-key set` only accept key ids on the public Key Vault domains and reject the ones the emulator issues.
 
 ## Deployment
 
