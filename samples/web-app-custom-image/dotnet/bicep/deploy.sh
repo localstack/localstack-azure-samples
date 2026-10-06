@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 ACR_TEMPLATE="acr.bicep"
 ACR_PARAMETERS="acr.bicepparam"
 MAIN_TEMPLATE="main.bicep"

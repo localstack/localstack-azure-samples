@@ -8,7 +8,7 @@
 # accounts and the shared App Service plan are all inside it.
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

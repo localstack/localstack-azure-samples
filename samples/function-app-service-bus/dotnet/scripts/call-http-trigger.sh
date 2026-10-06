@@ -65,6 +65,28 @@ get_docker_container_port_mapping() {
 	echo "$host_port"
 }
 
+get_docker_container_app_port() {
+	local container_name="$1"
+	local container_port
+
+	if [ -z "$container_name" ]; then
+		echo "Error: Container name is required" >&2
+		return 1
+	fi
+
+	# The emulator publishes the port the app listens on in its container, which is not necessarily 80:
+	# an app listens on the port its WEBSITES_PORT app setting names. Read it from the container.
+	container_port=$(docker inspect -f '{{range $port, $bindings := .NetworkSettings.Ports}}{{if $bindings}}{{println $port}}{{end}}{{end}}' "$container_name" | grep '/tcp$' | head -n 1)
+	container_port="${container_port%/tcp}"
+
+	if [ -z "$container_port" ]; then
+		echo "Error: Container [$container_name] publishes no TCP port" >&2
+		return 1
+	fi
+
+	echo "$container_port"
+}
+
 call_http_trigger_function() {
 	# Get the function app name
 	echo "Getting function app name..."
@@ -126,9 +148,19 @@ call_http_trigger_function() {
 		exit 1
 	fi
 
-	# Get the mapped host port for function app HTTP trigger (internal port 80)
-	echo "Getting the host port mapped to internal port 80 in container [$container_name]..."
-	host_port=$(get_docker_container_port_mapping "$container_name" "80")
+	# Get the port the function app listens on in its container
+	echo "Getting the port the function app listens on in container [$container_name]..."
+	container_port=$(get_docker_container_app_port "$container_name")
+
+	if [ $? -eq 0 ] && [ -n "$container_port" ]; then
+		echo "Function app listens on port [$container_port] in container [$container_name]"
+	else
+		echo "Failed to get the port the function app listens on in container [$container_name]"
+	fi
+
+	# Get the host port mapped to it
+	echo "Getting the host port mapped to port [$container_port] in container [$container_name]..."
+	host_port=$(get_docker_container_port_mapping "$container_name" "$container_port")
 	
 	if [ $? -eq 0 ] && [ -n "$host_port" ]; then
 		echo "Mapped host port [$host_port] retrieved successfully for container [$container_name]"
@@ -145,10 +177,10 @@ call_http_trigger_function() {
 		echo "Failed to retrieve function hostname"
 	fi
 
-	if [ -n "$container_ip" ]; then
+	if [ -n "$container_ip" ] && [ -n "$container_port" ]; then
 		# Call the GetGreetings HTTP trigger function to retrieve the last greetings via the container IP address
 		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via container IP address [$container_ip]..."
-		curl --max-time 10 -s "http://$container_ip/api/greetings?count=$greeting_count" | jq
+		curl --max-time 10 -s "http://$container_ip:$container_port/api/greetings?count=$greeting_count" | jq
 	else
 		echo "Failed to retrieve container IP address"
 	fi

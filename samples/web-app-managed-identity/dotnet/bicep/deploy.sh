@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
 RESOURCE_GROUP_NAME="$PREFIX-rg"

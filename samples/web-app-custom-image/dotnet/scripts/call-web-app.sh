@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 

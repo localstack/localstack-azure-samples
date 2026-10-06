@@ -3,7 +3,9 @@
 # Variables
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
-RESOURCE_GROUP_NAME="local-func-storage-rg"
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
+RESOURCE_GROUP_NAME="${PREFIX}-func-storage-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
@@ -45,7 +47,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
 			--parameters \
-			location=$LOCATION
+			location=$LOCATION prefix="$PREFIX" suffix="$SUFFIX"
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -61,7 +63,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--template-file $TEMPLATE \
 			--parameters $PARAMETERS \
 			--parameters \
-			location=$LOCATION)
+			location=$LOCATION prefix="$PREFIX" suffix="$SUFFIX")
 
 		if [[ $? == 0 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
@@ -80,7 +82,7 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--only-show-errors \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
-	--parameters location=$LOCATION \
+	--parameters location=$LOCATION prefix="$PREFIX" suffix="$SUFFIX" \
 	--query 'properties.outputs' -o json); then
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
 	echo "$DEPLOYMENT_OUTPUTS" | jq .

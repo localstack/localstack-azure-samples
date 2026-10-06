@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"

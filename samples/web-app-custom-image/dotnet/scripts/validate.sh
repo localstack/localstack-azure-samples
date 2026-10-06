@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 ACR_NAME="${PREFIX}acr${SUFFIX}"
 MANAGED_IDENTITY_NAME="${PREFIX}-identity-${SUFFIX}"
