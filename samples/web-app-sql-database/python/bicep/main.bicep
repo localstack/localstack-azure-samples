@@ -320,6 +320,9 @@ var sqlServerName = '${prefix}-sqlserver-${suffix}'
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var keyVaultName = '${prefix}-kv-${suffix}'
+// The TLS certificate the web app serves HTTPS with on port 8443. Bicep cannot create a Key Vault
+// certificate, so deploy.sh creates it under this name after the deployment.
+var certificateName = '${prefix}-cert-${suffix}'
 var sqlConnectionStringSecretName = '${prefix}-secret-${suffix}'
 var sqlServerIdentityName = '${prefix}-tde-identity-${suffix}'
 var tdeKeyName = '${prefix}-tde-key-${suffix}'
@@ -457,6 +460,9 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
             'get'
             'list'
           ]
+          certificates: [
+            'get'
+          ]
         }
       }
       {
@@ -521,6 +527,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     SECRET_NAME: sqlConnectionStringSecretName
     LOGIN_NAME: username
     KEYVAULT_URI: keyVault.properties.vaultUri
+    CERT_NAME: certificateName
   }
 }
 
@@ -542,4 +549,5 @@ output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output sqlDatabaseName string = sqlDatabase.name
 output keyVaultName string = keyVault.name
 output keyVaultUrl string = keyVault.properties.vaultUri
+output certificateName string = certificateName
 output sqlConnectionStringSecretUri string = sqlConnectionStringSecret.properties.secretUri
