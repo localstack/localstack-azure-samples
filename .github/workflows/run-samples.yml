@@ -216,6 +216,10 @@ jobs:
             echo "::warning::Emulator was not ready within 400s (attempt ${attempt}/${attempts})."
             docker logs localstack-main --tail 100 2>&1 || true
             python -m localstack_cli.cli.main stop || true
+            # stop does not wait for Docker to remove the container, and a start that still finds it fails with
+            # 'container named "localstack-main" already exists'.
+            docker rm -f localstack-main >/dev/null 2>&1 || true
+            for _ in $(seq 1 30); do docker container inspect localstack-main >/dev/null 2>&1 || break; sleep 1; done
           done
           echo "::error::Emulator failed to become ready after ${attempts} attempts."
           exit 1
@@ -307,6 +311,10 @@ jobs:
           source .venv/bin/activate
           echo "::warning::${MATRIX_NAME} failed once; retrying on a fresh emulator."
           python -m localstack_cli.cli.main stop || true
+          # stop does not wait for Docker to remove the container, and a start that still finds it fails with
+          # 'container named "localstack-main" already exists'.
+          docker rm -f localstack-main >/dev/null 2>&1 || true
+          for _ in $(seq 1 30); do docker container inspect localstack-main >/dev/null 2>&1 || break; sleep 1; done
           python -m localstack_cli.cli.main start -d
           python -m localstack_cli.cli.main wait -t 600
           make test SHARD="${SHARD}" SPLITS="${SPLITS}"
