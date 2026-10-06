@@ -71,7 +71,7 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 ## Test
 
-1. Retrieve the port published and mapped to port 80 by the Docker container hosting the emulated Web App.
+1. Retrieve the host port Docker maps to the port the Web App listens on in its container, for example with `docker port <container-name>` (the container's name starts with `ls-<web-app-name>`). Do not assume port 80: the app listens on the port its `WEBSITES_PORT` app setting names, when it has one.
 2. Open a web browser and navigate to `http://localhost:<published-port>`.
 3. If the deployment was successful, you will see the following user interface for adding and removing activities:
 

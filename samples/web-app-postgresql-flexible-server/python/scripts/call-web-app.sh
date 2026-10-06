@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Usage: call-web-app.sh [web-app-name]
+#
+# The web app to call is the one named by the first argument, else by WEB_APP_NAME, else the only web app in the
+# subscription. Name it when several are deployed.
+
 get_docker_container_name_by_prefix() {
 	local app_prefix="$1"
 	local container_name
@@ -65,13 +70,43 @@ get_docker_container_port_mapping() {
 	echo "$host_port"
 }
 
+get_docker_container_app_port() {
+	local container_name="$1"
+	local container_port
+
+	if [ -z "$container_name" ]; then
+		echo "Error: Container name is required" >&2
+		return 1
+	fi
+
+	# The emulator publishes the port the app listens on in its container, which is not necessarily 80:
+	# an app listens on the port its WEBSITES_PORT app setting names. Read it from the container.
+	container_port=$(docker inspect -f '{{range $port, $bindings := .NetworkSettings.Ports}}{{if $bindings}}{{println $port}}{{end}}{{end}}' "$container_name" | grep '/tcp$' | head -n 1)
+	container_port="${container_port%/tcp}"
+
+	if [ -z "$container_port" ]; then
+		echo "Error: Container [$container_name] publishes no TCP port" >&2
+		return 1
+	fi
+
+	echo "$container_port"
+}
+
 call_web_app() {
 	# Web app port
-	local web_app_port=8000
+	local web_app_port
 
-	# Get the web app name
-	echo "Getting web app name..."
-	web_app_name=$(az webapp list --query '[0].name' --output tsv)
+	# The web app to call: the one the caller named, else the only one in the subscription
+	web_app_name="$1"
+	if [ -z "$web_app_name" ]; then
+		echo "Getting the name of the only web app in the subscription..."
+		web_app_count=$(az webapp list --query "length(@)" --output tsv)
+		if [ "$web_app_count" != "1" ]; then
+			echo "Error: Found [${web_app_count:-0}] web apps; name the one to call: $0 <web-app-name>"
+			exit 1
+		fi
+		web_app_name=$(az webapp list --query "[0].name" --output tsv)
+	fi
 
 	if [ -n "$web_app_name" ]; then
 		echo "Web app [$web_app_name] successfully retrieved."
@@ -82,7 +117,7 @@ call_web_app() {
 
 	# Get the resource group name
 	echo "Getting resource group name for web app [$web_app_name]..."
-	resource_group_name=$(az webapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az webapp list --query "[?name=='${web_app_name}'] | [0].resourceGroup" --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -128,8 +163,18 @@ call_web_app() {
 		exit 1
 	fi
 
-	# Get the mapped host port for web app HTTP trigger (internal port 8000)
-	echo "Getting the host port mapped to internal port $web_app_port in container [$container_name]..."
+	# Get the port the web app listens on in its container
+	echo "Getting the port the web app listens on in container [$container_name]..."
+	web_app_port=$(get_docker_container_app_port "$container_name")
+
+	if [ $? -eq 0 ] && [ -n "$web_app_port" ]; then
+		echo "Web app listens on port [$web_app_port] in container [$container_name]"
+	else
+		echo "Failed to get the port the web app listens on in container [$container_name]"
+	fi
+
+	# Get the host port mapped to it
+	echo "Getting the host port mapped to port [$web_app_port] in container [$container_name]..."
 	host_port=$(get_docker_container_port_mapping "$container_name" "$web_app_port")
 	
 	if [ $? -eq 0 ] && [ -n "$host_port" ]; then
@@ -155,7 +200,7 @@ call_web_app() {
 		echo "Failed to retrieve LocalStack proxy port"
 	fi
 	
-	if [ -n "$container_ip" ]; then
+	if [ -n "$container_ip" ] && [ -n "$web_app_port" ]; then
 		# Call the web app via the container IP address
 		echo "Calling web app [$web_app_name] via container IP address [$container_ip]..."
 		curl --max-time 10 -s "http://$container_ip:$web_app_port/" 1> /dev/null
@@ -198,4 +243,4 @@ call_web_app() {
 	fi
 }
 
-call_web_app
+call_web_app "${1:-${WEB_APP_NAME:-}}"

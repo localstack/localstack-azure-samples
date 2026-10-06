@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
 RESOURCE_GROUP_NAME="$PREFIX-rg"
@@ -116,6 +116,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	echo "$DEPLOYMENT_JSON" | jq .
 	APP_SERVICE_PLAN_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.appServicePlanName.value')
 	WEB_APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.webAppName.value')
+	KEY_VAULT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.keyVaultName.value')
+	CERT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.certificateName.value')
 	SQL_SERVER_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlServerName.value')
 	SQL_DATABASE_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.sqlDatabaseName.value')
 	echo "Deployment details:"
@@ -283,6 +285,29 @@ fi
 if [[ $DEPLOY_APP -eq 0 ]]; then
 	echo "Skipping web app deployment as DEPLOY_APP flag is set to 0."
 	exit 0
+fi
+
+# Create the certificate the web app serves HTTPS with on port 8443 (its CERT_NAME app setting), before the
+# code is deployed and the app starts: Bicep cannot create a Key Vault certificate.
+if az keyvault certificate show --vault-name "$KEY_VAULT_NAME" --name "$CERT_NAME" --only-show-errors &>/dev/null; then
+	echo "Certificate [$CERT_NAME] already exists in Key Vault [$KEY_VAULT_NAME]."
+else
+	echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
+	if az keyvault certificate create \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$CERT_NAME" \
+		--policy '{
+			"issuerParameters": {"name": "Self"},
+			"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
+			"secretProperties": {"contentType": "application/x-pkcs12"},
+			"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
+		}' \
+		--only-show-errors 1>/dev/null; then
+		echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
+	else
+		echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."
+		exit 1
+	fi
 fi
 
 # Change current directory to source folder

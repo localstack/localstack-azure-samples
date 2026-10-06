@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local' #system or user
-SUFFIX='test'
+PREFIX="${PREFIX:-local}" #system or user
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"

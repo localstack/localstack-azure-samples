@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 FILE_PATH="input.txt"
 INPUT_CONTAINER_NAME="input"
 OUTPUT_CONTAINER_NAME="output"

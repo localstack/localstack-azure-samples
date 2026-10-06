@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SQL_SERVER_NAME="${PREFIX}-sqlserver-${SUFFIX}"
 SQL_DATABASE_NAME='PlannerDB'

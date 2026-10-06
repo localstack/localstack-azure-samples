@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 PG_ADMIN_USER="pgadmin"
 PG_ADMIN_PASSWORD="P@ssw0rd1234!"

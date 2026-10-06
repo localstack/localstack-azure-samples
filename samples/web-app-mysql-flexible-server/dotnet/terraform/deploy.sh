@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 MYSQL_ADMIN_USER="${MYSQL_ADMIN_USER:-myadmin}"
 MYSQL_ADMIN_PASSWORD="${MYSQL_ADMIN_PASSWORD:-P@ssw0rd1234!}"
