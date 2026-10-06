@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Usage: call-http-trigger.sh [function-app-name]
+#
+# The function app to call is the one named by the first argument, else by FUNCTION_APP_NAME, else the only function app in the
+# subscription. Name it when several are deployed.
+
 get_docker_container_name_by_prefix() {
 	local app_prefix="$1"
 	local container_name
@@ -88,9 +93,17 @@ get_docker_container_app_port() {
 }
 
 call_http_trigger_function() {
-	# Get the function app name
-	echo "Getting function app name..."
-	function_app_name=$(az functionapp list --query '[0].name' --output tsv)
+	# The function app to call: the one the caller named, else the only one in the subscription
+	function_app_name="$1"
+	if [ -z "$function_app_name" ]; then
+		echo "Getting the name of the only function app in the subscription..."
+		function_app_count=$(az functionapp list --query "length(@)" --output tsv)
+		if [ "$function_app_count" != "1" ]; then
+			echo "Error: Found [${function_app_count:-0}] function apps; name the one to call: $0 <function-app-name>"
+			exit 1
+		fi
+		function_app_name=$(az functionapp list --query "[0].name" --output tsv)
+	fi
 
 	if [ -n "$function_app_name" ]; then
 		echo "Function app [$function_app_name] successfully retrieved."
@@ -101,7 +114,7 @@ call_http_trigger_function() {
 
 	# Get the resource group name
 	echo "Getting resource group name for function app [$function_app_name]..."
-	resource_group_name=$(az functionapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az functionapp list --query "[?name=='${function_app_name}'] | [0].resourceGroup" --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -194,4 +207,4 @@ call_http_trigger_function() {
 	fi
 }
 
-call_http_trigger_function
+call_http_trigger_function "${1:-${FUNCTION_APP_NAME:-}}"

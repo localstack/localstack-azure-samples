@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Usage: call-web-app.sh [web-app-name]
+#
+# The web app to call is the one named by the first argument, else by WEB_APP_NAME, else the only web app in the
+# subscription. Name it when several are deployed.
+
 get_docker_container_name_by_prefix() {
 	local app_prefix="$1"
 	local container_name
@@ -91,9 +96,17 @@ call_web_app() {
 	# Web app port
 	local web_app_port
 
-	# Get the web app name
-	echo "Getting web app name..."
-	web_app_name=$(az webapp list --query '[0].name' --output tsv)
+	# The web app to call: the one the caller named, else the only one in the subscription
+	web_app_name="$1"
+	if [ -z "$web_app_name" ]; then
+		echo "Getting the name of the only web app in the subscription..."
+		web_app_count=$(az webapp list --query "length(@)" --output tsv)
+		if [ "$web_app_count" != "1" ]; then
+			echo "Error: Found [${web_app_count:-0}] web apps; name the one to call: $0 <web-app-name>"
+			exit 1
+		fi
+		web_app_name=$(az webapp list --query "[0].name" --output tsv)
+	fi
 
 	if [ -n "$web_app_name" ]; then
 		echo "Web app [$web_app_name] successfully retrieved."
@@ -104,7 +117,7 @@ call_web_app() {
 
 	# Get the resource group name
 	echo "Getting resource group name for web app [$web_app_name]..."
-	resource_group_name=$(az webapp list --query '[0].resourceGroup' --output tsv)
+	resource_group_name=$(az webapp list --query "[?name=='${web_app_name}'] | [0].resourceGroup" --output tsv)
 
 	if [ -n "$resource_group_name" ]; then
 		echo "Resource group [$resource_group_name] successfully retrieved."
@@ -230,4 +243,4 @@ call_web_app() {
 	fi
 }
 
-call_web_app
+call_web_app "${1:-${WEB_APP_NAME:-}}"
