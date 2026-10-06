@@ -43,6 +43,8 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret and the RSA key that serves as the [TDE protector](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) of the SQL server, registered by the [transparent-data-encryption.bicep](modules/transparent-data-encryption.bicep) module.
 7. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
 
+Bicep cannot create a Key Vault certificate, so after the deployment [deploy.sh](deploy.sh) creates the self-signed certificate the web app serves HTTPS with on port 8443, under the name of its `CERT_NAME` app setting, before it deploys the code.
+
 The web app allows users to plan and manage vacation activities, storing all activity data in the `Activities` table in the `PlannerDB` database. For more information, see [Azure Web App with Azure SQL Database and Azure Key Vault](../README.md).
 
 ## Deployment
