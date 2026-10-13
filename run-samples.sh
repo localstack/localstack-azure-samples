@@ -345,6 +345,11 @@ for (( i=START; i<START+COUNT; i++ )); do
 
   pushd "$path" > /dev/null
 
+  if [[ "${RESET_TERRAFORM_STATE:-0}" == "1" && "$path" == *"/terraform" ]]; then
+    echo "Resetting Terraform state for fresh-emulator retry..."
+    rm -rf .terraform terraform.tfstate terraform.tfstate.backup .terraform.lock.hcl tfplan || true
+  fi
+
   echo "Deploying..."
   eval "$deploy"
 
