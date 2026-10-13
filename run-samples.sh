@@ -340,6 +340,14 @@ for (( i=START; i<START+COUNT; i++ )); do
 
   pushd "$path" > /dev/null
 
+  # Deploy a Terraform sample from empty state. A failed run skips the cleanup below and leaves
+  # its state behind, and the CI retry deploys the sample again on a fresh emulator: refreshing
+  # the old state there fails on resources that no longer exist (a storage table whose account is
+  # gone) before anything is deployed. The provider cache in .terraform is kept.
+  if [[ "$path" == *"/terraform" ]]; then
+    rm -f terraform.tfstate terraform.tfstate.backup tfplan
+  fi
+
   echo "Deploying..."
   eval "$deploy"
 

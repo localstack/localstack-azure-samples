@@ -311,7 +311,8 @@ jobs:
       - name: "Retry: ${{ matrix.name }}"
         # The deploy scripts are not idempotent - they fail on resources that already exist - so the
         # retry runs against a fresh emulator instead of the half-provisioned state the failed
-        # attempt left behind.
+        # attempt left behind. run-samples.sh also discards the Terraform state that attempt left,
+        # which no longer matches anything in the fresh emulator.
         if: steps.initial_run.outcome == 'failure'
         run: |
           echo "::warning::${MATRIX_NAME} failed once; retrying on a fresh emulator."
