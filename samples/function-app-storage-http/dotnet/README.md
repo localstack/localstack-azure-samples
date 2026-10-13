@@ -141,11 +141,11 @@ The sample uses the following configurable settings in `local.settings.json`:
    docker pull localstack/localstack-azure
    ```
 
-2. Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+2. Start the LocalStack Azure emulator with the lstk CLI:
 
    ```bash
    export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure localstack start
+   lstk start --type azure
    ```
 
 3. Deploy the application to LocalStack for Azure using one of the following methods:

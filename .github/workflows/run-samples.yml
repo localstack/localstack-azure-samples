@@ -175,8 +175,7 @@ jobs:
 
       - name: Install lstk CLI
         # Starts and stops the emulator, and lets run-samples.sh route Azure CLI calls to it
-        # via `lstk az start-interception`. It replaces the deprecated localstack CLI and the
-        # azlocal wrapper. https://github.com/localstack/lstk
+        # via `lstk az start-interception`. https://github.com/localstack/lstk
         #
         # Pinned, like every action in this workflow: an unpinned install means an upstream
         # release lands in every run at once, with no commit to point at when things break.

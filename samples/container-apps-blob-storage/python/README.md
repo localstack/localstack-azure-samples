@@ -34,18 +34,16 @@ flowchart TB
 
 ## Prerequisites
 
-- [LocalStack](https://docs.localstack.cloud/getting-started/installation/)
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) (`brew install localstack/tap/lstk` or `npm install -g @localstack/lstk`)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-- [lstk](https://github.com/localstack/lstk) (`brew install localstack/tap/lstk` or `npm install -g @localstack/lstk`)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) (optional, for Terraform deployment)
 
 ## Quick Start
 
 ```bash
 # Start the LocalStack Azure emulator
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 60
+lstk start --type azure
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
 lstk az start-interception

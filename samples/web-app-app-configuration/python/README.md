@@ -79,8 +79,7 @@ Set up the Azure emulator using the LocalStack for Azure Docker image. Before st
 docker pull localstack/localstack-azure
 
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 60
+lstk start --type azure
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
 lstk az start-interception

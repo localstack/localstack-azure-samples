@@ -75,7 +75,7 @@ Start LocalStack for Azure and point the Azure CLI at it:
 
 ```bash
 export LOCALSTACK_AUTH_TOKEN=<your-auth-token>
-IMAGE_NAME=localstack/localstack-azure localstack start -d
+lstk start --type azure
 lstk az start-interception
 az login --service-principal -u any-app -p any-pass --tenant any-tenant
 az account set --subscription 00000000-0000-0000-0000-000000000000

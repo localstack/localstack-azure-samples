@@ -70,8 +70,7 @@ Start the LocalStack Azure emulator by running:
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
 
 # Start the LocalStack Azure emulator
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 60
+lstk start --type azure
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
 lstk az start-interception

@@ -94,12 +94,11 @@ schema registry.
 
 ## Prerequisites
 
-- [LocalStack](https://docs.localstack.cloud/getting-started/installation/) with a valid
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
+  (`brew install localstack/tap/lstk` or `npm install -g @localstack/lstk`) with a valid
   `LOCALSTACK_AUTH_TOKEN`
 - [Docker](https://docs.docker.com/get-docker/)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and
-  [lstk](https://github.com/localstack/lstk) (`brew install localstack/tap/lstk` or
-  `npm install -g @localstack/lstk`)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Python 3.12+ with `src/producers/requirements.txt` installed
 - `jq` and `zip`
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) or the Bicep CLI, for
@@ -110,8 +109,7 @@ schema registry.
 ```bash
 # Start the LocalStack Azure emulator
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 120
+lstk start --type azure
 
 # Route the Azure CLI to the emulator
 lstk az start-interception

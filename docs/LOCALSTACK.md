@@ -18,22 +18,21 @@ docker pull localstack/localstack-azure
 ## 2. Choose a Startup Method
 You can start the Azure emulator using one of the following methods:
 
-- LocalStack CLI
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - Raw `docker run`
 - Docker Compose
 
 ---
 
-### Option A: LocalStack CLI
-Make sure the `localstack` CLI is installed (`pip install localstack` or `brew install localstack/tap/localstack`).
+### Option A: lstk CLI
+Make sure the [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) is installed (`brew install localstack/tap/lstk` or `npm install -g @localstack/lstk`).
 
 ```bash
 # Set the authentication token
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
 
 # Start the LocalStack Azure emulator
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 60
+lstk start --type azure
 
 # Route all Azure CLI calls to the LocalStack Azure emulator
 lstk az start-interception
@@ -41,12 +40,12 @@ lstk az start-interception
 
 This:
 - Exports your auth token
-- Overrides the default image via `IMAGE_NAME`
-- Starts LocalStack with Azure emulation enabled in the selected image
+- Starts the LocalStack Azure emulator (`--type azure`) and waits until it is ready
+- Routes all Azure CLI calls to the emulator
 
 To stop:
 ```bash
-localstack stop
+lstk stop
 ```
 
 ---
@@ -114,7 +113,7 @@ docker compose down
 
 ## 3. Verify the Emulator
 After startup, you can:
-- Check logs: `docker logs -f localstack-main`
+- Check logs: `lstk logs --follow`, or `docker logs -f localstack-main` with Docker Compose
 - Curl the edge endpoint:
   ```bash
   curl -s localhost:4566/_localstack/health | jq
@@ -140,7 +139,7 @@ $Env:LOCALSTACK_AUTH_TOKEN = "<your_auth_token>"
 ---
 
 ## 5. Cleanup
-- Stop containers (`localstack stop`, `docker stop <id>`, or `docker compose down`)
+- Stop containers (`lstk stop`, `docker stop <id>`, or `docker compose down`)
 - Remove persisted state if needed:
   ```bash
   rm -rf ~/.localstack/volume
@@ -156,7 +155,7 @@ $Env:LOCALSTACK_AUTH_TOKEN = "<your_auth_token>"
 | Auth error | Confirm token validity & export | 
 | Port already in use | Change mapping (e.g. `-p 4567:4566`) |
 | State not persisting | Verify volume mount path |
-| CLI not using Azure image | Ensure `IMAGE_NAME` env var is set before `localstack start` |
+| lstk starts another emulator | Start it with `lstk start --type azure` |
 
 ---
 

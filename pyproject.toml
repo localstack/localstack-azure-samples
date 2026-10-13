@@ -17,7 +17,6 @@ dependencies = [
     "azure-mgmt-cosmosdb",
     "azure-core",
     "python-dotenv",
-    "localstack",
 ]
 
 [project.optional-dependencies]
