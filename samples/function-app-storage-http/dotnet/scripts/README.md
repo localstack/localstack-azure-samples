@@ -61,11 +61,11 @@ See [deploy.sh](deploy.sh) for the complete deployment script. The script perfor
    docker pull localstack/localstack-azure
    ```
 
-2. Start the LocalStack Azure emulator using the localstack CLI, execute the following command:
+2. Start the LocalStack Azure emulator with the lstk CLI:
 
    ```bash
    export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-   IMAGE_NAME=localstack/localstack-azure localstack start
+   lstk start --type azure
    ```
 
 3. Navigate to the scripts directory

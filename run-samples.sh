@@ -8,7 +8,6 @@ set -euo pipefail
 # - .NET 10.0+
 # - Node.js & npm
 # - Azure CLI (az)
-# - LocalStack CLI
 # - Terraform CLI
 # - lstk CLI (https://github.com/localstack/lstk)
 # - jq & zip (sudo apt-get install jq zip)
@@ -230,7 +229,6 @@ if [[ "${1:-}" == "--list" ]]; then
 fi
 
 # 3. Check for required tools
-command -v localstack >/dev/null 2>&1 || { echo >&2 "localstack CLI is required but not installed. Aborting."; exit 1; }
 command -v az >/dev/null 2>&1 || { echo >&2 "az CLI is required but not installed. Aborting."; exit 1; }
 command -v lstk >/dev/null 2>&1 || { echo >&2 "lstk is required but not installed. See https://github.com/localstack/lstk#installation. Aborting."; exit 1; }
 command -v terraform >/dev/null 2>&1 || { echo >&2 "terraform CLI is required but not installed. Aborting."; exit 1; }
@@ -241,13 +239,10 @@ if [ -z "${LOCALSTACK_AUTH_TOKEN:-}" ]; then
 fi
 
 # 4. Start LocalStack
-if ! localstack status | grep -q "running"; then
-  echo "Starting LocalStack Azure emulator..."
-  IMAGE_NAME=localstack/localstack-azure localstack start -d
-  localstack wait -t 60
-else
-  echo "LocalStack is already running."
-fi
+# lstk returns once the emulator reports ready, and succeeds without restarting it when it is
+# already running - as it is in CI, where the workflow starts it before this script.
+echo "Starting LocalStack Azure emulator..."
+lstk start --non-interactive --type azure
 
 # 5. Configure Azure CLI for LocalStack
 echo "Configuring Azure CLI for LocalStack..."
@@ -260,7 +255,7 @@ if command -v lstk >/dev/null 2>&1; then
   # lstk's emulator detection can report a running emulator as absent - `lstk status` has been
   # observed answering "LocalStack AWS Emulator is not running" against a live emulator, and CI
   # runs have failed here with "LocalStack Azure Emulator is not running" while the container was
-  # up and `localstack wait` had already returned. Retry before giving up.
+  # up and had already reported ready. Retry before giving up.
   #
   # Deliberately still fatal after the last attempt: without interception the az CLI targets real
   # Azure, so continuing would send this suite's commands to the cloud. The diagnostics below run
@@ -275,7 +270,7 @@ if command -v lstk >/dev/null 2>&1; then
       echo "[ERROR] --- lstk version ---"
       lstk --version 2>&1 || true
       echo "[ERROR] --- container ---"
-      docker ps -a --filter name=localstack-main --format '{{.Names}} | {{.Image}} | {{.Status}}' || true
+      docker ps -a --filter name=localstack-azure --format '{{.Names}} | {{.Image}} | {{.Status}}' || true
       echo "[ERROR] --- emulator health ---"
       curl -s --max-time 10 http://127.0.0.1:4566/_localstack/health || true
       echo ""
@@ -344,6 +339,14 @@ for (( i=START; i<START+COUNT; i++ )); do
   fi
 
   pushd "$path" > /dev/null
+
+  # Deploy a Terraform sample from empty state. A failed run skips the cleanup below and leaves
+  # its state behind, and the CI retry deploys the sample again on a fresh emulator: refreshing
+  # the old state there fails on resources that no longer exist (a storage table whose account is
+  # gone) before anything is deployed. The provider cache in .terraform is kept.
+  if [[ "$path" == *"/terraform" ]]; then
+    rm -f terraform.tfstate terraform.tfstate.backup tfplan
+  fi
 
   echo "Deploying..."
   eval "$deploy"

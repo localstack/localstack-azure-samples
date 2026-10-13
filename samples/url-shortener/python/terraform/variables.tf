@@ -16,6 +16,12 @@ variable "location" {
   default     = "westeurope"
 }
 
+variable "storage_allow_nested_items_to_be_public" {
+  description = "Allow containers in the storage account to grant anonymous read access. The qrcodes container serves the QR code images publicly, and new storage accounts disallow anonymous access unless the account explicitly allows it."
+  type        = bool
+  default     = true
+}
+
 variable "app_service_plan_sku" {
   description = "SKU of the Linux App Service Plan shared by the web app and the worker."
   type        = string

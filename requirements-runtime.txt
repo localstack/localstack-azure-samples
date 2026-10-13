@@ -11,4 +11,3 @@ confluent-kafka
 fastavro
 requests
 python-dotenv
-localstack

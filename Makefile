@@ -25,7 +25,7 @@ SPLITS ?= 1
 test: venv ## Run all samples
 	$(VENV_RUN); bash ./run-samples.sh $(SHARD) $(SPLITS)
 
-logs: venv ## Get LocalStack logs
-	$(VENV_RUN); localstack logs
+logs: ## Get LocalStack logs
+	lstk logs --verbose
 
 .PHONY: venv install test logs

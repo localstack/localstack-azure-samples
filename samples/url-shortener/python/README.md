@@ -91,8 +91,7 @@ Start the LocalStack Azure emulator and route the Azure CLI to it:
 
 ```bash
 export LOCALSTACK_AUTH_TOKEN=<your_auth_token>
-IMAGE_NAME=localstack/localstack-azure localstack start -d
-localstack wait -t 60
+lstk start --type azure
 lstk az start-interception
 az login --service-principal -u any-app -p any-pass --tenant any-tenant
 ```
