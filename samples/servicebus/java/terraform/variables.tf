@@ -118,7 +118,7 @@ variable "servicebus_queue_requires_duplicate_detection" {
 variable "servicebus_queue_requires_session" {
   description = "(Optional) Specifies whether the queue requires sessions for ordered handling of unbounded sequences of related messages. Changing this forces a new resource to be created. Defaults to false."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "servicebus_queue_default_message_ttl" {
@@ -172,7 +172,7 @@ variable "servicebus_queue_partitioning_enabled" {
 variable "servicebus_queue_express_enabled" {
   description = "(Optional) Specifies whether Express Entities are enabled. An express queue holds a message in memory temporarily before writing it to persistent storage. Defaults to false."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "servicebus_queue_forward_to" {
