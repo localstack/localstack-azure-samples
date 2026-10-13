@@ -220,24 +220,12 @@ jobs:
         run: docker pull ${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
 
       - name: Start LocalStack
-        # lstk starts the emulator and returns once it reports ready, or fails when the timeout
-        # expires. If the container exits while starting - a rejected auth token exits with code
-        # 55 - lstk prints the last lines of its output, so the reason shows up in this step.
-        # The readiness wait is generous because the architecture matrix roughly doubles
-        # the number of concurrent jobs, and the contention for Docker pulls and runner
-        # I/O pushed some starts past a 120s budget - and, on the slowest runners,
-        # occasionally past 300s as well. A healthy emulator still returns as soon as
-        # it is ready, so a larger timeout costs nothing on the happy path.
-        # A start that never becomes ready is retried on a fresh container (see below).
+        # lstk starts the emulator and returns once its health endpoint answers, or fails when the
+        # timeout expires. If the container exits while starting - a rejected auth token exits with
+        # code 55 - lstk prints the last lines of its output, so the reason shows up in this step.
+        # A healthy emulator answers within seconds, so the generous timeout costs nothing on the
+        # happy path. A start that fails or never becomes ready is retried on a fresh container.
         run: |
-          # Even at 600s the wait occasionally expires: ~80 concurrent jobs compete for runner I/O
-          # and image pulls, and a start that stalls failed the job before the sample ever ran.
-          # Give it one clean retry, and print the container's logs when the first attempt expires.
-          # A healthy start reports ready in well under a minute, so a wait that reaches the
-          # timeout means the boot has stalled rather than slowed: observed on an arm64 runner,
-          # where the container logged nothing for the last ten minutes of the wait. Three shorter
-          # attempts therefore beat two long ones - same overall budget, one more chance, and a
-          # stalled container is replaced sooner.
           attempts=3
           for attempt in $(seq 1 "${attempts}"); do
             if lstk start --non-interactive --type azure --image "${IMAGE}" --timeout 400s; then
@@ -323,6 +311,7 @@ jobs:
           docker rm -f localstack-azure >/dev/null 2>&1 || true
           for _ in $(seq 1 30); do docker container inspect localstack-azure >/dev/null 2>&1 || break; sleep 1; done
           lstk start --non-interactive --type azure --image "${IMAGE}" --timeout 600s
+          echo "===== Emulator restarted for the retry =====" >> "${RUNNER_TEMP}/localstack-azure.log"
           nohup docker logs --follow localstack-azure >> "${RUNNER_TEMP}/localstack-azure.log" 2>&1 < /dev/null &
           make test SHARD="${SHARD}" SPLITS="${SPLITS}"
         env:
@@ -340,7 +329,13 @@ jobs:
 
       - name: Get LocalStack Logs
         # Captured on failure or success to provide a detailed audit trail of the emulator's activity.
-        # When the emulator is no longer running its container is gone, so this prints the copy of
-        # its logs that the Start and Retry steps kept.
+        # The Start and Retry steps keep a copy of every emulator's logs, so a retried job shows the
+        # emulator that failed as well as the one that ran the retry, and a container that removed
+        # itself on exit still has its logs. make logs covers a job where no emulator came up.
         if: always()
-        run: make logs || cat "${RUNNER_TEMP}/localstack-azure.log"
+        run: |
+          if [ -s "${RUNNER_TEMP}/localstack-azure.log" ]; then
+            cat "${RUNNER_TEMP}/localstack-azure.log"
+          else
+            make logs
+          fi
