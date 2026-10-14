@@ -41,6 +41,7 @@ The LocalStack emulator emulates the following services, which are necessary at 
 
 ## Prerequisites
 
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local)

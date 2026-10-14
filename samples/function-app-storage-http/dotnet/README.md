@@ -121,6 +121,7 @@ The sample uses the following configurable settings in `local.settings.json`:
 
 ## Prerequisites
 
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) LocalStack CLI
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/) for Azure services emulation.
 - [Visual Studio Code](https://code.visualstudio.com/) installed on one of the [supported platforms](https://code.visualstudio.com/docs/supporting/requirements#_platforms).
 - [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local) let you develop and test your functions on your local computer.
