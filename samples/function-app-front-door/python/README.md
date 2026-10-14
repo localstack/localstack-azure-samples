@@ -63,7 +63,6 @@ The life of a request: the client calls `GET /catalog/1` on the endpoint → the
 
 ## Prerequisites
 
-- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
