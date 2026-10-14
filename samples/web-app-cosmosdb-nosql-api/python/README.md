@@ -14,6 +14,7 @@ The following diagram illustrates the architecture of the solution:
 
 ## Prerequisites
 
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Python 3.11+](https://www.python.org/downloads/)

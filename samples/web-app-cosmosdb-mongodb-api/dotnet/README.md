@@ -28,6 +28,7 @@ The web app enables users to plan and manage vacation activities, with all data 
 
 ## Prerequisites
 
+- [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [Azure Subscription](https://azure.microsoft.com/free/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [.NET SDK 10.0](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
