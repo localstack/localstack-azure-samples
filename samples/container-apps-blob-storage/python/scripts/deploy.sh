@@ -9,8 +9,11 @@
 #   3. Azure Container Apps  - Runs the containerized Flask app behind the
 #                              managed environment's HTTP ingress
 #
-# The storage connection string is stored as a Container Apps secret and
-# injected into the container through a secretref environment variable.
+# By default the storage connection string is stored as a Container Apps
+# secret and injected into the container through a secretref environment
+# variable. Set MANAGED_IDENTITY_TYPE to SystemAssigned or UserAssigned to have
+# the app reach Blob Storage with a managed identity instead, granted the
+# Storage Blob Data Contributor role on the storage account.
 # =============================================================================
 
 # Variables
@@ -24,10 +27,42 @@ ACA_ENV_NAME="${PREFIX}-aca-env"
 ACA_APP_NAME="${PREFIX}-aca-guestbook"
 IMAGE_NAME="guestbook"
 IMAGE_TAG="v1"
+MANAGED_IDENTITY_TYPE="${MANAGED_IDENTITY_TYPE:-None}"
+MANAGED_IDENTITY_NAME="${PREFIX}-aca-identity"
+STORAGE_ROLE="Storage Blob Data Contributor"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+case "$MANAGED_IDENTITY_TYPE" in
+None | SystemAssigned | UserAssigned) ;;
+*)
+	echo "MANAGED_IDENTITY_TYPE must be None, SystemAssigned or UserAssigned, not [$MANAGED_IDENTITY_TYPE]."
+	exit 1
+	;;
+esac
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+# Assigns the storage role to a managed identity, retrying while a newly
+# created principal is still replicating to Microsoft Entra ID.
+assign_storage_role() {
+	local principal_id="$1"
+	for attempt in 1 2 3 4 5; do
+		if az role assignment create \
+			--assignee-object-id "$principal_id" \
+			--assignee-principal-type ServicePrincipal \
+			--role "$STORAGE_ROLE" \
+			--scope "$STORAGE_ACCOUNT_ID" \
+			--only-show-errors 1>/dev/null; then
+			echo "Role [$STORAGE_ROLE] assigned to principal [$principal_id]."
+			return 0
+		fi
+		echo "Role assignment attempt $attempt failed. Retrying in 10 seconds..."
+		sleep 10
+	done
+	echo "Failed to assign role [$STORAGE_ROLE] to principal [$principal_id]."
+	return 1
+}
+
 # =============================================================================
 # Step 1: Create Resource Group
 # =============================================================================
@@ -143,6 +178,39 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to create blob container [$BLOB_CONTAINER_NAME]."
 	exit 1
+fi
+
+# =============================================================================
+# Step 5b: Create the User-Assigned Managed Identity (UserAssigned only)
+# =============================================================================
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query "id" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ $MANAGED_IDENTITY_TYPE == "UserAssigned" ]]; then
+	echo ""
+	echo "============================================================"
+	echo "Step 5b: Creating managed identity [$MANAGED_IDENTITY_NAME]..."
+	echo "============================================================"
+	read -r IDENTITY_ID IDENTITY_CLIENT_ID IDENTITY_PRINCIPAL_ID < <(az identity create \
+		--name "$MANAGED_IDENTITY_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--query "[id, clientId, principalId]" \
+		--output tsv \
+		--only-show-errors | tr '\n' ' ')
+
+	if [ -n "$IDENTITY_PRINCIPAL_ID" ]; then
+		echo "Managed identity [$MANAGED_IDENTITY_NAME] created. Client ID: $IDENTITY_CLIENT_ID"
+	else
+		echo "Failed to create managed identity [$MANAGED_IDENTITY_NAME]."
+		exit 1
+	fi
+
+	assign_storage_role "$IDENTITY_PRINCIPAL_ID" || exit 1
 fi
 
 # =============================================================================
@@ -285,8 +353,25 @@ echo "Step 10: Creating container app [$ACA_APP_NAME]..."
 echo "============================================================"
 # The registry credentials are passed explicitly: the CLI only infers them from
 # ARM when the server ends in ".azurecr.io", and LocalStack's loginServer is its
-# own host. The storage connection string becomes the Container Apps secret
-# [storage-conn], referenced from the container via a secretref env var.
+# own host. Without a managed identity the storage connection string becomes
+# the Container Apps secret [storage-conn], referenced from the container via a
+# secretref env var; with one, the app gets only the blob endpoint (HTTPS, as a
+# token credential requires) and no secret at all.
+case "$MANAGED_IDENTITY_TYPE" in
+None)
+	STORAGE_ARGS=(--secrets storage-conn="$CONTAINER_CONN_STRING")
+	STORAGE_ENV_VARS=(AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn)
+	;;
+SystemAssigned)
+	STORAGE_ARGS=(--system-assigned)
+	STORAGE_ENV_VARS=(AZURE_STORAGE_ACCOUNT_URL="$BLOB_ENDPOINT")
+	;;
+UserAssigned)
+	STORAGE_ARGS=(--user-assigned "$IDENTITY_ID")
+	STORAGE_ENV_VARS=(AZURE_STORAGE_ACCOUNT_URL="$BLOB_ENDPOINT" AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID")
+	;;
+esac
+
 az containerapp create \
 	--name "$ACA_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -296,9 +381,9 @@ az containerapp create \
 	--registry-server "$LOGIN_SERVER" \
 	--registry-username "$ACR_USERNAME" \
 	--registry-password "$ACR_PASSWORD" \
-	--secrets storage-conn="$CONTAINER_CONN_STRING" \
+	"${STORAGE_ARGS[@]}" \
 	--env-vars \
-		AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn \
+		"${STORAGE_ENV_VARS[@]}" \
 		BLOB_CONTAINER_NAME="$BLOB_CONTAINER_NAME" \
 		APP_REVISION="$IMAGE_TAG" \
 	--ingress external \
@@ -319,6 +404,25 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to create container app [$ACA_APP_NAME]."
 	exit 1
+fi
+
+# A system-assigned identity only exists once the app does, so it is granted
+# access afterwards. Until the role propagates, Blob Storage rejects the app's
+# requests; validate.sh retries the round trip for that reason.
+if [[ $MANAGED_IDENTITY_TYPE == "SystemAssigned" ]]; then
+	APP_PRINCIPAL_ID=$(az containerapp show \
+		--name "$ACA_APP_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--query "identity.principalId" \
+		--output tsv \
+		--only-show-errors)
+
+	if [ -z "$APP_PRINCIPAL_ID" ]; then
+		echo "Container app [$ACA_APP_NAME] has no system-assigned identity."
+		exit 1
+	fi
+	echo "System-assigned identity principal ID: $APP_PRINCIPAL_ID"
+	assign_storage_role "$APP_PRINCIPAL_ID" || exit 1
 fi
 
 FQDN=$(az containerapp show \
@@ -342,6 +446,7 @@ echo "ACR:               $ACR_NAME ($LOGIN_SERVER)"
 echo "ACA Environment:   $ACA_ENV_NAME"
 echo "Container App:     $ACA_APP_NAME"
 echo "Image:             $FULL_IMAGE"
+echo "Managed Identity:  $MANAGED_IDENTITY_TYPE"
 echo "Ingress FQDN:      $FQDN"
 if [[ "$FQDN" == *"localhost.localstack.cloud" ]]; then
 	echo "App URL:           http://${FQDN}:4566/"

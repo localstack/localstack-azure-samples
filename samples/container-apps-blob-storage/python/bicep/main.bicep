@@ -46,6 +46,14 @@ param maxReplicas int = 3
 @description('Specifies the revision suffix of the container app template.')
 param revisionSuffix string = 'v1'
 
+@description('Specifies how the app authenticates to Blob Storage: None uses a connection string secret, SystemAssigned or UserAssigned a managed identity.')
+@allowed([
+  'None'
+  'SystemAssigned'
+  'UserAssigned'
+])
+param managedIdentityType string = 'None'
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {
   environment: 'test'
@@ -56,6 +64,8 @@ var storageAccountName = '${prefix}acastorage${suffix}'
 var acrName = '${prefix}acaacr${suffix}'
 var environmentName = '${prefix}-aca-env-${suffix}'
 var appName = '${prefix}-aca-guestbook-${suffix}'
+var managedIdentityName = '${prefix}-aca-identity-${suffix}'
+var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 
 // Storage Account
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
@@ -79,6 +89,22 @@ resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01
 resource blobContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
   parent: blobServices
   name: containerName
+}
+
+resource userAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (managedIdentityType == 'UserAssigned') {
+  name: managedIdentityName
+  location: location
+  tags: tags
+}
+
+resource userAssignedRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (managedIdentityType == 'UserAssigned') {
+  name: guid(storageAccount.id, managedIdentityName, storageBlobDataContributorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: userAssignedIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 // Container Registry
@@ -107,20 +133,35 @@ resource containerApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: appName
   location: location
   tags: tags
+  identity: managedIdentityType == 'None'
+    ? null
+    : {
+        type: managedIdentityType
+        userAssignedIdentities: managedIdentityType == 'UserAssigned' ? { '${userAssignedIdentity!.id}': {} } : null
+      }
+  dependsOn: [
+    userAssignedRoleAssignment
+  ]
   properties: {
     managedEnvironmentId: managedEnvironment.id
     configuration: {
       activeRevisionsMode: 'Multiple'
-      secrets: [
-        {
-          name: 'storage-conn'
-          value: 'DefaultEndpointsProtocol=http;AccountName=${storageAccountName};AccountKey=${storageAccount.listKeys().keys[0].value};BlobEndpoint=${storageAccount.properties.primaryEndpoints.blob}'
-        }
-        {
-          name: 'registry-password'
-          value: containerRegistry.listCredentials().passwords[0].value
-        }
-      ]
+      secrets: concat(
+        managedIdentityType == 'None'
+          ? [
+              {
+                name: 'storage-conn'
+                value: 'DefaultEndpointsProtocol=http;AccountName=${storageAccountName};AccountKey=${storageAccount.listKeys().keys[0].value};BlobEndpoint=${storageAccount.properties.primaryEndpoints.blob}'
+              }
+            ]
+          : [],
+        [
+          {
+            name: 'registry-password'
+            value: containerRegistry.listCredentials().passwords[0].value
+          }
+        ]
+      )
       registries: [
         {
           server: containerRegistry.properties.loginServer
@@ -151,20 +192,39 @@ resource containerApp 'Microsoft.App/containerApps@2025-07-01' = {
             cpu: json(containerCpu)
             memory: containerMemory
           }
-          env: [
-            {
-              name: 'AZURE_STORAGE_CONNECTION_STRING'
-              secretRef: 'storage-conn'
-            }
-            {
-              name: 'BLOB_CONTAINER_NAME'
-              value: containerName
-            }
-            {
-              name: 'APP_REVISION'
-              value: revisionSuffix
-            }
-          ]
+          env: concat(
+            managedIdentityType == 'None'
+              ? [
+                  {
+                    name: 'AZURE_STORAGE_CONNECTION_STRING'
+                    secretRef: 'storage-conn'
+                  }
+                ]
+              : [
+                  {
+                    name: 'AZURE_STORAGE_ACCOUNT_URL'
+                    value: storageAccount.properties.primaryEndpoints.blob
+                  }
+                ],
+            managedIdentityType == 'UserAssigned'
+              ? [
+                  {
+                    name: 'AZURE_CLIENT_ID'
+                    value: userAssignedIdentity!.properties.clientId
+                  }
+                ]
+              : [],
+            [
+              {
+                name: 'BLOB_CONTAINER_NAME'
+                value: containerName
+              }
+              {
+                name: 'APP_REVISION'
+                value: revisionSuffix
+              }
+            ]
+          )
         }
       ]
       scale: {
@@ -185,6 +245,16 @@ resource containerApp 'Microsoft.App/containerApps@2025-07-01' = {
   }
 }
 
+resource systemAssignedRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (managedIdentityType == 'SystemAssigned') {
+  name: guid(storageAccount.id, appName, storageBlobDataContributorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output storageAccountName string = storageAccount.name
 output acrName string = containerRegistry.name
 output acrLoginServer string = containerRegistry.properties.loginServer
@@ -192,3 +262,4 @@ output environmentName string = managedEnvironment.name
 output appName string = containerApp.name
 output fqdn string = containerApp.properties.configuration.ingress.fqdn
 output latestRevisionName string = containerApp.properties.latestRevisionName
+output principalId string = managedIdentityType == 'None' ? '' : (managedIdentityType == 'SystemAssigned' ? containerApp.identity.principalId : userAssignedIdentity!.properties.principalId)

@@ -19,6 +19,7 @@ from azure.core.exceptions import (
     ResourceModifiedError,
     ResourceNotFoundError,
 )
+from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,10 @@ class BlobGuestbookClient:
         entries.json
     """
 
-    def __init__(self, connection_string: str, container_name: str):
-        self.blob_service = BlobServiceClient.from_connection_string(connection_string)
+    def __init__(self, blob_service: BlobServiceClient, container_name: str, auth_mode: str):
+        self.blob_service = blob_service
         self.container_client = self.blob_service.get_container_client(container_name)
+        self.auth_mode = auth_mode
 
     @classmethod
     def from_env(cls) -> "BlobGuestbookClient | None":
@@ -58,17 +60,27 @@ class BlobGuestbookClient:
             BLOB_CONTAINER_NAME - Name of the blob container
         """
         connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+        account_url = os.environ.get("AZURE_STORAGE_ACCOUNT_URL")
         container_name = os.environ.get("BLOB_CONTAINER_NAME")
 
-        if not connection_string or not container_name:
+        if not (connection_string or account_url) or not container_name:
             logger.warning(
-                "AZURE_STORAGE_CONNECTION_STRING or BLOB_CONTAINER_NAME not set. "
+                "AZURE_STORAGE_CONNECTION_STRING (or AZURE_STORAGE_ACCOUNT_URL) or BLOB_CONTAINER_NAME not set. "
                 "Blob storage client not initialized."
             )
             return None
 
-        logger.info("Initializing Blob Storage client for container: %s", container_name)
-        return cls(connection_string, container_name)
+        if connection_string:
+            blob_service = BlobServiceClient.from_connection_string(connection_string)
+            auth_mode = "connection_string"
+        else:
+            # The managed identity credential reads IDENTITY_ENDPOINT/IDENTITY_HEADER, which Container Apps
+            # injects only when the app has an identity; AZURE_CLIENT_ID selects a user-assigned one.
+            blob_service = BlobServiceClient(account_url, credential=DefaultAzureCredential())
+            auth_mode = "managed_identity"
+
+        logger.info("Initializing Blob Storage client for container: %s (auth: %s)", container_name, auth_mode)
+        return cls(blob_service, container_name, auth_mode)
 
     def _read_blob(self) -> tuple[list[dict[str, str]], str | None]:
         """Download and parse the JSON blob, together with its ETag.

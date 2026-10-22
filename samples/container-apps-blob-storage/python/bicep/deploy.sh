@@ -16,6 +16,7 @@ SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGE_NAME="guestbook"
 IMAGE_TAG="v1"
+MANAGED_IDENTITY_TYPE="${MANAGED_IDENTITY_TYPE:-None}"
 
 echo "=================================================="
 echo "DEBUG: Starting bicep deployment for container-apps-blob-storage"
@@ -126,6 +127,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--parameters location=$LOCATION \
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
+			managedIdentityType=$MANAGED_IDENTITY_TYPE \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -144,6 +146,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			--parameters location=$LOCATION \
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
+			managedIdentityType=$MANAGED_IDENTITY_TYPE \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -166,6 +169,7 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--parameters location=$LOCATION \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
+	managedIdentityType=$MANAGED_IDENTITY_TYPE \
 	--query 'properties.outputs' -o json); then
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
 	# Strip any non-JSON prefix (e.g. Bicep CLI messages) before parsing
@@ -176,12 +180,15 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	ENVIRONMENT_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.environmentName.value')
 	APP_NAME=$(echo "$DEPLOYMENT_JSON" | jq -r '.appName.value')
 	FQDN=$(echo "$DEPLOYMENT_JSON" | jq -r '.fqdn.value')
+	PRINCIPAL_ID=$(echo "$DEPLOYMENT_JSON" | jq -r '.principalId.value')
 	echo "Deployment details:"
 	echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
 	echo "- acrLoginServer: $ACR_LOGIN_SERVER"
 	echo "- environmentName: $ENVIRONMENT_NAME"
 	echo "- appName: $APP_NAME"
 	echo "- fqdn: $FQDN"
+	echo "- managedIdentityType: $MANAGED_IDENTITY_TYPE"
+	echo "- principalId: $PRINCIPAL_ID"
 else
 	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1

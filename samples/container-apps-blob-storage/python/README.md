@@ -30,6 +30,7 @@ flowchart TB
 ```
 
 - **Deployment flow:** The deploy script creates Storage first, then ACR, builds and pushes the container image, creates a Container Apps managed environment, and finally creates a container app that pulls from ACR. The storage connection string is stored as a Container Apps secret and injected into the container through a `secretref` environment variable.
+- **Managed identity (optional):** With `MANAGED_IDENTITY_TYPE=SystemAssigned` or `UserAssigned`, the app gets a managed identity with the `Storage Blob Data Contributor` role on the storage account instead of the connection string secret, and authenticates to Blob Storage with `DefaultAzureCredential`.
 - **At runtime:** The Flask app reads the storage connection string from its environment, connects to Blob Storage, and provides a web UI for signing and reading the guestbook. The revision that served each response is shown in the UI, so rolling out a new revision with `az containerapp update` is observable over HTTP.
 
 ## Prerequisites
@@ -54,6 +55,15 @@ bash scripts/deploy.sh
 
 # Validate the deployment (includes a live HTTP round trip and a revision rollout)
 bash scripts/validate.sh
+```
+
+### Managed Identity
+
+Every deployment method accepts `MANAGED_IDENTITY_TYPE` (`None` by default, `SystemAssigned` or `UserAssigned`) to have the app reach Blob Storage with a managed identity instead of a connection string:
+
+```bash
+MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/deploy.sh
+MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/validate.sh
 ```
 
 ## Alternative Deployments
@@ -90,13 +100,15 @@ The Guestbook is a Flask web application that lets visitors sign a guestbook. En
 | `/` | GET | View all guestbook entries |
 | `/` | POST | Sign the guestbook |
 | `/delete/<id>` | POST | Delete an entry |
-| `/health` | GET | Health check (reports the serving revision) |
+| `/health` | GET | Health check (reports the serving revision and the storage auth mode) |
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `AZURE_STORAGE_CONNECTION_STRING` | Blob Storage connection string (injected via `secretref:storage-conn`) |
+| `AZURE_STORAGE_ACCOUNT_URL` | Blob endpoint reached with the managed identity (set instead of the connection string) |
+| `AZURE_CLIENT_ID` | Client ID of the user-assigned managed identity (`UserAssigned` only) |
 | `BLOB_CONTAINER_NAME` | Name of the blob container for entries |
 | `APP_REVISION` | Revision label shown in the UI and `/health` (default: "v1") |
 
@@ -117,6 +129,7 @@ The Guestbook is a Flask web application that lets visitors sign a guestbook. En
 | Managed environment create | deploy.sh |
 | App create from a private registry (ACR) | deploy.sh |
 | Secrets (`--secrets` + `secretref:` env var) | deploy.sh |
+| System-assigned / user-assigned managed identity + RBAC on Storage | deploy.sh (`MANAGED_IDENTITY_TYPE`) |
 | External HTTP ingress + FQDN | deploy.sh |
 | Multiple revisions mode + revision suffix | deploy.sh |
 | Min / max replicas + HTTP scale rule | deploy.sh |

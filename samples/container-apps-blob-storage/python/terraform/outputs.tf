@@ -29,3 +29,7 @@ output "fqdn" {
 output "latest_revision_name" {
   value = azurerm_container_app.example.latest_revision_name
 }
+
+output "principal_id" {
+  value = var.managed_identity_type == "None" ? "" : (var.managed_identity_type == "SystemAssigned" ? azurerm_container_app.example.identity[0].principal_id : azurerm_user_assigned_identity.example[0].principal_id)
+}

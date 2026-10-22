@@ -17,6 +17,9 @@ BLOB_CONTAINER_NAME="guestbook"
 ACR_NAME="${PREFIX}acaacr"
 ACA_ENV_NAME="${PREFIX}-aca-env"
 ACA_APP_NAME="${PREFIX}-aca-guestbook"
+MANAGED_IDENTITY_TYPE="${MANAGED_IDENTITY_TYPE:-None}"
+MANAGED_IDENTITY_NAME="${PREFIX}-aca-identity"
+STORAGE_ROLE="Storage Blob Data Contributor"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -124,17 +127,54 @@ check_output "target port is 8080" \
 	"8080"
 echo ""
 
-# 7. Secrets
-echo "[7] Secrets"
-check_output "secret [storage-conn] exists" \
-	"az containerapp secret list --name $ACA_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query '[].name' --output tsv" \
-	"storage-conn"
-check_output "secret value is readable" \
-	"az containerapp secret show --name $ACA_APP_NAME --resource-group $RESOURCE_GROUP_NAME --secret-name storage-conn --query 'value' --output tsv" \
-	"AccountName=${STORAGE_ACCOUNT_NAME}"
-check_output "env var is wired to the secret" \
-	"$APP_SHOW --query \"properties.template.containers[0].env[?name=='AZURE_STORAGE_CONNECTION_STRING'].secretRef | [0]\" --output tsv" \
-	"storage-conn"
+# 7. Storage access: a secret-backed connection string, or a managed identity
+if [[ $MANAGED_IDENTITY_TYPE == "None" ]]; then
+	echo "[7] Secrets"
+	check_output "secret [storage-conn] exists" \
+		"az containerapp secret list --name $ACA_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query '[].name' --output tsv" \
+		"storage-conn"
+	check_output "secret value is readable" \
+		"az containerapp secret show --name $ACA_APP_NAME --resource-group $RESOURCE_GROUP_NAME --secret-name storage-conn --query 'value' --output tsv" \
+		"AccountName=${STORAGE_ACCOUNT_NAME}"
+	check_output "env var is wired to the secret" \
+		"$APP_SHOW --query \"properties.template.containers[0].env[?name=='AZURE_STORAGE_CONNECTION_STRING'].secretRef | [0]\" --output tsv" \
+		"storage-conn"
+else
+	echo "[7] Managed Identity ($MANAGED_IDENTITY_TYPE)"
+	check_output "identity type is $MANAGED_IDENTITY_TYPE" \
+		"$APP_SHOW --query 'identity.type' --output tsv" \
+		"^${MANAGED_IDENTITY_TYPE}$"
+	if [[ $MANAGED_IDENTITY_TYPE == "SystemAssigned" ]]; then
+		PRINCIPAL_ID=$(eval "$APP_SHOW --query 'identity.principalId' --output tsv" 2>/dev/null)
+	else
+		PRINCIPAL_ID=$(az identity show --name "$MANAGED_IDENTITY_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'principalId' --output tsv 2>/dev/null)
+		CLIENT_ID=$(az identity show --name "$MANAGED_IDENTITY_NAME" --resource-group "$RESOURCE_GROUP_NAME" --query 'clientId' --output tsv 2>/dev/null)
+		check_output "identity [$MANAGED_IDENTITY_NAME] is attached to the app" \
+			"$APP_SHOW --query 'keys(identity.userAssignedIdentities)' --output tsv" \
+			"$MANAGED_IDENTITY_NAME"
+		check_output "AZURE_CLIENT_ID selects the identity" \
+			"$APP_SHOW --query \"properties.template.containers[0].env[?name=='AZURE_CLIENT_ID'].value | [0]\" --output tsv" \
+			"^${CLIENT_ID:-missing}$"
+	fi
+	echo -n "  Checking principal ID is set... "
+	if [ -n "$PRINCIPAL_ID" ]; then
+		echo "OK ($PRINCIPAL_ID)"
+		PASS_COUNT=$((PASS_COUNT + 1))
+	else
+		echo "FAIL"
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+	fi
+	STORAGE_ACCOUNT_ID=$(az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --query 'id' --output tsv 2>/dev/null)
+	check_output "identity has [$STORAGE_ROLE] on the storage account" \
+		"az role assignment list --assignee ${PRINCIPAL_ID:-missing} --scope $STORAGE_ACCOUNT_ID --query '[].roleDefinitionName' --output tsv" \
+		"$STORAGE_ROLE"
+	check_output "env var carries the blob endpoint" \
+		"$APP_SHOW --query \"properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_URL'].value | [0]\" --output tsv" \
+		"^https://"
+	check_output "no storage secret is configured" \
+		"az containerapp secret list --name $ACA_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"length([?name=='storage-conn'])\" --output tsv" \
+		"^0$"
+fi
 echo ""
 
 # 8. Scale
@@ -225,9 +265,20 @@ fi
 check_output "storage is configured in the app" \
 	"curl -s --max-time 5 $APP_URL/health" \
 	'"storage_configured": *true'
+if [[ $MANAGED_IDENTITY_TYPE == "None" ]]; then
+	EXPECTED_AUTH_MODE="connection_string"
+else
+	EXPECTED_AUTH_MODE="managed_identity"
+fi
+check_output "app authenticates with $EXPECTED_AUTH_MODE" \
+	"curl -s --max-time 5 $APP_URL/health" \
+	"\"auth_mode\": *\"$EXPECTED_AUTH_MODE\""
 echo ""
 
-# 12. Guestbook round trip (POST an entry, read it back)
+# 12. Guestbook round trip (POST an entry, read it back). The app answers the
+# POST with a redirect even when the write fails, so with a managed identity the
+# entry is posted again until it is served back: on Azure a role granted to the
+# identity can take a few minutes to take effect.
 echo "[12] Guestbook Round Trip"
 ENTRY_AUTHOR="validate-sh"
 ENTRY_MESSAGE="Hello from validate.sh at $(date +%s)"
@@ -243,9 +294,25 @@ else
 	echo "FAIL (HTTP $HTTP_CODE)"
 	FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
-check_output "entry is served back from Blob Storage" \
-	"curl -s --max-time 10 $APP_URL/" \
-	"$ENTRY_MESSAGE"
+echo -n "  Checking entry is served back from Blob Storage... "
+if [[ $MANAGED_IDENTITY_TYPE != "None" ]]; then
+	for i in $(seq 1 30); do
+		if curl -s --max-time 10 "$APP_URL/" 2>/dev/null | grep -q "$ENTRY_MESSAGE"; then
+			break
+		fi
+		sleep 10
+		curl -s -o /dev/null --max-time 10 -X POST "$APP_URL/" \
+			--data-urlencode "author=$ENTRY_AUTHOR" \
+			--data-urlencode "message=$ENTRY_MESSAGE" 2>/dev/null
+	done
+fi
+if curl -s --max-time 10 "$APP_URL/" 2>/dev/null | grep -q "$ENTRY_MESSAGE"; then
+	echo "OK"
+	PASS_COUNT=$((PASS_COUNT + 1))
+else
+	echo "FAIL"
+	FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
 echo ""
 
 # =============================================================================
@@ -257,16 +324,20 @@ echo ""
 # 13. Roll out a new revision (v2) with an updated APP_REVISION env var.
 # The secretref is re-stated alongside the changed var so the update payload
 # carries the secret wiring explicitly rather than relying on the CLI's
-# read-modify-write merge of the env list.
+# read-modify-write merge of the env list. A managed-identity app has no secret
+# to re-state.
 echo "[13] Revision Update"
 echo -n "  Rolling out revision v2... "
+if [[ $MANAGED_IDENTITY_TYPE == "None" ]]; then
+	REVISION_ENV_VARS=(APP_REVISION=v2 AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn)
+else
+	REVISION_ENV_VARS=(APP_REVISION=v2)
+fi
 az containerapp update \
 	--name "$ACA_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--revision-suffix v2 \
-	--set-env-vars \
-		APP_REVISION=v2 \
-		AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn \
+	--set-env-vars "${REVISION_ENV_VARS[@]}" \
 	--only-show-errors 1>/dev/null 2>&1
 
 if [ $? -eq 0 ]; then
