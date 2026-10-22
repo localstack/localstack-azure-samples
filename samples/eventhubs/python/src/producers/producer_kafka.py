@@ -39,13 +39,16 @@ def main() -> None:
     hub = event_hub_name()
     bootstrap = namespace_endpoint(conn_str)
 
-    # Topic == event hub. Against Azure you would add security.protocol=SASL_SSL,
-    # sasl.mechanism=PLAIN, sasl.username='$ConnectionString' (the literal string - Azure
-    # expects it verbatim) and the full connection string as sasl.password; the emulator
-    # serves Kafka in plaintext (a documented deviation).
+    # Topic == event hub. These are the settings Azure requires for Kafka clients, used
+    # unchanged against LocalStack: sasl.username is the literal string '$ConnectionString'
+    # and the full connection string is the password.
     producer = Producer(
         {
             "bootstrap.servers": bootstrap,
+            "security.protocol": "SASL_SSL",
+            "sasl.mechanism": "PLAIN",
+            "sasl.username": "$ConnectionString",
+            "sasl.password": conn_str,
             "client.id": "legacy-settlement-gateway",
             "message.timeout.ms": 20000,
             # Broker metadata advertises a hostname; pinning the client to IPv4 avoids a
