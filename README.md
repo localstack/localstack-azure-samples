@@ -135,6 +135,7 @@ Azure values that only look like paths are rewritten too, and the commands that 
 
 With `MSYS_NO_PATHCONV=1` set, these values reach the Azure CLI exactly as written.
 The scripts convert the paths of the local files they hand to Windows programs, such as the temporary files read by `curl` and `jq`, with `cygpath` when it is available, so they keep working with the variable set.
+They also hand `curl` the Windows `NUL` device instead of `/dev/null` for the responses they discard, because the variable stops these shells from making that conversion too.
 On Linux and macOS `cygpath` does not exist, and the paths are left unchanged.
 
 Tips:
@@ -144,6 +145,8 @@ Tips:
 - Any value turns the conversion off, `0` included; run `unset MSYS_NO_PATHCONV` to turn it back on.
 - WSL runs Linux and needs no variable.
 - When you write a script that passes a local file to `az`, `curl`, `jq`, `python`, `docker` or `zip`, convert its path with the `native_path` helper the existing scripts define; Git Bash ships no `zip`, and a `zip.exe` built for Windows needs the converted path too.
+- To discard what a Windows program writes to a file, such as `curl -o`, pass it `"$(null_device)"` rather than `/dev/null`, as the existing scripts do. Shell redirections such as `> /dev/null` need no change.
+- A launcher written as a shell script that hands its own paths to a Windows program, such as Maven's `mvn`, needs the conversion: run it as `(unset MSYS_NO_PATHCONV; mvn ...)`, as the Service Bus sample does. Setting the variable to an empty value is not enough, because any value turns the conversion off.
 
 ## Configuration
 
