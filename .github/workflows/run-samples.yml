@@ -400,6 +400,7 @@ jobs:
           wsl --shutdown
 
       - name: Set up Ubuntu in WSL 2
+        id: wsl
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
         with:
           distribution: Ubuntu-24.04
@@ -408,17 +409,34 @@ jobs:
           additional-packages: docker.io
 
       - name: Start Docker Engine in WSL 2
-        # The Unix socket is what the emulator container mounts to start its backing containers; the TCP
-        # endpoint, bound to localhost, is what WSL forwards to Windows for the docker CLI and lstk.
+        # Installing docker.io already started a daemon on the Unix socket alone, and a second one cannot
+        # start beside it, so it is stopped and replaced by one that also listens on TCP. The Unix socket
+        # is what the emulator container mounts to start its backing containers; the TCP endpoint, bound
+        # to localhost, is what WSL forwards to Windows for the docker CLI and lstk. The wait asks the TCP
+        # endpoint, so the step fails when that daemon did not start.
         shell: wsl-bash {0}
         run: |
+          if [ -d /run/systemd/system ]; then
+            systemctl disable --now docker.socket docker.service
+          elif [ -e /var/run/docker.pid ]; then
+            kill "$(cat /var/run/docker.pid)"
+          fi
+          for _ in $(seq 1 30); do
+            [ -e /var/run/docker.pid ] || break
+            sleep 1
+          done
+          if [ -e /var/run/docker.pid ]; then
+            echo "::error::The Docker daemon that installing docker.io started is still running"
+            exit 1
+          fi
           setsid nohup dockerd --host unix:///var/run/docker.sock --host tcp://127.0.0.1:2375 --tls=false \
             > /var/log/dockerd.log 2>&1 < /dev/null &
           for _ in $(seq 1 60); do
-            docker info > /dev/null 2>&1 && break
+            docker --host tcp://127.0.0.1:2375 info > /dev/null 2>&1 && break
             sleep 2
           done
-          docker info --format 'Docker {{.ServerVersion}} on {{.OperatingSystem}}, kernel {{.KernelVersion}}'
+          docker --host tcp://127.0.0.1:2375 info \
+            --format 'Docker {{.ServerVersion}} on {{.OperatingSystem}}, kernel {{.KernelVersion}}'
 
       - name: Check that the Windows docker CLI reaches it
         run: docker version
@@ -528,6 +546,7 @@ jobs:
         run: docker logs localstack-azure 2>&1 | tail -n 500 || true
 
       - name: Get the Docker Engine log
-        if: failure()
+        # The wsl-bash shell exists only once WSL is set up
+        if: failure() && steps.wsl.outcome == 'success'
         shell: wsl-bash {0}
         run: tail -n 100 /var/log/dockerd.log || true
