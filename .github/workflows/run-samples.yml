@@ -29,6 +29,11 @@ on:
           - amd64
           - arm64
         default: both
+      windows:
+        description: "Run only the Windows job, a few samples from Git Bash with MSYS_NO_PATHCONV=1, instead of the Linux matrix"
+        required: false
+        type: boolean
+        default: false
 
 # Defaults for pull_request events (change DEFAULT_RUN_MODE to 'changed' to only run affected tests)
 env:
@@ -42,6 +47,8 @@ jobs:
   # Lightweight job that builds the dynamic test matrix for the main test jobs
   setup:
     name: "Build Test Matrix"
+    # A manual run with the windows input runs the Windows job alone; skipping this job skips the matrix
+    if: github.event_name != 'workflow_dispatch' || !inputs.windows
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -338,3 +345,189 @@ jobs:
           else
             make logs
           fi
+
+  # Runs a few samples on Windows, from Git Bash with MSYS_NO_PATHCONV=1 set as the README asks Windows
+  # users to do, on manual runs with the windows input only. The emulator is a Linux image and Docker on
+  # the Windows runner runs Windows containers, so the emulator runs in Docker Engine inside a WSL 2
+  # distribution on the same runner; the Windows docker CLI and lstk reach that engine over TCP, which
+  # WSL forwards to the runner's localhost, and the samples reach the emulator the same way.
+  windows:
+    name: "Windows (Git Bash): ${{ matrix.sample }}"
+    if: github.event_name == 'workflow_dispatch' && inputs.windows
+    environment: AZURE
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Samples whose scripts hand Git Bash something it would rewrite: a Cosmos DB partition key,
+        # resource IDs, Front Door paths, or local files read by az, curl, jq, python and zip.
+        sample:
+          - web-app-cosmosdb-nosql-api/python/scripts
+          - web-app-cosmosdb-nosql-api/dotnet/scripts
+          - web-app-custom-image/python/scripts
+          - function-app-front-door/python/scripts
+          - api-management-function-app/python/scripts
+          - function-app-managed-identity/python/scripts
+          - eventhubs/python/scripts
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: localstack/localstack-azure:latest
+      # The Docker Engine in WSL 2, for the Windows docker CLI and lstk
+      DOCKER_HOST: tcp://127.0.0.1:2375
+      # What the README asks Windows users of Git Bash and MSYS2 to export
+      MSYS_NO_PATHCONV: "1"
+      # A virtual environment on Windows has python.exe but no python3
+      PYTHON_BIN: python
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Configure WSL
+        # Once a step's wsl.exe session ends, WSL stops the idle distribution after 15 seconds, and
+        # dockerd with it; -1 keeps it running for the whole job. The memory leaves room for the backing
+        # containers the samples start.
+        shell: pwsh
+        run: |
+          Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value "[wsl2]`nmemory=12GB`n`n[general]`ninstanceIdleTimeout=-1"
+          wsl --shutdown
+
+      - name: Set up Ubuntu in WSL 2
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 2
+          wsl-shell-user: root
+          additional-packages: docker.io
+
+      - name: Start Docker Engine in WSL 2
+        # The Unix socket is what the emulator container mounts to start its backing containers; the TCP
+        # endpoint, bound to localhost, is what WSL forwards to Windows for the docker CLI and lstk.
+        shell: wsl-bash {0}
+        run: |
+          setsid nohup dockerd --host unix:///var/run/docker.sock --host tcp://127.0.0.1:2375 --tls=false \
+            > /var/log/dockerd.log 2>&1 < /dev/null &
+          for _ in $(seq 1 60); do
+            docker info > /dev/null 2>&1 && break
+            sleep 2
+          done
+          docker info --format 'Docker {{.ServerVersion}} on {{.OperatingSystem}}, kernel {{.KernelVersion}}'
+
+      - name: Check that the Windows docker CLI reaches it
+        run: docker version
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+
+      - name: Start LocalStack in WSL 2
+        # Started with the docker CLI rather than lstk: lstk on Windows would mount a Windows volume path,
+        # and no Docker socket, into the Linux engine. The two mounts are paths inside WSL, which
+        # MSYS_NO_PATHCONV keeps Git Bash from rewriting. run-samples.sh's own `lstk start` then finds the
+        # running container by its name, localstack-azure, and leaves it alone.
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --detach --name localstack-azure \
+            --publish 127.0.0.1:4566:4566 --publish 127.0.0.1:443:443 \
+            --publish 127.0.0.1:4510-4559:4510-4559 \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume /var/lib/localstack-azure:/var/lib/localstack \
+            --env LOCALSTACK_AUTH_TOKEN --env GITHUB_API_TOKEN \
+            --env MSSQL_ACCEPT_EULA=Y --env LS_LOG=debug --env DISABLE_EVENTS=1 --env DNS_ADDRESS=0 \
+            "$IMAGE"
+          for _ in $(seq 1 200); do
+            if curl --silent --fail --max-time 5 http://127.0.0.1:4566/_localstack/health > /dev/null; then
+              echo "Emulator ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::The emulator did not answer on 127.0.0.1:4566 within 400s"
+          docker logs --tail 100 localstack-azure
+          exit 1
+
+      - name: Install lstk CLI
+        # The release the Linux job pins
+        run: npm install -g @localstack/lstk@1.4.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: '10.0'
+
+      - name: Install Terraform
+        # run-samples.sh refuses to start without it, whichever sample it runs
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Provide zip
+        # The scripts package apps with `zip -r ARCHIVE FILES...`, and Git Bash ships no zip. 7-Zip, which
+        # the runner image ships, writes the same archive; being a Windows program, it gets the Windows
+        # form of any absolute path.
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/zip" <<'EOF'
+          #!/bin/bash
+          seven_zip=$(command -v 7z || echo "/c/Program Files/7-Zip/7z.exe")
+          args=()
+          for arg in "$@"; do
+            case "$arg" in
+              -*) ;;
+              /*) args+=("$(cygpath -m "$arg")") ;;
+              *) args+=("$arg") ;;
+            esac
+          done
+          exec "$seven_zip" a -tzip -bso0 -bsp0 "${args[@]}"
+          EOF
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install the Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --upgrade pip setuptools wheel
+          .venv/Scripts/python -m pip install -r requirements-dev.txt
+
+      - name: "Run: ${{ matrix.sample }}"
+        # run-samples.sh routes az to the emulator with `lstk az start-interception`, as on Linux, and runs
+        # exactly this sample when given its shard: its 1-based position in the full list.
+        env:
+          SAMPLE: ${{ matrix.sample }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          # The runner's jq.exe is a Windows program, which ends its lines with CRLF; the CR would stick to SPLITS
+          read -r SHARD SPLITS < <(bash ./run-samples.sh --list |
+            jq -r --arg name "$SAMPLE" '.[] | select(.name == $name) | "\(.shard) \(.splits)"' | tr -d '\r')
+          if [[ -z "$SHARD" ]]; then
+            echo "::error::[$SAMPLE] is not registered in run-samples.sh"
+            exit 1
+          fi
+          source .venv/Scripts/activate
+          bash ./run-samples.sh "$SHARD" "$SPLITS"
+
+      - name: Get LocalStack Logs
+        if: always()
+        run: docker logs localstack-azure 2>&1 | tail -n 500 || true
+
+      - name: Get the Docker Engine log
+        if: failure()
+        shell: wsl-bash {0}
+        run: tail -n 100 /var/log/dockerd.log || true
