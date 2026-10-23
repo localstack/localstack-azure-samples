@@ -23,6 +23,17 @@ native_path() {
 	fi
 }
 
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 FAILED=0
 
 # Load the values persisted by deploy.sh (PostgreSQL credentials and endpoint)
@@ -143,8 +154,8 @@ fi
 # without the fix from localstack/localstack-pro#8135 follow the redirect at the
 # gateway), so the assertion targets the effect: the click rows in PostgreSQL.
 echo "Following the short link twice..."
-curl -s -o /dev/null -w "First redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
-curl -s -o /dev/null -w "Second redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
+curl -s -o "$(null_device)" -w "First redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
+curl -s -o "$(null_device)" -w "Second redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
 sleep 3
 CLICKS=$(PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_HOST" \
