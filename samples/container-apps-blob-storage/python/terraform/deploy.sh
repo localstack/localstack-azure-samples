@@ -6,6 +6,7 @@ SUFFIX='test'
 LOCATION='eastus'
 IMAGE_NAME='guestbook'
 IMAGE_TAG='v1'
+MANAGED_IDENTITY_TYPE="${MANAGED_IDENTITY_TYPE:-None}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Change the current directory to the script's directory
@@ -95,6 +96,7 @@ terraform import \
 	-var "location=$LOCATION" \
 	-var "image_name=$IMAGE_NAME" \
 	-var "image_tag=$IMAGE_TAG" \
+	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE" \
 	azurerm_resource_group.example \
 	"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
 
@@ -105,7 +107,8 @@ terraform plan -out=tfplan \
 	-var "suffix=$SUFFIX" \
 	-var "location=$LOCATION" \
 	-var "image_name=$IMAGE_NAME" \
-	-var "image_tag=$IMAGE_TAG"
+	-var "image_tag=$IMAGE_TAG" \
+	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE"
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."
@@ -123,6 +126,7 @@ ACR_NAME=$(terraform output -raw acr_name)
 ENVIRONMENT_NAME=$(terraform output -raw environment_name)
 APP_NAME=$(terraform output -raw app_name)
 FQDN=$(terraform output -raw fqdn)
+PRINCIPAL_ID=$(terraform output -raw principal_id)
 
 echo ""
 echo "============================================================"
@@ -134,4 +138,5 @@ echo "ACR:               $ACR_NAME"
 echo "ACA Environment:   $ENVIRONMENT_NAME"
 echo "Container App:     $APP_NAME"
 echo "Ingress FQDN:      $FQDN"
+echo "Managed Identity:  $MANAGED_IDENTITY_TYPE $PRINCIPAL_ID"
 echo "============================================================"

@@ -20,7 +20,6 @@ IMAGE_TAG="v1"
 echo "=================================================="
 echo "DEBUG: Starting bicep deployment for aci-blob-storage"
 echo "DEBUG: Resource Group: $RESOURCE_GROUP_NAME"
-echo "DEBUG: Environment: $ENVIRONMENT"
 echo "=================================================="
 
 # Change the current directory to the script's directory

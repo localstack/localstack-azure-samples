@@ -53,6 +53,8 @@ SAMPLES=(
   "samples/web-app-custom-image/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
   "samples/aci-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
   "samples/container-apps-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
+  "samples/container-apps-blob-storage/python|MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/deploy.sh|MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/validate.sh"
+  "samples/container-apps-blob-storage/python|MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/deploy.sh|MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/validate.sh"
   "samples/url-shortener/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
 )
 
@@ -79,6 +81,8 @@ TERRAFORM_SAMPLES=(
   "samples/web-app-app-configuration/dotnet/terraform|bash deploy.sh"
   "samples/aci-blob-storage/python/terraform|bash deploy.sh"
   "samples/container-apps-blob-storage/python/terraform|bash deploy.sh"
+  "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
+  "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
   "samples/url-shortener/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
 )
 
@@ -105,6 +109,8 @@ BICEP_SAMPLES=(
   "samples/web-app-app-configuration/dotnet/bicep|bash deploy.sh"
   "samples/aci-blob-storage/python/bicep|bash deploy.sh"
   "samples/container-apps-blob-storage/python/bicep|bash deploy.sh"
+  "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
+  "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
   "samples/url-shortener/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
 )
 
@@ -196,7 +202,7 @@ host_arch() {
 if [[ "${1:-}" == "--list" ]]; then
   echo "["
   for (( i=0; i<TOTAL; i++ )); do
-    IFS='|' read -r path _ _ <<< "${ALL_SAMPLES[$i]}"
+    IFS='|' read -r path deploy _ <<< "${ALL_SAMPLES[$i]}"
 
     if [[ "$path" == */terraform || "$path" == */bicep ]]; then
       # An IaC sample deploys from its own folder, but its test command may run the
@@ -210,6 +216,11 @@ if [[ "${1:-}" == "--list" ]]; then
       # do not exist simply never match a changed file.
       watch=("$path/scripts" "$path/src" "$path/function")
       name="${path#samples/}/scripts"
+    fi
+
+    # A sample registered more than once differs by the VAR=value its deploy command starts with.
+    if [[ "$deploy" =~ ^([A-Z_]+=[^ ]+)\  ]]; then
+      name="$name (${BASH_REMATCH[1]})"
     fi
 
     folders=$(printf '"%s",' "${watch[@]}")

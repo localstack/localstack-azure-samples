@@ -107,20 +107,8 @@ else
 	exit 1
 fi
 
-# Build the connection string using the original blob endpoint (resolvable from the host).
 STORAGE_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${BLOB_ENDPOINT}"
 echo "Connection string built successfully."
-
-# For LocalStack, the ACI emulator configures containers with LocalStack's DNS
-# server, so *.localhost.localstack.cloud resolves to the LocalStack container.
-# We only need to downgrade HTTPS to HTTP (containers don't have the LS TLS cert).
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	CONTAINER_BLOB_ENDPOINT="${BLOB_ENDPOINT/https:\/\//http:\/\/}"
-	CONTAINER_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${CONTAINER_BLOB_ENDPOINT}"
-	echo "Container blob endpoint: $CONTAINER_BLOB_ENDPOINT"
-else
-	CONTAINER_CONN_STRING="$STORAGE_CONN_STRING"
-fi
 
 # =============================================================================
 # Step 5: Create Blob Container
@@ -174,11 +162,10 @@ echo ""
 echo "============================================================"
 echo "Step 7: Storing storage connection string in Key Vault..."
 echo "============================================================"
-# Store the container-friendly connection string so ACI can reach LocalStack
 az keyvault secret set \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "storage-conn" \
-	--value "$CONTAINER_CONN_STRING" \
+	--value "$STORAGE_CONN_STRING" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
