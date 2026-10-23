@@ -143,7 +143,7 @@ Tips:
 - `echo $MSYSTEM` prints a value such as `MINGW64` only in these shells.
 - Any value turns the conversion off, `0` included; run `unset MSYS_NO_PATHCONV` to turn it back on.
 - WSL runs Linux and needs no variable.
-- When you write a script that passes a local file to `az`, `curl`, `jq`, `python` or `docker`, convert its path with the `native_path` helper the existing scripts define.
+- When you write a script that passes a local file to `az`, `curl`, `jq`, `python`, `docker` or `zip`, convert its path with the `native_path` helper the existing scripts define; Git Bash ships no `zip`, and a `zip.exe` built for Windows needs the converted path too.
 
 ## Configuration
 

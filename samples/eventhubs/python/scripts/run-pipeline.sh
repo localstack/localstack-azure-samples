@@ -215,7 +215,7 @@ echo "Alerts before restart: $ALERTS_BEFORE"
 echo "Restarting the processor by redeploying the function package..."
 cd "$SRC_DIR/functions" || fail "missing src/functions"
 rm -f "$CURRENT_DIR/fraud_function.zip"
-zip -r "$CURRENT_DIR/fraud_function.zip" function_app.py host.json requirements.txt 1>/dev/null
+zip -r "$(native_path "$CURRENT_DIR/fraud_function.zip")" function_app.py host.json requirements.txt 1>/dev/null
 cd "$CURRENT_DIR" || fail "could not return to the scripts directory"
 az functionapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \

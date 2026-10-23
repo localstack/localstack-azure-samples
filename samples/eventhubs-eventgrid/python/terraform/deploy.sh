@@ -10,6 +10,17 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
 FUNCTION_ZIP='capture_processor.zip'
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 cd "$CURRENT_DIR" || exit 1
 
 fail() {
@@ -60,7 +71,7 @@ FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
 
 cd "$SRC_DIR/functions" || fail "missing src/functions"
 rm -f "$CURRENT_DIR/$FUNCTION_ZIP"
-zip -r "$CURRENT_DIR/$FUNCTION_ZIP" function_app.py host.json requirements.txt 1>/dev/null
+zip -r "$(native_path "$CURRENT_DIR/$FUNCTION_ZIP")" function_app.py host.json requirements.txt 1>/dev/null
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the capture processor (the first run can take several minutes)..."
