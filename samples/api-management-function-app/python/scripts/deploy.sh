@@ -29,7 +29,19 @@ APIM_SUBSCRIPTION_ID='partner-subscription'
 NAMED_VALUE_ID='backend-secret'
 FUNCTION_ZIPFILE='inventory_function.zip'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APIM_DIR="$CURRENT_DIR/../apim"
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+APIM_DIR="$(native_path "$CURRENT_DIR/../apim")"
 
 # Get the current subscription
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)

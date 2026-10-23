@@ -12,6 +12,17 @@ POSTGRES_DB_NAME='clicks'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_FILE="$CURRENT_DIR/.last_deploy.env"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 FAILED=0
 
 # Load the values persisted by deploy.sh (PostgreSQL credentials and endpoint)
@@ -117,9 +128,10 @@ fi
 # 5. Fetch the rendered QR code from the public blob container.
 QR_URL=$(curl -s "$WEB_APP_URL/api/links/$CLEAN_CODE" | jq -r .qr_url)
 echo "Fetching the QR code from [$QR_URL]..."
-QR_CONTENT_TYPE=$(curl -sk -o /tmp/urlshort_qr.svg -w "%{content_type}" "$QR_URL")
+QR_FILE="$(native_path /tmp/urlshort_qr.svg)"
+QR_CONTENT_TYPE=$(curl -sk -o "$QR_FILE" -w "%{content_type}" "$QR_URL")
 echo "QR content type: $QR_CONTENT_TYPE"
-if grep -q "<svg" /tmp/urlshort_qr.svg; then
+if grep -q "<svg" "$QR_FILE"; then
 	echo "QR code successfully fetched from Blob Storage"
 else
 	echo "Failed to fetch the QR code from Blob Storage"

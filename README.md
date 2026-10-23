@@ -117,6 +117,34 @@ find . -name "*.sh" -exec sed -i 's/\r$//' {} +
 ```
 Or by installing and using `dos2unix`.
 
+### Windows: Git Bash and MSYS2
+
+The scripts are written for Bash and run unchanged on Linux, macOS and WSL.
+They also run on Windows from Git Bash or from an MSYS2 shell (for example MINGW64 or UCRT64), provided you first turn off the automatic path conversion of these shells:
+
+```bash
+export MSYS_NO_PATHCONV=1
+```
+
+When Git Bash or an MSYS2 shell starts a Windows program such as the Azure CLI, it rewrites every argument that looks like an absolute POSIX path into a Windows path.
+Azure values that only look like paths are rewritten too, and the commands that receive them fail:
+
+- `--partition-key-path /username` reaches `az` as `C:/Program Files/Git/username`, so creating the Cosmos DB container fails with an invalid partition key path error.
+- Resource IDs such as `/subscriptions/<subscription-id>/resourceGroups/...`, passed to `--scope`, `--ids` and similar options, become paths under the shell's installation folder, for example `C:/Program Files/Git/subscriptions/...`.
+- Paths such as the Front Door `--origin-path /api` are rewritten the same way.
+
+With `MSYS_NO_PATHCONV=1` set, these values reach the Azure CLI exactly as written.
+The scripts convert the paths of the local files they hand to Windows programs, such as the temporary files read by `curl` and `jq`, with `cygpath` when it is available, so they keep working with the variable set.
+On Linux and macOS `cygpath` does not exist, and the paths are left unchanged.
+
+Tips:
+
+- To set the variable in every new Git Bash window, add `export MSYS_NO_PATHCONV=1` to `~/.bash_profile`, or to `~/.bashrc` if your `.bash_profile` sources it.
+- `echo $MSYSTEM` prints a value such as `MINGW64` only in these shells.
+- Any value turns the conversion off, `0` included; run `unset MSYS_NO_PATHCONV` to turn it back on.
+- WSL runs Linux and needs no variable.
+- When you write a script that passes a local file to `az`, `curl`, `jq`, `python` or `docker`, convert its path with the `native_path` helper the existing scripts define.
+
 ## Configuration
 
 Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.
