@@ -8,6 +8,17 @@
 # replicas, the live HTTP ingress, and a revision update.
 # =============================================================================
 
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 # Variables (must match deploy.sh)
 PREFIX='local'
 LOCATION='eastus'
@@ -232,7 +243,7 @@ echo "[12] Guestbook Round Trip"
 ENTRY_AUTHOR="validate-sh"
 ENTRY_MESSAGE="Hello from validate.sh at $(date +%s)"
 echo -n "  Posting a guestbook entry... "
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+HTTP_CODE=$(curl -s -o "$(null_device)" -w "%{http_code}" --max-time 10 \
 	-X POST "$APP_URL/" \
 	--data-urlencode "author=$ENTRY_AUTHOR" \
 	--data-urlencode "message=$ENTRY_MESSAGE" 2>/dev/null)

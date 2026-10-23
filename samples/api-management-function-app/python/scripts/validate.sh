@@ -14,10 +14,33 @@ API_ID='inventory-api'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
 RATE_LIMIT_CALLS=10
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 # mktemp rather than fixed paths: two runs of this script must not write the same file, and
 # `curl -o` would follow a symlink a third party had left at a predictable name.
-BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_body.XXXXXX.json")"
-HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_headers.XXXXXX.txt")"
+BODY_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/inventory_body.XXXXXX.json")")"
+HEADERS_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/inventory_headers.XXXXXX.txt")")"
 trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 FAILED=0
@@ -54,7 +77,7 @@ echo "Gateway URL: $API_URL"
 echo "Waiting for the [$FUNCTION_APP_NAME] function app to answer..."
 BACKEND_STATUS=""
 for i in $(seq 1 60); do
-	BACKEND_STATUS=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "$BACKEND_URL/items")
+	BACKEND_STATUS=$(curl -s -m 10 -o "$(null_device)" -w "%{http_code}" "$BACKEND_URL/items")
 	[[ "$BACKEND_STATUS" == "401" ]] && break
 	sleep 5
 done
@@ -211,7 +234,7 @@ fi
 # so the preflight never reaches the API's cors policy. Asserted against Azure only.
 # TODO: assert this unconditionally once the emulator lets the gateway's cors policy answer.
 echo "Sending a CORS preflight to [$API_URL/items]..."
-PREFLIGHT_STATUS=$(curl -s -m 10 -o /dev/null -D "$HEADERS_FILE" -w "%{http_code}" \
+PREFLIGHT_STATUS=$(curl -s -m 10 -o "$(null_device)" -D "$HEADERS_FILE" -w "%{http_code}" \
 	-X OPTIONS \
 	-H "Origin: http://localhost:3000" \
 	-H "Access-Control-Request-Method: GET" \

@@ -11,9 +11,21 @@ APIM_NAME="${PREFIX}-inventory-apim-${SUFFIX}"
 APIM_API_VERSION='2022-08-01'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 # mktemp rather than fixed paths, as in validate.sh: parallel-safe, and cleaned up on exit.
-BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_call.XXXXXX.json")"
-HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/inventory_call_headers.XXXXXX.txt")"
+BODY_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/inventory_call.XXXXXX.json")")"
+HEADERS_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/inventory_call_headers.XXXXXX.txt")")"
 trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 # Retrieve the API Management service

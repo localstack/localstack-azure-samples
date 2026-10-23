@@ -12,6 +12,28 @@ POSTGRES_DB_NAME='clicks'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_FILE="$CURRENT_DIR/.last_deploy.env"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 FAILED=0
 
 # Load the values persisted by deploy.sh (PostgreSQL credentials and endpoint)
@@ -117,9 +139,10 @@ fi
 # 5. Fetch the rendered QR code from the public blob container.
 QR_URL=$(curl -s "$WEB_APP_URL/api/links/$CLEAN_CODE" | jq -r .qr_url)
 echo "Fetching the QR code from [$QR_URL]..."
-QR_CONTENT_TYPE=$(curl -sk -o /tmp/urlshort_qr.svg -w "%{content_type}" "$QR_URL")
+QR_FILE="$(native_path /tmp/urlshort_qr.svg)"
+QR_CONTENT_TYPE=$(curl -sk -o "$QR_FILE" -w "%{content_type}" "$QR_URL")
 echo "QR content type: $QR_CONTENT_TYPE"
-if grep -q "<svg" /tmp/urlshort_qr.svg; then
+if grep -q "<svg" "$QR_FILE"; then
 	echo "QR code successfully fetched from Blob Storage"
 else
 	echo "Failed to fetch the QR code from Blob Storage"
@@ -131,8 +154,8 @@ fi
 # without the fix from localstack/localstack-pro#8135 follow the redirect at the
 # gateway), so the assertion targets the effect: the click rows in PostgreSQL.
 echo "Following the short link twice..."
-curl -s -o /dev/null -w "First redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
-curl -s -o /dev/null -w "Second redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
+curl -s -o "$(null_device)" -w "First redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
+curl -s -o "$(null_device)" -w "Second redirect: %{http_code} -> %{redirect_url}\n" "$WEB_APP_URL/l/$CLEAN_CODE"
 sleep 3
 CLICKS=$(PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_HOST" \

@@ -26,6 +26,17 @@ TELEMETRY_PARTITION_COUNT=4
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 PASS_COUNT=0
 FAIL_COUNT=0
 
@@ -158,7 +169,7 @@ ROUNDTRIP=$(EVENTHUB_SEND_CONNECTION_STRING=$(az eventhubs eventhub authorizatio
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--query primaryConnectionString -o tsv --only-show-errors) \
 	EVENT_HUB_NAME="$TELEMETRY_HUB_NAME" \
-	"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" 2>&1 | tail -1)
+	"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" 2>&1 | tail -1)
 if [[ "$ROUNDTRIP" == ROUNDTRIP_OK* ]]; then
 	echo "OK (${ROUNDTRIP#ROUNDTRIP_OK })"
 	PASS_COUNT=$((PASS_COUNT + 1))

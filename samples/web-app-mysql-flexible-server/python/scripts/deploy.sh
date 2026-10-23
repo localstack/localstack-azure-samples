@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 # Variables
 PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
@@ -1132,7 +1143,7 @@ echo "You can visit your app at: $WEB_APP_URL"
 echo "Pinging [$WEB_APP_URL] to verify the web app responds..."
 HTTP_CODE="000"
 for attempt in $(seq 1 12); do
-	HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$WEB_APP_URL" || echo "000")
+	HTTP_CODE=$(curl -s -o "$(null_device)" -w '%{http_code}' --max-time 10 "$WEB_APP_URL" || echo "000")
 	if [ "$HTTP_CODE" = "200" ]; then
 		echo "Web app responded with HTTP 200. Deployment verified successfully."
 		break

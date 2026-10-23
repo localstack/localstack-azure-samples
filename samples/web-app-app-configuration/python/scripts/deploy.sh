@@ -459,12 +459,13 @@ fi
 
 # Retrieve the clientId, principalId and resource id of the user-assigned managed identity
 echo "Retrieving the clientId, principalId and resource id of the [$MANAGED_IDENTITY_NAME] managed identity..."
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
 mapfile -t IDENTITY_FIELDS < <(az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "[clientId, principalId, id]" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors | tr -d '\r')
 IDENTITY_CLIENT_ID="${IDENTITY_FIELDS[0]:-}"
 IDENTITY_PRINCIPAL_ID="${IDENTITY_FIELDS[1]:-}"
 IDENTITY_ID="${IDENTITY_FIELDS[2]:-}"
@@ -574,12 +575,13 @@ fi
 # the service and used verbatim by the web app: https://<store>.azconfig.io on Azure,
 # https://<store>.azure.localhost.localstack.cloud:4566 on the emulator.
 echo "Retrieving the endpoint and the resource id of the [$APP_CONFIG_NAME] App Configuration store..."
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
 mapfile -t APP_CONFIG_FIELDS < <(az appconfig show \
 	--name "$APP_CONFIG_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "[endpoint, id]" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors | tr -d '\r')
 APP_CONFIG_ENDPOINT="${APP_CONFIG_FIELDS[0]:-}"
 APP_CONFIG_ID="${APP_CONFIG_FIELDS[1]:-}"
 
@@ -661,12 +663,13 @@ fi
 # https://<vault>.vault.azure.net/ on Azure, https://<vault>.vault.azure.localhost.localstack.cloud:4566/ on
 # the emulator.
 echo "Retrieving the vault URI and the resource id of the [$KEY_VAULT_NAME] key vault..."
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
 mapfile -t KEY_VAULT_FIELDS < <(az keyvault show \
 	--name "$KEY_VAULT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "[properties.vaultUri, id]" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors | tr -d '\r')
 KEY_VAULT_URI="${KEY_VAULT_FIELDS[0]:-}"
 KEY_VAULT_ID="${KEY_VAULT_FIELDS[1]:-}"
 
