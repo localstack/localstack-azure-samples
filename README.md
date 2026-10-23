@@ -142,7 +142,8 @@ On Linux and macOS `cygpath` does not exist, and the paths are left unchanged.
 
 Windows programs such as the Azure CLI and `jq` also end every line they print with a carriage return, which Bash keeps when a script captures their output with `$(...)` or `read`.
 A name or an ID read from `az ... --output tsv` then carries an invisible `\r`, and the next command that receives it fails, for example with `ResourceNotFound` for a resource that exists.
-`set -o igncr` makes these shells drop carriage returns from captured output, and `export SHELLOPTS` passes the option on to the scripts you start.
+`set -o igncr` makes these shells drop carriage returns from `$(...)` and `read`, and `export SHELLOPTS` passes the option on to the scripts you start.
+`mapfile` keeps them even then, so the scripts that fill an array from the Azure CLI strip them with `tr -d '\r'`.
 
 Tips:
 
