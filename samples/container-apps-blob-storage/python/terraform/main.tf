@@ -6,6 +6,7 @@ locals {
   environment_name     = "${var.prefix}-aca-env-${var.suffix}"
   app_name             = "${var.prefix}-aca-guestbook-${var.suffix}"
   identity_name        = "${var.prefix}-aca-identity-${var.suffix}"
+  storage_role_name    = "Storage Blob Data Contributor"
 
   # Secret NAMES referenced from more than one block, kept in one place so the
   # references never drift apart.
@@ -70,7 +71,7 @@ resource "azurerm_user_assigned_identity" "example" {
 resource "azurerm_role_assignment" "user_assigned" {
   count                = var.managed_identity_type == "UserAssigned" ? 1 : 0
   scope                = azurerm_storage_account.example.id
-  role_definition_name = "Storage Blob Data Contributor"
+  role_definition_name = local.storage_role_name
   principal_id         = azurerm_user_assigned_identity.example[0].principal_id
   principal_type       = "ServicePrincipal"
 }
@@ -208,7 +209,7 @@ resource "azurerm_container_app" "example" {
 resource "azurerm_role_assignment" "system_assigned" {
   count                = var.managed_identity_type == "SystemAssigned" ? 1 : 0
   scope                = azurerm_storage_account.example.id
-  role_definition_name = "Storage Blob Data Contributor"
+  role_definition_name = local.storage_role_name
   principal_id         = azurerm_container_app.example.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 }

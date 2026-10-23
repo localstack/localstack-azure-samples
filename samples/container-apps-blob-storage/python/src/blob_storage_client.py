@@ -57,7 +57,11 @@ class BlobGuestbookClient:
 
         Required env vars:
             AZURE_STORAGE_CONNECTION_STRING - Blob Storage connection string
+            or AZURE_STORAGE_ACCOUNT_URL - Blob endpoint, reached with DefaultAzureCredential
             BLOB_CONTAINER_NAME - Name of the blob container
+
+        Optional env vars:
+            AZURE_CLIENT_ID - Client ID of a user-assigned managed identity
         """
         connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
         account_url = os.environ.get("AZURE_STORAGE_ACCOUNT_URL")

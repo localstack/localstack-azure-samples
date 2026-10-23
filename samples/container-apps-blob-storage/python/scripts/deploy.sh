@@ -144,20 +144,8 @@ else
 	exit 1
 fi
 
-# Build the connection string using the original blob endpoint (resolvable from the host).
 STORAGE_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${BLOB_ENDPOINT}"
 echo "Connection string built successfully."
-
-# For LocalStack, the Container Apps runtime configures the cluster with LocalStack's
-# DNS server, so *.localhost.localstack.cloud resolves to the LocalStack container.
-# We only need to downgrade HTTPS to HTTP (containers don't have the LS TLS cert).
-if [[ $ENVIRONMENT == "LocalStack" ]]; then
-	CONTAINER_BLOB_ENDPOINT="${BLOB_ENDPOINT/https:\/\//http:\/\/}"
-	CONTAINER_CONN_STRING="DefaultEndpointsProtocol=http;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_ACCOUNT_KEY};BlobEndpoint=${CONTAINER_BLOB_ENDPOINT}"
-	echo "Container blob endpoint: $CONTAINER_BLOB_ENDPOINT"
-else
-	CONTAINER_CONN_STRING="$STORAGE_CONN_STRING"
-fi
 
 # =============================================================================
 # Step 5: Create Blob Container
@@ -355,11 +343,11 @@ echo "============================================================"
 # ARM when the server ends in ".azurecr.io", and LocalStack's loginServer is its
 # own host. Without a managed identity the storage connection string becomes
 # the Container Apps secret [storage-conn], referenced from the container via a
-# secretref env var; with one, the app gets only the blob endpoint (HTTPS, as a
-# token credential requires) and no secret at all.
+# secretref env var; with one, the app gets the blob endpoint (HTTPS, as a
+# token credential requires) instead of the storage secret.
 case "$MANAGED_IDENTITY_TYPE" in
 None)
-	STORAGE_ARGS=(--secrets storage-conn="$CONTAINER_CONN_STRING")
+	STORAGE_ARGS=(--secrets storage-conn="$STORAGE_CONN_STRING")
 	STORAGE_ENV_VARS=(AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn)
 	;;
 SystemAssigned)

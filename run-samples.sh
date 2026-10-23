@@ -82,6 +82,7 @@ TERRAFORM_SAMPLES=(
   "samples/aci-blob-storage/python/terraform|bash deploy.sh"
   "samples/container-apps-blob-storage/python/terraform|bash deploy.sh"
   "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
+  "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
   "samples/url-shortener/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
 )
 
@@ -108,6 +109,7 @@ BICEP_SAMPLES=(
   "samples/web-app-app-configuration/dotnet/bicep|bash deploy.sh"
   "samples/aci-blob-storage/python/bicep|bash deploy.sh"
   "samples/container-apps-blob-storage/python/bicep|bash deploy.sh"
+  "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
   "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
   "samples/url-shortener/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
 )

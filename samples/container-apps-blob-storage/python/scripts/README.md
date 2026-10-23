@@ -39,7 +39,7 @@ By default the app authenticates to Blob Storage with a connection string stored
 - `SystemAssigned`: the app is created with a system-assigned identity, which is then granted the `Storage Blob Data Contributor` role on the storage account.
 - `UserAssigned`: a user-assigned identity is created and granted the role first, then attached to the app; its client ID is passed as `AZURE_CLIENT_ID`.
 
-In both cases the app receives only the blob endpoint (`AZURE_STORAGE_ACCOUNT_URL`) and no secret, and `DefaultAzureCredential` gets its token from the identity endpoint Container Apps injects into the container.
+In both cases the app gets the blob endpoint (`AZURE_STORAGE_ACCOUNT_URL`) instead of the `storage-conn` secret, and `DefaultAzureCredential` gets its token from the identity endpoint Container Apps injects into the container. The ACR admin password used to pull the image remains a Container Apps secret.
 
 ```bash
 MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/deploy.sh

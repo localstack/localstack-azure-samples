@@ -166,7 +166,7 @@ else
 	fi
 	STORAGE_ACCOUNT_ID=$(az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --query 'id' --output tsv 2>/dev/null)
 	check_output "identity has [$STORAGE_ROLE] on the storage account" \
-		"az role assignment list --assignee ${PRINCIPAL_ID:-missing} --scope $STORAGE_ACCOUNT_ID --query '[].roleDefinitionName' --output tsv" \
+		"az role assignment list --assignee-object-id ${PRINCIPAL_ID:-missing} --scope $STORAGE_ACCOUNT_ID --query '[].roleDefinitionName' --output tsv" \
 		"$STORAGE_ROLE"
 	check_output "env var carries the blob endpoint" \
 		"$APP_SHOW --query \"properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_URL'].value | [0]\" --output tsv" \
@@ -278,7 +278,7 @@ echo ""
 # 12. Guestbook round trip (POST an entry, read it back). The app answers the
 # POST with a redirect even when the write fails, so with a managed identity the
 # entry is posted again until it is served back: on Azure a role granted to the
-# identity can take a few minutes to take effect.
+# identity can take up to 10 minutes to take effect.
 echo "[12] Guestbook Round Trip"
 ENTRY_AUTHOR="validate-sh"
 ENTRY_MESSAGE="Hello from validate.sh at $(date +%s)"
@@ -296,7 +296,7 @@ else
 fi
 echo -n "  Checking entry is served back from Blob Storage... "
 if [[ $MANAGED_IDENTITY_TYPE != "None" ]]; then
-	for i in $(seq 1 30); do
+	for i in $(seq 1 60); do
 		if curl -s --max-time 10 "$APP_URL/" 2>/dev/null | grep -q "$ENTRY_MESSAGE"; then
 			break
 		fi
