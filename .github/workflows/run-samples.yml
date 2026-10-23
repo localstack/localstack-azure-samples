@@ -386,6 +386,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Drop the carriage returns of Windows programs
+        # The README asks Windows users for `set -o igncr` and `export SHELLOPTS`, so that the bash of Git Bash
+        # and MSYS2 drops the carriage returns the Azure CLI and jq print from $(...) and read. Exporting
+        # SHELLOPTS here would also hand each step's own -e and pipefail to the sample scripts, so every bash
+        # turns the option on through BASH_ENV instead; a bash without the option skips the line.
+        run: |
+          printf '(set -o igncr) 2>/dev/null && set -o igncr\n' > "$RUNNER_TEMP/igncr.sh"
+          echo "BASH_ENV=$(cygpath -m "$RUNNER_TEMP/igncr.sh")" >> "$GITHUB_ENV"
+
       - name: Configure WSL
         # Once a step's wsl.exe session ends, WSL stops the idle distribution after 15 seconds, and
         # dockerd with it; -1 keeps it running for the whole job. The memory leaves room for the backing
