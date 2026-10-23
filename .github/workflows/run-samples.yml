@@ -548,7 +548,7 @@ jobs:
           mysql --version
           sqlcmd --version
           java -version 2>&1 | sed -n 1p
-          mvn -v | sed -n 1p
+          (unset MSYS_NO_PATHCONV; mvn -v) | sed -n 1p
           dotnet --version
           terraform version | sed -n 1p
           az version --output tsv --query '"azure-cli"'
