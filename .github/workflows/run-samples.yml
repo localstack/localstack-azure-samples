@@ -29,6 +29,11 @@ on:
           - amd64
           - arm64
         default: both
+      windows:
+        description: "Run only the Windows job, every sample from Git Bash with MSYS_NO_PATHCONV=1, instead of the Linux matrix (run_mode and arch do not apply)"
+        required: false
+        type: boolean
+        default: false
 
 # Defaults for pull_request events (change DEFAULT_RUN_MODE to 'changed' to only run affected tests)
 env:
@@ -61,9 +66,14 @@ jobs:
           # Untrusted dispatch inputs routed via env, not interpolated into the shell (template-injection)
           RUN_MODE_INPUT: ${{ github.event.inputs.run_mode }}
           ARCH_INPUT: ${{ github.event.inputs.arch }}
+          WINDOWS_INPUT: ${{ github.event.inputs.windows }}
         run: |
-          # Pick run mode and architecture: manual dispatch uses the dropdowns, PRs use the env defaults
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # Pick run mode and architecture: manual dispatch uses the dropdowns, PRs use the env defaults.
+          # A manual run with the windows input runs every sample on amd64, the architecture of the Windows runner.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${WINDOWS_INPUT}" == "true" ]]; then
+            RUN_MODE=all
+            ARCH=amd64
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             RUN_MODE="${RUN_MODE_INPUT}"
             ARCH="${ARCH_INPUT}"
           else
@@ -87,7 +97,8 @@ jobs:
   scripts:
     name: "Test: ${{ matrix.name }}"
     needs: setup
-    if: needs.setup.outputs.has_tests == 'true'  # Skip entirely when no tests match
+    # Skip entirely when no tests match, and on a manual run with the windows input, which runs the Windows job instead
+    if: needs.setup.outputs.has_tests == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.windows)
     environment: AZURE
     strategy:
       fail-fast: false
@@ -338,3 +349,275 @@ jobs:
           else
             make logs
           fi
+
+  # Runs every sample on Windows, from Git Bash with MSYS_NO_PATHCONV=1 set as the README asks Windows users to do,
+  # on manual runs with the windows input only. The emulator is a Linux image and Docker on the Windows runner runs
+  # Windows containers, so the emulator runs in Docker Engine inside a WSL 2 distribution on the same runner; the
+  # Windows docker CLI and lstk reach that engine over TCP, which WSL forwards to the runner's localhost, and the
+  # samples reach the emulator the same way.
+  windows:
+    name: "Windows (Git Bash): ${{ matrix.name }}"
+    needs: setup
+    if: github.event_name == 'workflow_dispatch' && inputs.windows && needs.setup.outputs.has_tests == 'true'
+    environment: AZURE
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      # Every sample: on a manual run with the windows input, the setup job selects all of them, on amd64
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: localstack/localstack-azure:latest
+      # The Docker Engine in WSL 2, for the Windows docker CLI and lstk
+      DOCKER_HOST: tcp://127.0.0.1:2375
+      # What the README asks Windows users of Git Bash and MSYS2 to export
+      MSYS_NO_PATHCONV: "1"
+      # A virtual environment on Windows has python.exe but no python3
+      PYTHON_BIN: python
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Drop the carriage returns of Windows programs
+        # The README asks Windows users for `set -o igncr` and `export SHELLOPTS`, so that the bash of Git Bash
+        # and MSYS2 drops the carriage returns the Azure CLI and jq print from $(...) and read. Exporting
+        # SHELLOPTS here would also hand each step's own -e and pipefail to the sample scripts, so every bash
+        # turns the option on through BASH_ENV instead; a bash without the option skips the line.
+        run: |
+          printf '(set -o igncr) 2>/dev/null && set -o igncr\n' > "$RUNNER_TEMP/igncr.sh"
+          echo "BASH_ENV=$(cygpath -m "$RUNNER_TEMP/igncr.sh")" >> "$GITHUB_ENV"
+
+      - name: Configure WSL
+        # Once a step's wsl.exe session ends, WSL stops the idle distribution after 15 seconds, and
+        # dockerd with it; -1 keeps it running for the whole job. The memory leaves room for the backing
+        # containers the samples start.
+        # DNS tunneling, on by default, answers DNS for WSL itself, but the containers of the Docker Engine
+        # in WSL cannot reach its 10.255.255.254 resolver, so their lookups time out; without it, WSL
+        # hands out the NAT device on the host, which containers reach too.
+        shell: pwsh
+        run: |
+          Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value "[wsl2]`nmemory=12GB`ndnsTunneling=false`n`n[general]`ninstanceIdleTimeout=-1"
+          wsl --shutdown
+
+      - name: Set up Ubuntu in WSL 2
+        id: wsl
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 2
+          wsl-shell-user: root
+          additional-packages: docker.io
+
+      - name: Start Docker Engine in WSL 2
+        # Installing docker.io already started a daemon on the Unix socket alone, and a second one cannot
+        # start beside it, so it is stopped and replaced by one that also listens on TCP. The Unix socket
+        # is what the emulator container mounts to start its backing containers; the TCP endpoint, bound
+        # to localhost, is what WSL forwards to Windows for the docker CLI and lstk. The wait asks the TCP
+        # endpoint, so the step fails when that daemon did not start.
+        shell: wsl-bash {0}
+        run: |
+          if [ -d /run/systemd/system ]; then
+            systemctl disable --now docker.socket docker.service
+          elif [ -e /var/run/docker.pid ]; then
+            kill "$(cat /var/run/docker.pid)"
+          fi
+          for _ in $(seq 1 30); do
+            [ -e /var/run/docker.pid ] || break
+            sleep 1
+          done
+          if [ -e /var/run/docker.pid ]; then
+            echo "::error::The Docker daemon that installing docker.io started is still running"
+            exit 1
+          fi
+          setsid nohup dockerd --host unix:///var/run/docker.sock --host tcp://127.0.0.1:2375 --tls=false \
+            > /var/log/dockerd.log 2>&1 < /dev/null &
+          for _ in $(seq 1 60); do
+            docker --host tcp://127.0.0.1:2375 info > /dev/null 2>&1 && break
+            sleep 2
+          done
+          docker --host tcp://127.0.0.1:2375 info \
+            --format 'Docker {{.ServerVersion}} on {{.OperatingSystem}}, kernel {{.KernelVersion}}'
+
+      - name: Check that the Windows docker CLI reaches it
+        run: docker version
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_PULL_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+
+      - name: Start LocalStack in WSL 2
+        # Started with the docker CLI rather than lstk: lstk on Windows would mount a Windows volume path,
+        # and no Docker socket, into the Linux engine. The two mounts are paths inside WSL, which
+        # MSYS_NO_PATHCONV keeps Git Bash from rewriting. run-samples.sh's own `lstk start` then finds the
+        # running container by its name, localstack-azure, and leaves it alone. The script stays in
+        # RUNNER_TEMP for the retry, which starts a fresh emulator the same way.
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/start-emulator.sh" <<'EOF'
+          #!/bin/bash
+          docker run --detach --name localstack-azure \
+            --publish 127.0.0.1:4566:4566 --publish 127.0.0.1:443:443 \
+            --publish 127.0.0.1:4510-4559:4510-4559 \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume /var/lib/localstack-azure:/var/lib/localstack \
+            --env LOCALSTACK_AUTH_TOKEN --env GITHUB_API_TOKEN \
+            --env MSSQL_ACCEPT_EULA=Y --env LS_LOG=debug --env DISABLE_EVENTS=1 --env DNS_ADDRESS=0 \
+            "$IMAGE" || exit 1
+          for _ in $(seq 1 200); do
+            if curl --silent --fail --max-time 5 http://127.0.0.1:4566/_localstack/health > /dev/null; then
+              echo "Emulator ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::The emulator did not answer on 127.0.0.1:4566 within 400s"
+          docker logs --tail 100 localstack-azure
+          exit 1
+          EOF
+          docker pull "$IMAGE"
+          bash "$RUNNER_TEMP/start-emulator.sh"
+
+      - name: Give lstk an Azure CLI path without spaces
+        # lstk sets up the Azure CLI with `az cloud register --cloud-config <JSON>`, run through az.cmd, and
+        # cmd.exe cuts that command line at the space of "C:\Program Files" once the JSON's quotes are in it
+        # ("'C:\Program' is not recognized"), so `lstk az start-interception` (lstk 1.4.0) fails wherever the
+        # Azure CLI sits in its default folder. A junction without spaces, first on the PATH, works around it
+        # until lstk passes the JSON another way; Git Bash runs the same Azure CLI through it.
+        shell: pwsh
+        run: |
+          $cliDir = Split-Path -Parent (Split-Path -Parent (Get-Command az.cmd).Source)
+          New-Item -ItemType Junction -Path C:\azure-cli -Target $cliDir | Out-Null
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\azure-cli\wbin'
+
+      - name: Install lstk CLI
+        # The release the Linux job pins
+        run: npm install -g @localstack/lstk@1.4.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: '10.0'
+
+      - name: Set up Java
+        # The Service Bus sample builds its Java app with Maven, which the runner image ships
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      - name: Install Terraform
+        # run-samples.sh refuses to start without it, whichever sample it runs
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Install zip from MSYS2
+        # The samples package apps with zip, which Git Bash does not ship. The runner image has MSYS2, whose
+        # zip, like a zip.exe built for Windows, opens the C:/... paths the scripts hand it.
+        shell: pwsh
+        run: C:\msys64\usr\bin\bash.exe -lc 'pacman -Sy --noconfirm --needed zip'
+
+      - name: Put zip, psql and sqlcmd on the PATH
+        # zip runs from MSYS2's own folder, next to the libraries it was built with. psql comes with the
+        # PostgreSQL the runner image installs off the PATH; mysql is on it already. sqlcmd, which the Azure
+        # SQL Database sample seeds its database with, is the Go sqlcmd release, pinned with its SHA-256.
+        env:
+          SQLCMD_VERSION: v1.10.0
+          SQLCMD_SHA256: a4c28332fcc6e497d655e53ac8f4939f4ab170f9cfd32d0fa5081b60f4d9d691
+        run: |
+          bin_dir="$RUNNER_TEMP/bin"
+          mkdir -p "$bin_dir"
+          printf '#!/bin/bash\nexec /c/msys64/usr/bin/zip.exe "$@"\n' > "$bin_dir/zip"
+          curl --silent --show-error --fail --location --retry 3 --output "$RUNNER_TEMP/sqlcmd.zip" \
+            "https://github.com/microsoft/go-sqlcmd/releases/download/${SQLCMD_VERSION}/sqlcmd-windows-amd64.zip"
+          echo "${SQLCMD_SHA256}  $RUNNER_TEMP/sqlcmd.zip" | sha256sum --check
+          unzip -o -q -j "$RUNNER_TEMP/sqlcmd.zip" sqlcmd.exe -d "$bin_dir"
+          cygpath -w "$bin_dir" >> "$GITHUB_PATH"
+          echo "$PGBIN" >> "$GITHUB_PATH"
+
+      - name: Show the tool versions
+        run: |
+          zip -v | sed -n 2p
+          psql --version
+          mysql --version
+          sqlcmd --version
+          java -version 2>&1 | sed -n 1p
+          (unset MSYS_NO_PATHCONV; mvn -v) | sed -n 1p
+          dotnet --version
+          terraform version | sed -n 1p
+          az version --output tsv --query '"azure-cli"'
+          jq --version
+          unzip -v | sed -n 1p
+
+      - name: Install the Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --upgrade pip setuptools wheel
+          .venv/Scripts/python -m pip install -r requirements-dev.txt
+
+      - name: "Run: ${{ matrix.name }}"
+        # run-samples.sh routes az to the emulator with `lstk az start-interception`, as on Linux, and runs exactly
+        # this sample: SPLITS is the number of samples and SHARD its 1-based position among them.
+        id: initial_run
+        # As in the Linux job, a transient error fails a sample now and then, so a failure is retried once on a
+        # fresh emulator, and the retry decides the job's outcome: a sample that is really broken fails both.
+        continue-on-error: true
+        env:
+          SHARD: ${{ matrix.shard }}
+          SPLITS: ${{ matrix.splits }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          source .venv/Scripts/activate
+          bash ./run-samples.sh "$SHARD" "$SPLITS"
+
+      - name: "Retry: ${{ matrix.name }}"
+        # The first emulator's logs are kept for the Get LocalStack Logs step. Removing every container also
+        # removes the backing containers the first emulator started, which the fresh one would collide with.
+        if: steps.initial_run.outcome == 'failure'
+        env:
+          MATRIX_NAME: ${{ matrix.name }}
+          SHARD: ${{ matrix.shard }}
+          SPLITS: ${{ matrix.splits }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.TEST_LOCALSTACK_AUTH_TOKEN }}
+          GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          echo "::warning::${MATRIX_NAME} failed once; retrying on a fresh emulator."
+          docker logs localstack-azure > "$RUNNER_TEMP/localstack-azure-first-attempt.log" 2>&1 || true
+          docker ps --all --quiet | xargs --no-run-if-empty docker rm --force > /dev/null
+          bash "$RUNNER_TEMP/start-emulator.sh"
+          source .venv/Scripts/activate
+          bash ./run-samples.sh "$SHARD" "$SPLITS"
+
+      - name: Get LocalStack Logs
+        if: always()
+        run: |
+          if [ -s "$RUNNER_TEMP/localstack-azure-first-attempt.log" ]; then
+            echo "===== First attempt ====="
+            tail -n 500 "$RUNNER_TEMP/localstack-azure-first-attempt.log"
+            echo "===== Retry ====="
+          fi
+          docker logs localstack-azure 2>&1 | tail -n 500 || true
+
+      - name: Get the Docker Engine log
+        # The wsl-bash shell exists only once WSL is set up
+        if: failure() && steps.wsl.outcome == 'success'
+        shell: wsl-bash {0}
+        run: tail -n 100 /var/log/dockerd.log || true
