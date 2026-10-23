@@ -399,9 +399,12 @@ jobs:
         # Once a step's wsl.exe session ends, WSL stops the idle distribution after 15 seconds, and
         # dockerd with it; -1 keeps it running for the whole job. The memory leaves room for the backing
         # containers the samples start.
+        # DNS tunneling, on by default, answers DNS for WSL itself, but the containers of the Docker Engine
+        # in WSL cannot reach its 10.255.255.254 resolver, so their lookups time out; without it, WSL
+        # hands out the NAT device on the host, which containers reach too.
         shell: pwsh
         run: |
-          Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value "[wsl2]`nmemory=12GB`n`n[general]`ninstanceIdleTimeout=-1"
+          Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value "[wsl2]`nmemory=12GB`ndnsTunneling=false`n`n[general]`ninstanceIdleTimeout=-1"
           wsl --shutdown
 
       - name: Set up Ubuntu in WSL 2
