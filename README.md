@@ -146,6 +146,7 @@ Tips:
 - WSL runs Linux and needs no variable.
 - When you write a script that passes a local file to `az`, `curl`, `jq`, `python`, `docker` or `zip`, convert its path with the `native_path` helper the existing scripts define; Git Bash ships no `zip`, and a `zip.exe` built for Windows needs the converted path too.
 - To discard what a Windows program writes to a file, such as `curl -o`, pass it `"$(null_device)"` rather than `/dev/null`, as the existing scripts do. Shell redirections such as `> /dev/null` need no change.
+- A launcher written as a shell script that hands its own paths to a Windows program, such as Maven's `mvn`, needs the conversion: run it as `(unset MSYS_NO_PATHCONV; mvn ...)`, as the Service Bus sample does. Setting the variable to an empty value is not enough, because any value turns the conversion off.
 
 ## Configuration
 
