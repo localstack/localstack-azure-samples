@@ -117,6 +117,44 @@ find . -name "*.sh" -exec sed -i 's/\r$//' {} +
 ```
 Or by installing and using `dos2unix`.
 
+### Windows: Git Bash and MSYS2
+
+The scripts are written for Bash and run unchanged on Linux, macOS and WSL.
+They also run on Windows from Git Bash or from an MSYS2 shell (for example MINGW64 or UCRT64), provided you first turn off the automatic path conversion of these shells and make them drop the carriage returns Windows programs print:
+
+```bash
+export MSYS_NO_PATHCONV=1
+set -o igncr
+export SHELLOPTS
+```
+
+When Git Bash or an MSYS2 shell starts a Windows program such as the Azure CLI, it rewrites every argument that looks like an absolute POSIX path into a Windows path.
+Azure values that only look like paths are rewritten too, and the commands that receive them fail:
+
+- `--partition-key-path /username` reaches `az` as `C:/Program Files/Git/username`, so creating the Cosmos DB container fails with an invalid partition key path error.
+- Resource IDs such as `/subscriptions/<subscription-id>/resourceGroups/...`, passed to `--scope`, `--ids` and similar options, become paths under the shell's installation folder, for example `C:/Program Files/Git/subscriptions/...`.
+- Paths such as the Front Door `--origin-path /api` are rewritten the same way.
+
+With `MSYS_NO_PATHCONV=1` set, these values reach the Azure CLI exactly as written.
+The scripts convert the paths of the local files they hand to Windows programs, such as the temporary files read by `curl` and `jq`, with `cygpath` when it is available, so they keep working with the variable set.
+They also hand `curl` the Windows `NUL` device instead of `/dev/null` for the responses they discard, because the variable stops these shells from making that conversion too.
+On Linux and macOS `cygpath` does not exist, and the paths are left unchanged.
+
+Windows programs such as the Azure CLI and `jq` also end every line they print with a carriage return, which Bash keeps when a script captures their output with `$(...)` or `read`.
+A name or an ID read from `az ... --output tsv` then carries an invisible `\r`, and the next command that receives it fails, for example with `ResourceNotFound` for a resource that exists.
+`set -o igncr` makes these shells drop carriage returns from `$(...)` and `read`, and `export SHELLOPTS` passes the option on to the scripts you start.
+`mapfile` keeps them even then, so the scripts that fill an array from the Azure CLI strip them with `tr -d '\r'`.
+
+Tips:
+
+- To apply these settings in every new Git Bash window, add the three lines to `~/.bash_profile`, or to `~/.bashrc` if your `.bash_profile` sources it.
+- `echo $MSYSTEM` prints a value such as `MINGW64` only in these shells.
+- Any value turns the conversion off, `0` included; run `unset MSYS_NO_PATHCONV` to turn it back on, and `set +o igncr` to keep carriage returns again.
+- WSL runs Linux and needs none of these settings.
+- When you write a script that passes a local file to `az`, `curl`, `jq`, `python`, `docker` or `zip`, convert its path with the `native_path` helper the existing scripts define; Git Bash ships no `zip`, and a `zip.exe` built for Windows needs the converted path too.
+- To discard what a Windows program writes to a file, such as `curl -o`, pass it `"$(null_device)"` rather than `/dev/null`, as the existing scripts do. Shell redirections such as `> /dev/null` need no change.
+- A launcher written as a shell script that hands its own paths to a Windows program, such as Maven's `mvn`, needs the conversion: run it as `(unset MSYS_NO_PATHCONV; mvn ...)`, as the Service Bus sample does. Setting the variable to an empty value is not enough, because any value turns the conversion off.
+
 ## Configuration
 
 Follow the comprehensive setup guide in [LocalStack for Azure Quick Start](./docs/LOCALSTACK.md) to configure your LocalStack for Azure development environment.

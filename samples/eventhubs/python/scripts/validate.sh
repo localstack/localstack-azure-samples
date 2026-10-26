@@ -39,6 +39,17 @@ APPLICATION_GROUP_NAME='pos-terminals'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 PASS_COUNT=0
 FAIL_COUNT=0
 
@@ -190,7 +201,7 @@ echo -n "  Checking an event survives a send/receive round trip... "
 ROUNDTRIP=$(EVENTHUB_SEND_CONNECTION_STRING="$SEND_CONNECTION" \
 	EVENTHUB_LISTEN_CONNECTION_STRING="$LISTEN_CONNECTION" \
 	EVENT_HUB_NAME="$EVENT_HUB_NAME" \
-	"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" 2>&1 | tail -1)
+	"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" 2>&1 | tail -1)
 if [[ "$ROUNDTRIP" == ROUNDTRIP_OK* ]]; then
 	pass "${ROUNDTRIP#ROUNDTRIP_OK }"
 else
@@ -202,7 +213,7 @@ echo "[9] Runtime information"
 echo -n "  Checking partition runtime metadata is readable... "
 PARTITIONS=$(EVENTHUB_LISTEN_CONNECTION_STRING="$LISTEN_CONNECTION" \
 	EVENT_HUB_NAME="$EVENT_HUB_NAME" \
-	"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" --partitions 2>&1 | tail -1)
+	"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" --partitions 2>&1 | tail -1)
 if [[ "$PARTITIONS" == PARTITIONS_OK* ]]; then
 	pass "${PARTITIONS#PARTITIONS_OK }"
 else

@@ -63,7 +63,9 @@ else
 	exit 1
 fi
 
-# Start the Java application
+# Start the Java application. Maven's mvn launcher is a shell script that hands its own paths to Java,
+# a Windows program on Windows, and relies on Git Bash and MSYS2 converting them, so it runs with that
+# conversion back on even when MSYS_NO_PATHCONV is set, as the README asks.
 echo "Starting Java application..."
-cd "$CURRENT_DIR/../app" && mvn clean spring-boot:run
+cd "$CURRENT_DIR/../app" && (unset MSYS_NO_PATHCONV; mvn clean spring-boot:run)
 

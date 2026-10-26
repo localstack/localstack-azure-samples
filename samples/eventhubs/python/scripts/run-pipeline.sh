@@ -21,6 +21,17 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 # Capture flushes on the interval configured in deploy.sh (60s); allow for the scan cycle.
 CAPTURE_WAIT_SECONDS="${CAPTURE_WAIT_SECONDS:-150}"
 PROCESSING_WAIT_SECONDS="${PROCESSING_WAIT_SECONDS:-420}"
@@ -85,7 +96,7 @@ fail() {
 count_events() {
 	EVENTHUB_LISTEN_CONNECTION_STRING="$EVENTHUB_NAMESPACE_CONNECTION_STRING" \
 		EVENT_HUB_NAME="$1" \
-		"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" --partitions 2>/dev/null | tail -1
+		"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" --partitions 2>/dev/null | tail -1
 }
 
 # Number of events in a hub, as a bare integer. Returns non-zero when the hub cannot be
@@ -94,7 +105,7 @@ count_total() {
 	local total
 	total=$(EVENTHUB_LISTEN_CONNECTION_STRING="$EVENTHUB_NAMESPACE_CONNECTION_STRING" \
 		EVENT_HUB_NAME="$1" \
-		"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" --total 2>/dev/null | tail -1)
+		"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" --total 2>/dev/null | tail -1)
 	[[ "$total" =~ ^[0-9]+$ ]] || return 1
 	echo "$total"
 }
@@ -204,7 +215,7 @@ echo "Alerts before restart: $ALERTS_BEFORE"
 echo "Restarting the processor by redeploying the function package..."
 cd "$SRC_DIR/functions" || fail "missing src/functions"
 rm -f "$CURRENT_DIR/fraud_function.zip"
-zip -r "$CURRENT_DIR/fraud_function.zip" function_app.py host.json requirements.txt 1>/dev/null
+zip -r "$(native_path "$CURRENT_DIR/fraud_function.zip")" function_app.py host.json requirements.txt 1>/dev/null
 cd "$CURRENT_DIR" || fail "could not return to the scripts directory"
 az functionapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -279,7 +290,7 @@ echo "Decoding the newest archive:"
 # which would hide a decoder that failed.
 DECODED=$(STORAGE_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
 	CAPTURE_CONTAINER_NAME="$CAPTURE_CONTAINER_NAME" \
-	"$PYTHON_BIN" "$CURRENT_DIR/read_capture.py" 2>&1) ||
+	"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/read_capture.py")" 2>&1) ||
 	fail "the newest Capture archive could not be decoded as Avro: $(echo "$DECODED" | tail -3)"
 echo "$DECODED" | sed 's/^/  /'
 

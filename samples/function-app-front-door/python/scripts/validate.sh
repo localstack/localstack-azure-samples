@@ -8,8 +8,31 @@ PRIMARY_FUNCTION_APP_NAME="${PREFIX}-catalog-primary-${SUFFIX}"
 SECONDARY_FUNCTION_APP_NAME="${PREFIX}-catalog-secondary-${SUFFIX}"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
-BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_body.XXXXXX")"
-HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/front_door_headers.XXXXXX")"
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
+BODY_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/front_door_body.XXXXXX")")"
+HEADERS_FILE="$(native_path "$(mktemp "${TMPDIR:-/tmp}/front_door_headers.XXXXXX")")"
 trap 'rm -f "$BODY_FILE" "$HEADERS_FILE"' EXIT
 
 FAILED=0
@@ -82,7 +105,7 @@ if [[ $FAILED != 0 ]]; then
 fi
 
 # The origins answer HEAD as well as GET, which is what the health probe sends.
-HEAD_STATUS=$(curl -s -m 10 -o /dev/null -w "%{http_code}" -I "$PRIMARY_URL/health")
+HEAD_STATUS=$(curl -s -m 10 -o "$(null_device)" -w "%{http_code}" -I "$PRIMARY_URL/health")
 echo "HEAD on the probe path: HTTP $HEAD_STATUS"
 if [[ "$HEAD_STATUS" == "200" ]]; then
 	echo "The origin answers the probe method Front Door uses"
@@ -175,7 +198,7 @@ fi
 
 # 6. The UrlRedirect rule answers at the edge: the origin is never called.
 echo "Calling [$ENDPOINT_URL/legacy]..."
-REDIRECT_STATUS=$(curl -s -m 20 -o /dev/null -D "$HEADERS_FILE" -w "%{http_code}" "$ENDPOINT_URL/legacy")
+REDIRECT_STATUS=$(curl -s -m 20 -o "$(null_device)" -D "$HEADERS_FILE" -w "%{http_code}" "$ENDPOINT_URL/legacy")
 LOCATION=$(grep -i "^location:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 echo "HTTP $REDIRECT_STATUS -> ${LOCATION:-(no Location header)}"
 if [[ "$REDIRECT_STATUS" == "302" && "$LOCATION" == */status ]]; then
@@ -208,7 +231,7 @@ echo "Purging /catalog/* so the cache starts empty..."
 purge_catalog
 
 echo "Requesting [$ENDPOINT_URL/catalog/3] twice..."
-curl -s -m 20 -o /dev/null -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
+curl -s -m 20 -o "$(null_device)" -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
 FIRST_CACHE=$(grep -i "^x-cache:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 if echo "$FIRST_CACHE" | grep -qi "hit"; then
 	echo "Expected the first request after a purge to reach the origin (got: $FIRST_CACHE)"
@@ -239,7 +262,7 @@ purge_catalog
 
 PURGED_CACHE=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
-	curl -s -m 20 -o /dev/null -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
+	curl -s -m 20 -o "$(null_device)" -D "$HEADERS_FILE" "$ENDPOINT_URL/catalog/3"
 	PURGED_CACHE=$(grep -i "^x-cache:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 	echo "$PURGED_CACHE" | grep -qi "hit" || break
 	sleep 5
@@ -253,7 +276,7 @@ else
 fi
 
 # A response the origin marks no-store is never cached, however often it is asked for.
-curl -s -m 20 -o /dev/null -D "$HEADERS_FILE" "$ENDPOINT_URL/whoami"
+curl -s -m 20 -o "$(null_device)" -D "$HEADERS_FILE" "$ENDPOINT_URL/whoami"
 curl -s -m 20 -o "$BODY_FILE" -D "$HEADERS_FILE" "$ENDPOINT_URL/whoami"
 NOSTORE_CACHE=$(grep -i "^x-cache:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 echo "A no-store response: X-Cache: ${NOSTORE_CACHE:-(none)}"
@@ -330,7 +353,7 @@ az afd endpoint update \
 
 DISABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
-	DISABLED_STATUS=$(curl -s -m 20 -o /dev/null -w "%{http_code}" "$ENDPOINT_URL/status")
+	DISABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/status")
 	[[ "$DISABLED_STATUS" != "200" ]] && break
 	sleep 5
 done
@@ -351,7 +374,7 @@ az afd endpoint update \
 
 ENABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
-	ENABLED_STATUS=$(curl -s -m 20 -o /dev/null -w "%{http_code}" "$ENDPOINT_URL/status")
+	ENABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/status")
 	[[ "$ENABLED_STATUS" == "200" ]] && break
 	sleep 5
 done

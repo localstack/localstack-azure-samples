@@ -206,12 +206,14 @@ call_web_app() {
 		echo "Failed to retrieve LocalStack proxy port"
 	fi
 	
+	container_ip_reachable=false
 	if [ -n "$container_ip" ] && [ -n "$container_port" ]; then
 		# Call the web app via the container IP address
 		echo "Calling web app [$web_app_name] via container IP address [$container_ip]..."
 		curl --max-time 10 -s "http://$container_ip:$container_port/" 1> /dev/null
 
 		if [ $? == 0 ]; then
+			container_ip_reachable=true
 			echo "Web app call via container IP address [$container_ip] succeeded."
 		else
 			echo "Web app call via container IP address [$container_ip] failed."
@@ -249,6 +251,13 @@ call_web_app() {
 	fi
 
 	echo "Validating certificate from Key Vault..."
+	if [[ $container_ip_reachable != true ]]; then
+		# The check reaches the app's HTTPS port through the container IP address, which the host can
+		# reach only when Docker runs natively on Linux: Docker Desktop on Windows and macOS does not
+		# route it. Say so and skip, rather than failing a deployment that works.
+		echo "The container IP address [$container_ip] is not reachable from this host; skipping the Key Vault certificate check."
+		return 0
+	fi
 	if ! KV_RESPONSE=$(curl --max-time 10 -fsSk "https://$container_ip:8443/api/certificate"); then
 		# Only reachable when the app serves HTTPS itself (python app.py); under gunicorn the port
 		# is closed. Say so and skip, rather than comparing two empty thumbprints as equal.

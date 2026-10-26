@@ -10,6 +10,17 @@ STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMP_OUTPUT_FILE=""
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 cleanup() {
 	if [ -n "$TEMP_OUTPUT_FILE" ] && [ -f "$TEMP_OUTPUT_FILE" ]; then
 		rm -f "$TEMP_OUTPUT_FILE"
@@ -111,6 +122,7 @@ for ((i=1; i<=n; i++)); do
 	if [ "$BLOB_EXISTS" == "true" ]; then
 		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
 		TEMP_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/processed-output.XXXXXX")" || { echo "Failed to create temporary file." >&2; exit 1; }
+		TEMP_OUTPUT_FILE="$(native_path "$TEMP_OUTPUT_FILE")"
 
 		az storage blob download \
 			--container-name "$OUTPUT_CONTAINER_NAME" \

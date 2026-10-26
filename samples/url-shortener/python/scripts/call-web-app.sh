@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Where curl discards a response body. Git Bash and MSYS2 shells hand a Windows curl /dev/null
+# unchanged when MSYS_NO_PATHCONV=1 is set, as the README asks, and it cannot open that path, so it
+# gets the NUL device instead; MSYS2's own curl, under /usr/bin, opens /dev/null as on Linux and macOS.
+null_device() {
+	if command -v cygpath >/dev/null 2>&1 && [[ "$(command -v curl)" != /usr/bin/* ]]; then
+		echo NUL
+	else
+		echo /dev/null
+	fi
+}
+
 # Variables
 PREFIX='local'
 SUFFIX='test'
@@ -24,7 +35,7 @@ WEB_APP_URL="http://$WEB_APP_HOSTNAME"
 
 # Call the home page
 echo "Calling the [$WEB_APP_NAME] web app home page at [$WEB_APP_URL]..."
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_APP_URL/")
+HTTP_STATUS=$(curl -s -o "$(null_device)" -w "%{http_code}" "$WEB_APP_URL/")
 
 if [[ "$HTTP_STATUS" == "200" ]]; then
 	echo "Home page of the [$WEB_APP_NAME] web app successfully returned [$HTTP_STATUS]"
@@ -48,7 +59,7 @@ else
 fi
 
 echo "Following the short link [$WEB_APP_URL/l/$CODE]..."
-REDIRECT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_APP_URL/l/$CODE")
+REDIRECT_STATUS=$(curl -s -o "$(null_device)" -w "%{http_code}" "$WEB_APP_URL/l/$CODE")
 
 if [[ "$REDIRECT_STATUS" == "302" ]]; then
 	echo "Short link [$CODE] successfully redirected with [$REDIRECT_STATUS]"

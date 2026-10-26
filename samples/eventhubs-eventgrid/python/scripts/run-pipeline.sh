@@ -20,6 +20,17 @@ CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
 READING_COUNT="${READING_COUNT:-120}"
 DEVICE_COUNT="${DEVICE_COUNT:-6}"
 EXCURSION_DEVICE="${EXCURSION_DEVICE:-DEV-0003}"
@@ -123,7 +134,7 @@ step "Step 3/5 - Event Hubs raises CaptureFileCreated, Event Grid delivers it"
 echo "Reading '$NOTIFICATION_HUB_NAME', where the subscription's EventHub destination delivers..."
 NOTIFICATIONS=$(EVENTHUB_LISTEN_CONNECTION_STRING="$EVENTHUB_LISTEN_CONNECTION_STRING" \
 	EVENT_HUB_NAME="$NOTIFICATION_HUB_NAME" \
-	"$PYTHON_BIN" "$CURRENT_DIR/roundtrip_check.py" --partitions 2>/dev/null | tail -1)
+	"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/roundtrip_check.py")" --partitions 2>/dev/null | tail -1)
 echo "  $NOTIFICATIONS"
 echo ""
 echo "Nothing polled Blob Storage and no webhook was exposed: the notification arrived as a"
@@ -138,7 +149,7 @@ SUMMARY_OUTPUT=""
 while [ $SECONDS -lt $DEADLINE ]; do
 	SUMMARY_OUTPUT=$(EVENTHUB_LISTEN_CONNECTION_STRING="$EVENTHUB_LISTEN_CONNECTION_STRING" \
 		CURATED_HUB_NAME="$CURATED_HUB_NAME" \
-		"$PYTHON_BIN" "$CURRENT_DIR/read_curated.py" 2>/dev/null)
+		"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/read_curated.py")" 2>/dev/null)
 	if [[ "$SUMMARY_OUTPUT" == SUMMARIES_OK* ]]; then
 		break
 	fi
