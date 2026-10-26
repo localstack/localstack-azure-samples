@@ -102,6 +102,17 @@ variable "max_replicas" {
   default     = 3
 }
 
+variable "managed_identity_type" {
+  description = "(Optional) Specifies how the app authenticates to Blob Storage: None uses a connection string secret, SystemAssigned or UserAssigned a managed identity."
+  type        = string
+  default     = "None"
+
+  validation {
+    condition     = contains(["None", "SystemAssigned", "UserAssigned"], var.managed_identity_type)
+    error_message = "The managed_identity_type must be one of: None, SystemAssigned, UserAssigned."
+  }
+}
+
 variable "tags" {
   description = "(Optional) Specifies the tags to be applied to the resources."
   type        = map(string)

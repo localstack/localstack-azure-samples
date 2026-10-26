@@ -5,6 +5,8 @@ locals {
   acr_name             = "${var.prefix}acaacr${var.suffix}"
   environment_name     = "${var.prefix}-aca-env-${var.suffix}"
   app_name             = "${var.prefix}-aca-guestbook-${var.suffix}"
+  identity_name        = "${var.prefix}-aca-identity-${var.suffix}"
+  storage_role_name    = "Storage Blob Data Contributor"
 
   # Secret NAMES referenced from more than one block, kept in one place so the
   # references never drift apart.
@@ -51,6 +53,29 @@ resource "azurerm_storage_container" "example" {
   container_access_type = "private"
 }
 
+# Create the user-assigned managed identity
+resource "azurerm_user_assigned_identity" "example" {
+  count               = var.managed_identity_type == "UserAssigned" ? 1 : 0
+  name                = local.identity_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  tags                = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      tags
+    ]
+  }
+}
+
+resource "azurerm_role_assignment" "user_assigned" {
+  count                = var.managed_identity_type == "UserAssigned" ? 1 : 0
+  scope                = azurerm_storage_account.example.id
+  role_definition_name = local.storage_role_name
+  principal_id         = azurerm_user_assigned_identity.example[0].principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 # Reference the pre-created ACR (created by deploy.sh before terraform apply)
 data "azurerm_container_registry" "example" {
   name                = local.acr_name
@@ -79,11 +104,22 @@ resource "azurerm_container_app" "example" {
   revision_mode                = "Multiple"
   tags                         = var.tags
 
+  dynamic "identity" {
+    for_each = var.managed_identity_type == "None" ? [] : [var.managed_identity_type]
+    content {
+      type         = identity.value
+      identity_ids = identity.value == "UserAssigned" ? [azurerm_user_assigned_identity.example[0].id] : null
+    }
+  }
+
   # The storage connection string is a Container Apps secret, referenced from
   # the container below via secret_name.
-  secret {
-    name  = local.storage_conn_secret_name
-    value = "DefaultEndpointsProtocol=http;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};BlobEndpoint=${azurerm_storage_account.example.primary_blob_endpoint}"
+  dynamic "secret" {
+    for_each = var.managed_identity_type == "None" ? [local.storage_conn_secret_name] : []
+    content {
+      name  = secret.value
+      value = "DefaultEndpointsProtocol=http;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};BlobEndpoint=${azurerm_storage_account.example.primary_blob_endpoint}"
+    }
   }
 
   secret {
@@ -120,9 +156,28 @@ resource "azurerm_container_app" "example" {
       cpu    = var.cpu_cores
       memory = var.memory
 
-      env {
-        name        = "AZURE_STORAGE_CONNECTION_STRING"
-        secret_name = local.storage_conn_secret_name
+      dynamic "env" {
+        for_each = var.managed_identity_type == "None" ? [local.storage_conn_secret_name] : []
+        content {
+          name        = "AZURE_STORAGE_CONNECTION_STRING"
+          secret_name = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.managed_identity_type == "None" ? [] : [azurerm_storage_account.example.primary_blob_endpoint]
+        content {
+          name  = "AZURE_STORAGE_ACCOUNT_URL"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.managed_identity_type == "UserAssigned" ? [azurerm_user_assigned_identity.example[0].client_id] : []
+        content {
+          name  = "AZURE_CLIENT_ID"
+          value = env.value
+        }
       }
 
       env {
@@ -142,9 +197,19 @@ resource "azurerm_container_app" "example" {
     }
   }
 
+  depends_on = [azurerm_role_assignment.user_assigned]
+
   lifecycle {
     ignore_changes = [
       tags
     ]
   }
+}
+
+resource "azurerm_role_assignment" "system_assigned" {
+  count                = var.managed_identity_type == "SystemAssigned" ? 1 : 0
+  scope                = azurerm_storage_account.example.id
+  role_definition_name = local.storage_role_name
+  principal_id         = azurerm_container_app.example.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }

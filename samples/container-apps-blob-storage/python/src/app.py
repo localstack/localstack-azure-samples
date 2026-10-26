@@ -87,6 +87,7 @@ def health():
             "status": "healthy",
             "revision": app_revision,
             "storage_configured": guestbook_client is not None,
+            "auth_mode": guestbook_client.auth_mode if guestbook_client else None,
         }
     ), 200
 

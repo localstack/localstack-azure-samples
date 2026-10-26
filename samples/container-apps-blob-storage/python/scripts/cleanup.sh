@@ -14,6 +14,7 @@ ACA_APP_NAME="${PREFIX}-aca-guestbook"
 ACA_ENV_NAME="${PREFIX}-aca-env"
 ACR_NAME="${PREFIX}acaacr"
 STORAGE_ACCOUNT_NAME="${PREFIX}acastorage"
+MANAGED_IDENTITY_NAME="${PREFIX}-aca-identity"
 
 echo "============================================================"
 echo "Cleaning up Container Apps Guestbook Resources"
@@ -21,7 +22,7 @@ echo "============================================================"
 echo ""
 
 # 1. Delete the container app
-echo "[1/5] Deleting container app [$ACA_APP_NAME]..."
+echo "[1/6] Deleting container app [$ACA_APP_NAME]..."
 az containerapp delete \
 	--name "$ACA_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -30,7 +31,7 @@ az containerapp delete \
 echo ""
 
 # 2. Delete the Container Apps environment
-echo "[2/5] Deleting Container Apps environment [$ACA_ENV_NAME]..."
+echo "[2/6] Deleting Container Apps environment [$ACA_ENV_NAME]..."
 az containerapp env delete \
 	--name "$ACA_ENV_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -39,7 +40,7 @@ az containerapp env delete \
 echo ""
 
 # 3. Delete ACR
-echo "[3/5] Deleting ACR [$ACR_NAME]..."
+echo "[3/6] Deleting ACR [$ACR_NAME]..."
 az acr delete \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -48,7 +49,7 @@ az acr delete \
 echo ""
 
 # 4. Delete Storage Account
-echo "[4/5] Deleting Storage Account [$STORAGE_ACCOUNT_NAME]..."
+echo "[4/6] Deleting Storage Account [$STORAGE_ACCOUNT_NAME]..."
 az storage account delete \
 	--name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -56,8 +57,16 @@ az storage account delete \
 	--only-show-errors 2>/dev/null && echo "  Deleted: $STORAGE_ACCOUNT_NAME" || echo "  Skipped: $STORAGE_ACCOUNT_NAME (not found)"
 echo ""
 
-# 5. Delete Resource Group
-echo "[5/5] Deleting Resource Group [$RESOURCE_GROUP_NAME]..."
+# 5. Delete the user-assigned managed identity (MANAGED_IDENTITY_TYPE=UserAssigned)
+echo "[5/6] Deleting managed identity [$MANAGED_IDENTITY_NAME]..."
+az identity delete \
+	--name "$MANAGED_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors 2>/dev/null && echo "  Deleted: $MANAGED_IDENTITY_NAME" || echo "  Skipped: $MANAGED_IDENTITY_NAME (not found)"
+echo ""
+
+# 6. Delete Resource Group
+echo "[6/6] Deleting Resource Group [$RESOURCE_GROUP_NAME]..."
 az group delete \
 	--name "$RESOURCE_GROUP_NAME" \
 	--yes \
