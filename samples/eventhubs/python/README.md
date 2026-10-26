@@ -207,8 +207,6 @@ bash scripts/cleanup.sh
 
 ## Emulator notes
 
-- Kafka is served in plaintext by the emulator; Azure requires `SASL_SSL`. The producer
-  shows the SASL settings needed against Azure in a comment.
 - Data-plane authorization is existence-checked by the emulator, so the send-only and
   listen-only rules demonstrate the *deployment* pattern rather than an enforced boundary.
   Both rules are used exactly as they would be against Azure.
