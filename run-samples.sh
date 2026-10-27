@@ -121,26 +121,35 @@ TOTAL=${#ALL_SAMPLES[@]}
 
 # 1c. Architecture support
 # Samples listed here run *natively* on both amd64 and arm64 (Apple Silicon, arm64 CI
-# runners). For everything else, the container image the emulator starts is published by
-# Microsoft for amd64 alone — there is no arm64 manifest:
+# runners). For everything else, the emulator starts a container image Microsoft
+# publishes for amd64 alone, with no arm64 manifest:
 #   - `az webapp create --runtime ...` (code deployment) runs the app on
 #     mcr.microsoft.com/oryx/<platform>, which is amd64-only. That rules out every
-#     web-app-* sample, plus eventhubs (it deploys a dashboard web app).
-#   - Java App Service uses mcr.microsoft.com/azure-app-service/java — amd64-only.
-#   - SQL Database is backed by mcr.microsoft.com/mssql/server — amd64-only.
-# The samples below avoid all of those: Function Apps get an image built from a
+#     web-app-* sample, plus eventhubs (a dashboard web app) and url-shortener (a web app).
+#   - SQL Database is backed by mcr.microsoft.com/mssql/server, amd64-only.
+# The samples below avoid all of those: Function Apps run on an image built from a
 # multi-arch base (arm64 support added in localstack-pro#8102), and the custom-image
 # Web App, ACI and Container Apps samples run an image the sample itself builds (the
 # Container Apps k3d runtime images, rancher/k3s and k3d-proxy, are multi-arch).
 # Their Cosmos DB, Service Bus, Storage and Front Door dependencies all publish
-# arm64 manifests.
+# arm64 manifests. Function Apps are still *built* with the amd64-only Oryx build image
+# (mcr.microsoft.com/oryx/build): where it cannot run, the emulator installs a Python
+# app's requirements.txt natively, and a .NET app starts from its published output.
+# eventhubs-eventgrid (a Python Function App) and servicebus/java (a Spring Boot app
+# run on the host with Maven, no App Service) need no amd64-only image either, but are
+# not listed yet, so CI does not run them on arm64.
 #
-# "amd64-only" means *not native* — not "cannot run". The emulator never pins
+# "amd64-only" means *not native*, not "cannot run". The emulator never pins
 # --platform, so on an arm64 host Docker pulls the amd64 manifest and runs it under
-# whatever emulation the runtime provides. Docker Desktop on Apple Silicon emulates it
-# via Rosetta, which is why these samples do work on a Mac, just more slowly. They fail
-# on an arm64 host with no emulation registered, such as GitHub's ubuntu-*-arm runners,
-# so CI schedules only the natively-supported samples below on arm64.
+# whatever emulation the runtime provides, and a sample works only as well as that
+# emulation runs it. Docker Desktop on Apple Silicon emulates amd64 with Rosetta when
+# "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" is on (Apple Virtualization
+# framework only; Docker VMM has no Rosetta), and with QEMU otherwise. The Oryx build is
+# a .NET app, and .NET does not support QEMU (dotnet/core release-notes/8.0/
+# supported-os.md): under QEMU the build of a code deployment can crash
+# (localstack-azure-samples#143). Without any emulation registered, as on GitHub's
+# ubuntu-*-arm runners, an amd64-only image cannot start, so CI schedules only the
+# natively-supported samples below on arm64.
 #
 # LocalStack's own test suite draws the same line: after localstack-pro#8102, Web App
 # tests that only assert SCM/deployment records run on arm64, while the ones that
@@ -327,6 +336,11 @@ HOST_ARCH=$(host_arch)
 echo "Running samples shard $SHARD of $SPLITS (index $START, count $COUNT)"
 echo "Total samples (scripts + terraform + bicep): $TOTAL"
 echo "Host architecture: $HOST_ARCH"
+if [[ "$HOST_ARCH" == "arm64" && "$(uname -s)" == "Darwin" ]]; then
+  echo "Note: on a Mac with Apple silicon, turn on Rosetta in Docker Desktop (Settings > General >"
+  echo "      'Use Rosetta for x86_64/amd64 emulation on Apple Silicon'): every code deployment is"
+  echo "      built with Microsoft's amd64-only Oryx image, a .NET app that can crash under QEMU."
+fi
 
 # 7. Run Samples — deploy each test, then run its validation if defined
 for (( i=START; i<START+COUNT; i++ )); do
@@ -337,8 +351,8 @@ for (( i=START; i<START+COUNT; i++ )); do
   echo "============================================================"
 
   # Warn rather than skip: on an arm64 host these still run under amd64 emulation
-  # (Rosetta on Docker Desktop), just slowly. Set SKIP_AMD64_ONLY=1 to skip them
-  # instead — useful on an arm64 host with no emulation registered, where they would
+  # (Rosetta or QEMU on Docker Desktop), just slowly. Set SKIP_AMD64_ONLY=1 to skip them
+  # instead, useful on an arm64 host with no emulation registered, where they would
   # otherwise fail with an opaque error deep inside a deployment.
   if [[ "$HOST_ARCH" == "arm64" ]] && ! supports_arm64 "$path"; then
     if [[ "${SKIP_AMD64_ONLY:-0}" == "1" ]]; then

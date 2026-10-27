@@ -83,21 +83,25 @@ container images Microsoft publishes for `amd64` alone, so there is no `arm64` i
 
 | Sample | Native amd64 | Native arm64 | Backing image |
 | --- | :---: | :---: | --- |
-| `function-app-*` | ✅ | ✅ | built from a multi-arch `python` / `node` / `dotnet` base |
-| `api-management-function-app` | ✅ | ✅ | the API Management gateway runs inside the emulator; its Function App backend is built from the multi-arch `python` base |
+| `function-app-*` | ✅ | ✅ | built from a multi-arch `python` / `node` / `dotnet` base; the build step runs on the `amd64`-only Oryx build image, and where it cannot run the emulator installs a Python app's dependencies natively |
+| `api-management-function-app` | ✅ | ✅ | the API Management gateway runs inside the emulator; its Function App backend is built from the multi-arch `python` base, with the same build step |
+| `eventhubs-eventgrid` | ✅ | not in the arm64 CI | a Python Function App, like `function-app-*` |
 | `web-app-custom-image` | ✅ | ✅ | the image the sample builds itself |
 | `aci-blob-storage` | ✅ | ✅ | the image the sample builds itself |
 | `container-apps-blob-storage` | ✅ | ✅ | the image the sample builds itself |
-| `web-app-*` (code deployment) | ✅ | emulated | `mcr.microsoft.com/oryx/<platform>` |
+| `servicebus/java` | ✅ | not in the arm64 CI | none: the Spring Boot app runs on your machine (`mvn spring-boot:run`) against the emulator's Service Bus |
+| `web-app-*` (code deployment) | ✅ | emulated | the Oryx build image and `mcr.microsoft.com/oryx/<platform>` |
 | `eventhubs` | ✅ | emulated | deploys a dashboard web app (Oryx, as above) |
-| `servicebus/java` | ✅ | emulated | `mcr.microsoft.com/azure-app-service/java` |
-| `web-app-sql-database` | ✅ | emulated | `mcr.microsoft.com/mssql/server` |
+| `url-shortener` | ✅ | emulated | deploys a web app (Oryx, as above) and a Python Function App |
+| `web-app-sql-database` | ✅ | emulated | `mcr.microsoft.com/mssql/server`, and the Oryx images of its web app |
 
-**"emulated" does not mean broken.** The emulator never pins `--platform`, so on an `arm64` host
-Docker pulls the `amd64` image and runs it under whatever emulation the runtime provides. Docker
-Desktop on Apple Silicon does this via Rosetta, so these samples do work on a Mac — just more
-slowly. They fail only on an `arm64` host with no emulation registered, such as GitHub's
-`ubuntu-*-arm` runners, which is why CI schedules only the natively-supported samples on `arm64`.
+**"emulated" means `amd64` emulation, and how well the samples run depends on the emulator.** The emulator never pins `--platform`, so on an `arm64` host Docker pulls the `amd64` image and runs it under whatever emulation the runtime provides. Where none is registered, such as GitHub's `ubuntu-*-arm` runners, the image cannot start at all, which is why CI schedules only the natively-supported samples on `arm64`.
+
+> [!NOTE]
+> **Macs with Apple silicon: turn on Rosetta.** Docker Desktop emulates `amd64` with Rosetta only when **Use Rosetta for x86_64/amd64 emulation on Apple Silicon** is on (Settings, **General**, with the **Apple Virtualization framework** as the Virtual Machine Manager; Docker VMM has no Rosetta), and with QEMU otherwise.
+> Every code deployment, Function Apps included, is built with Microsoft's Oryx build image, which is `amd64`-only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for `arm64`) and is a .NET app, and [.NET does not support QEMU](https://github.com/dotnet/core/blob/main/release-notes/8.0/supported-os.md): under QEMU that build can crash ([#143](https://github.com/localstack/localstack-azure-samples/issues/143)).
+> Microsoft [does not test or support SQL Server under emulation](https://learn.microsoft.com/azure/azure-sql/database/local-dev-experience-dev-containers) either.
+> The README of every sample that depends on these images says so in its Prerequisites.
 
 `run-samples.sh` warns when it runs one of these on an `arm64` host; set `SKIP_AMD64_ONLY=1` to skip
 them instead. The authoritative list lives in `ARM64_SAMPLE_DIRS` in [run-samples.sh](./run-samples.sh);
