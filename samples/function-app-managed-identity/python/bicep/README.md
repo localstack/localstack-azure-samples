@@ -60,7 +60,7 @@ param runtimeVersion = '3.13'
 
 The [deploy.sh](deploy.sh) script automates the deployment of all Azure resources and the sample application in a single step. Before running the script, customize the variable values based on your needs. In particular, use the `MANAGED_IDENTITY_TYPE` variable to specify the type of managed identity to provision: `SystemAssigned` or `UserAssigned`.
 
-> **Note**  
+> [!TIP]
 > You can use `lstk az` to proxy Azure CLI commands to the LocalStack for Azure emulator. Alternatively, run `lstk az start-interception` to automatically intercept and redirect all `az` commands to LocalStack. For more information, see the [lstk CLI documentation](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/).
 
 The [deploy.sh](deploy.sh) script executes the following steps:
@@ -75,7 +75,7 @@ The [deploy.sh](deploy.sh) script executes the following steps:
 - Creates zip archive in format expected by Function App
 - Uploads pre-built application package to the newly created Function App
 
-> **Note**  
+> [!TIP]
 > Azure CLI commands use `--verbose` argument to print execution details and the `--debug` flag to show low-level REST calls for debugging. For more information, see [Get started with Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli)
 
 ## Deployment

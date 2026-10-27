@@ -26,7 +26,7 @@ The following diagram illustrates the architecture of the solution:
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 
-> [!NOTE]
+> [!IMPORTANT]
 > **Macs with Apple silicon**: this sample deploys a web app from code. The emulator builds it with Microsoft's Oryx build image and runs it on an Oryx runtime image, and Microsoft publishes both for amd64 only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for arm64).
 > On a Mac with Apple silicon they run only under Docker Desktop's amd64 emulation: in Docker Desktop's settings, under **General**, select the **Apple Virtualization framework** as the Virtual Machine Manager and turn on **Use Rosetta for x86_64/amd64 emulation on Apple Silicon**.
 > Under QEMU, which Docker Desktop uses otherwise (Rosetta off, or Docker VMM, which has no Rosetta), the sample is not expected to work: Oryx is a .NET app, and [.NET does not support QEMU](https://github.com/dotnet/core/blob/main/release-notes/8.0/supported-os.md).
@@ -71,7 +71,7 @@ Set up the Azure emulator using the LocalStack for Azure Docker image. Before st
 docker pull localstack/localstack-azure
 ```
 
-> [!NOTE]
+> [!IMPORTANT]
 > Each logical server you create runs a Microsoft SQL Server container, so you must accept the [SQL Server End-User Licensing Agreement](https://go.microsoft.com/fwlink/?LinkId=746388) before the emulator provisions one.
 > Start the emulator with `MSSQL_ACCEPT_EULA` set to `Y`:
 > 
@@ -122,7 +122,7 @@ Deploy the application to LocalStack for Azure using one of these methods:
 
 All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
 
-> **Note**  
+> [!NOTE]
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process involves downloading and building Docker images. This is a one-time operation—subsequent deployments will be significantly faster. Depending on your internet connection and system resources, this initial setup may take several minutes.
 
 ## Test

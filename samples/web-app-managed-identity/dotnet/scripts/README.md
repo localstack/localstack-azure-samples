@@ -71,7 +71,7 @@ See the script files for complete implementation. The scripts perform the follow
 
 These scripts eliminate manual configuration steps and enable one-command deployment of the entire infrastructure.
 
-> [!NOTE]
+> [!TIP]
 > You can use `lstk az` to proxy Azure CLI commands to the LocalStack for Azure emulator. Alternatively, run `lstk az start-interception` to automatically intercept and redirect all `az` commands to LocalStack. To revert back to the default behavior and send commands to the Azure cloud, run `lstk az stop-interception`.
 
 ## Deployment

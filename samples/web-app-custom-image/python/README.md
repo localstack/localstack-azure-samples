@@ -64,7 +64,7 @@ Deploy the application to LocalStack for Azure using one of these methods:
 
 All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
 
-> **Note**  
+> [!NOTE]
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process involves downloading and building Docker images. This is a one-time operation—subsequent deployments will be significantly faster. Depending on your internet connection and system resources, this initial setup may take several minutes.
 
 ## Test

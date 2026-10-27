@@ -97,7 +97,7 @@ container images Microsoft publishes for `amd64` alone, so there is no `arm64` i
 
 **"emulated" means `amd64` emulation, and how well the samples run depends on the emulator.** The emulator never pins `--platform`, so on an `arm64` host Docker pulls the `amd64` image and runs it under whatever emulation the runtime provides. Where none is registered, such as GitHub's `ubuntu-*-arm` runners, the image cannot start at all, which is why CI schedules only the natively-supported samples on `arm64`.
 
-> [!NOTE]
+> [!IMPORTANT]
 > **Macs with Apple silicon: turn on Rosetta.** Docker Desktop emulates `amd64` with Rosetta only when **Use Rosetta for x86_64/amd64 emulation on Apple Silicon** is on (Settings, **General**, with the **Apple Virtualization framework** as the Virtual Machine Manager; Docker VMM has no Rosetta), and with QEMU otherwise.
 > Every code deployment, Function Apps included, is built with Microsoft's Oryx build image, which is `amd64`-only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for `arm64`) and is a .NET app, and [.NET does not support QEMU](https://github.com/dotnet/core/blob/main/release-notes/8.0/supported-os.md): under QEMU that build can crash ([#143](https://github.com/localstack/localstack-azure-samples/issues/143)).
 > Microsoft [does not test or support SQL Server under emulation](https://learn.microsoft.com/azure/azure-sql/database/local-dev-experience-dev-containers) either.
@@ -108,7 +108,8 @@ them instead. The authoritative list lives in `ARM64_SAMPLE_DIRS` in [run-sample
 the CI matrix is generated from it, so adding a sample there is all that is needed to have it
 covered natively on both architectures.
 
-> **Note:** Function Apps on `arm64` were fixed by
+> [!CAUTION]
+> Function Apps on `arm64` were fixed by
 > [localstack-pro#8102](https://github.com/localstack/localstack-pro/pull/8102) and work on the
 > current `localstack/localstack-azure:latest`. If you pin an older emulator image, expect every
 > Function App deployment to fail with a misleading `500 ... No route to host`: those images

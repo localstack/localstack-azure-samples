@@ -23,7 +23,8 @@ The [deploy.sh](deploy.sh) script first builds and pushes the Docker image to a 
 1. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob storage for vacation activity data.
 2. [Azure Container Instances](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-overview): Runs the containerized Flask application with public IP and DNS label.
 
-> **Note:** Key Vault is not included in the Terraform deployment as the Azure Terraform provider does not yet support LocalStack's Key Vault URI format. The storage connection string is passed directly to ACI as a secure environment variable.
+> [!NOTE]
+> Key Vault is not included in the Terraform deployment as the Azure Terraform provider does not yet support LocalStack's Key Vault URI format. The storage connection string is passed directly to ACI as a secure environment variable.
 
 For more information on the sample application, see [ACI Blob Storage](../README.md).
 
