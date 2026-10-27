@@ -49,7 +49,7 @@ The Terraform modules create the following Azure resources:
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
 11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask application from the custom container image stored in the Azure Container Registry.
 
-> **Note**  
+> [!NOTE]
 > The Terraform [azurerm_linux_web_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/linux_web_app) resource does not support using a managed identity for container image pull from Azure Container Registry. The Terraform deployment uses ACR admin username and password instead of a managed identity.
 
 ## Provisioning Scripts

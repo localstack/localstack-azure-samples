@@ -199,7 +199,8 @@ Automated function that generates new game rounds with random player data and in
 **Description:**  
 Template function for processing Service Bus messages. When enabled, it would process messages from a Service Bus queue and send responses to an output queue.
 
-**Note:** This function is commented out in the current implementation but serves as a reference for Service Bus integration.
+> [!NOTE]
+> This function is commented out in the current implementation but serves as a reference for Service Bus integration.
 
 ---
 

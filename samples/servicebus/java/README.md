@@ -33,7 +33,7 @@ The solution is composed of the following Azure resources:
 2. [Azure Service Bus Namespace](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview): The messaging namespace that hosts the queue used by the application.
 3. [Azure Service Bus Queue](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-queues-topics-subscriptions#queues): The `myqueue` queue used to send and receive messages.
 
-> **Note**
+> [!NOTE]
 > The Java application currently runs on the host machine. In a future iteration, it will be deployed to an emulator-hosted web app.
 
 ## Prerequisites
@@ -75,7 +75,7 @@ Deploy the application to LocalStack for Azure using one of these methods:
 
 All deployment methods have been fully tested against Azure and the LocalStack for Azure local emulator.
 
-> **Note**
+> [!NOTE]
 > When you deploy the application to LocalStack for Azure for the first time, the initialization process involves downloading and building Docker images. This is a one-time operation—subsequent deployments will be significantly faster. Depending on your internet connection and system resources, this initial setup may take several minutes.
 
 ## How It Works

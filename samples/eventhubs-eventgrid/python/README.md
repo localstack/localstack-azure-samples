@@ -93,13 +93,14 @@ whatever happened to be in the last batch.
 - Python 3.12+ with `src/producers/requirements.txt` installed.
 - `jq` and `zip`.
 
+> [!IMPORTANT]
 > **The emulator must be able to resolve `cdn.functions.azure.com` from the function container.**
 > The Event Hubs trigger lives in the Functions extension bundle, which the host downloads on
 > every cold container. If the emulator's DNS server cannot forward external queries, the host
 > aborts and the trigger silently never fires. Starting the emulator with `DNS_ADDRESS=0`
 > sidesteps it.
 
-> [!NOTE]
+> [!IMPORTANT]
 > **Macs with Apple silicon**: the function app runs natively on arm64, but the emulator builds each deployment with Microsoft's Oryx build image, which Microsoft publishes for amd64 only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for arm64).
 > Docker Desktop runs that build under amd64 emulation: in Docker Desktop's settings, under **General**, select the **Apple Virtualization framework** as the Virtual Machine Manager and turn on **Use Rosetta for x86_64/amd64 emulation on Apple Silicon**.
 > Under QEMU, which Docker Desktop uses otherwise (Rosetta off, or Docker VMM, which has no Rosetta), the build can crash, because Oryx is a .NET app and [.NET does not support QEMU](https://github.com/dotnet/core/blob/main/release-notes/8.0/supported-os.md).

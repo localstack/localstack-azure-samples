@@ -77,7 +77,7 @@ You can set up the Azure emulator by utilizing LocalStack for Azure Docker image
 docker pull localstack/localstack-azure
 ```
 
-> [!NOTE]
+> [!IMPORTANT]
 > Each logical server you create runs a Microsoft SQL Server container, so you must accept the [SQL Server End-User Licensing Agreement](https://go.microsoft.com/fwlink/?LinkId=746388) before the emulator provisions one.
 > Start the emulator with `MSSQL_ACCEPT_EULA` set to `Y`:
 > 
