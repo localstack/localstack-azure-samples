@@ -104,6 +104,12 @@ schema registry.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) or the Bicep CLI, for
   the alternative deployments
 
+> [!IMPORTANT]
+> **Macs with Apple silicon**: this sample's dashboard is a web app deployed from code. The emulator builds it with Microsoft's Oryx build image and runs it on an Oryx runtime image, and Microsoft publishes both for amd64 only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for arm64).
+> On a Mac with Apple silicon they run only under Docker Desktop's amd64 emulation: in Docker Desktop's settings, under **General**, select the **Apple Virtualization framework** as the Virtual Machine Manager and turn on **Use Rosetta for x86_64/amd64 emulation on Apple Silicon**.
+> Under QEMU, which Docker Desktop uses otherwise (Rosetta off, or Docker VMM, which has no Rosetta), the sample is not expected to work: Oryx is a .NET app, and [.NET does not support QEMU](https://github.com/dotnet/core/blob/main/release-notes/8.0/supported-os.md).
+> The sample does not run on an arm64 Linux host without amd64 emulation.
+
 ## Quick start
 
 ```bash
@@ -124,7 +130,7 @@ bash scripts/run-pipeline.sh  # run the end-to-end demo
 
 Then open the dashboard URL printed at the end of the deployment.
 
-> **Note**
+> [!NOTE]
 > The first deployment downloads the Azure Functions build image and core tools inside the
 > emulator, which can take several minutes. Later runs reuse them.
 
@@ -207,8 +213,6 @@ bash scripts/cleanup.sh
 
 ## Emulator notes
 
-- Kafka is served in plaintext by the emulator; Azure requires `SASL_SSL`. The producer
-  shows the SASL settings needed against Azure in a comment.
 - Data-plane authorization is existence-checked by the emulator, so the send-only and
   listen-only rules demonstrate the *deployment* pattern rather than an enforced boundary.
   Both rules are used exactly as they would be against Azure.

@@ -48,6 +48,12 @@ cd samples/container-apps-blob-storage/python
 bash terraform/deploy.sh
 ```
 
+To have the app reach Blob Storage with a managed identity instead of the connection string secret, set `MANAGED_IDENTITY_TYPE` (`SystemAssigned` or `UserAssigned`). The module then creates the identity (user-assigned only), grants it the `Storage Blob Data Contributor` role on the storage account, and passes the app the blob endpoint, plus `AZURE_CLIENT_ID` for a user-assigned identity:
+
+```bash
+MANAGED_IDENTITY_TYPE=UserAssigned bash terraform/deploy.sh
+```
+
 ## Cleanup
 
 ```bash

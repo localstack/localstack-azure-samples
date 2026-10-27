@@ -47,7 +47,7 @@ For more information on the sample application, see [Azure Functions App with Ma
 
 The [deploy.sh](deploy.sh) script automates the deployment of all Azure resources and the sample application in a single step. Before running the script, customize the variable values based on your needs. In particular, use the `MANAGED_IDENTITY_TYPE` variable to specify the type of managed identity to provision: `SystemAssigned` or `UserAssigned`.
 
-> **Note**  
+> [!TIP]
 > You can use `lstk az` to proxy Azure CLI commands to the LocalStack for Azure emulator. Alternatively, run `lstk az start-interception` to automatically intercept and redirect all `az` commands to LocalStack. With interception active, the standard `terraform` CLI also runs against LocalStack's Azure emulation environment, so no separate Terraform wrapper is needed. For more information, see the [lstk CLI documentation](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/).
 
 The [deploy.sh](deploy.sh) script executes the following steps:

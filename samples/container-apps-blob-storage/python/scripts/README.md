@@ -32,11 +32,27 @@ cd samples/container-apps-blob-storage/python
 bash scripts/deploy.sh
 ```
 
+### Managed Identity
+
+By default the app authenticates to Blob Storage with a connection string stored as a Container Apps secret. Set `MANAGED_IDENTITY_TYPE` to use a [managed identity](https://learn.microsoft.com/en-us/azure/container-apps/managed-identity) instead:
+
+- `SystemAssigned`: the app is created with a system-assigned identity, which is then granted the `Storage Blob Data Contributor` role on the storage account.
+- `UserAssigned`: a user-assigned identity is created and granted the role first, then attached to the app; its client ID is passed as `AZURE_CLIENT_ID`.
+
+In both cases the app gets the blob endpoint (`AZURE_STORAGE_ACCOUNT_URL`) instead of the `storage-conn` secret, and `DefaultAzureCredential` gets its token from the identity endpoint Container Apps injects into the container. The ACR admin password used to pull the image remains a Container Apps secret.
+
+```bash
+MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/deploy.sh
+MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/validate.sh
+```
+
 ## Validation
 
 ```bash
 bash scripts/validate.sh
 ```
+
+Pass the same `MANAGED_IDENTITY_TYPE` used for the deployment.
 
 ## Cleanup
 
