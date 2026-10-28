@@ -2,22 +2,29 @@
 set -euo pipefail
 
 # Builds a dynamic GitHub Actions matrix for run-samples.yml.
-# Usage: build-matrix.sh <run_mode> [base_sha] [arch_filter]
+# Usage: build-matrix.sh <run_mode> [base_sha] [arch_filter] [platform]
 
 # "all" runs every test; "changed" only runs tests whose watch_folders have modified files
 RUN_MODE="${1:-all}"
 BASE_SHA="${2:-}"
-# "both" runs each test on every architecture it supports; "amd64"/"arm64" restrict it to one
+# "both" runs each test on every architecture it supports; "amd64"/"arm64" restrict it to one. It applies to
+# the Linux entries: the Windows runner is amd64, so a Windows entry always runs on amd64
 ARCH_FILTER="${3:-both}"
 case "$ARCH_FILTER" in
   both | amd64 | arm64) ;;
   *) echo "Invalid arch filter: '$ARCH_FILTER' (expected both, amd64 or arm64)" >&2; exit 1 ;;
 esac
+# "Linux" or "Windows" picks the runners the tests run on, "all" both: one entry per test and platform
+PLATFORM="${4:-Linux}"
+case "$PLATFORM" in
+  Linux | Windows | all) ;;
+  *) echo "Invalid platform: '$PLATFORM' (expected Linux, Windows or all)" >&2; exit 1 ;;
+esac
 
 # Get JSON metadata for all tests from run-samples.sh --list
 TEST_META=$(./run-samples.sh --list)
 TOTAL=$(echo "$TEST_META" | jq length)
-echo "Run mode: $RUN_MODE | Arch filter: $ARCH_FILTER | Total tests: $TOTAL"
+echo "Run mode: $RUN_MODE | Arch filter: $ARCH_FILTER | Platform: $PLATFORM | Total tests: $TOTAL"
 
 # Changes to these files affect all tests, so any modification triggers a full run
 INFRA_FILES="run-samples.sh Makefile .github/workflows/run-samples.yml .github/scripts/build-matrix.sh pyproject.toml requirements-dev.txt requirements-runtime.txt"
@@ -62,23 +69,40 @@ if [[ -z "${INDICES:-}" ]]; then
   MATRIX='{"include":[]}'
 else
   # Convert space-separated indices to JSON array, then build the matrix object.
-  # Each selected test is expanded into one entry per architecture it supports, so a
+  # Each selected test is expanded into one Linux entry per architecture it supports, so a
   # test that runs on both arches becomes two independent jobs. Tests that declare only
   # amd64 depend on an amd64-only container image — see run-samples.sh for the details.
+  # A Windows entry runs the test from Git Bash on the amd64 Windows runner: every test
+  # declares amd64, so each selected test gets one.
   IDX_JSON=$(echo "$INDICES" | tr ' ' '\n' | jq -R 'tonumber' | jq -s '.')
-  MATRIX=$(echo "$TEST_META" | jq -c --argjson idx "$IDX_JSON" --arg filter "$ARCH_FILTER" \
-    '{include: [
-        $idx[] as $i | .[$i] as $test |
-        $test.arches[] |
-        select($filter == "both" or . == $filter) |
-        {
-          shard:  $test.shard,
-          splits: $test.splits,
-          arch:   .,
-          runner: (if . == "arm64" then "ubuntu-22.04-arm" else "ubuntu-22.04" end),
-          name:   ($test.name + " [" + . + "]")
-        }
-      ]}')
+  MATRIX=$(echo "$TEST_META" | jq -c --argjson idx "$IDX_JSON" --arg filter "$ARCH_FILTER" --arg platform "$PLATFORM" \
+    '{include: (
+        (if $platform == "Windows" then [] else [
+          $idx[] as $i | .[$i] as $test |
+          $test.arches[] |
+          select($filter == "both" or . == $filter) |
+          {
+            shard:  $test.shard,
+            splits: $test.splits,
+            arch:   .,
+            os:     "linux",
+            runner: (if . == "arm64" then "ubuntu-22.04-arm" else "ubuntu-22.04" end),
+            name:   ($test.name + " [" + . + "]")
+          }
+        ] end)
+        + (if $platform == "Linux" then [] else [
+          $idx[] as $i | .[$i] as $test |
+          select($test.arches | index("amd64")) |
+          {
+            shard:  $test.shard,
+            splits: $test.splits,
+            arch:   "amd64",
+            os:     "windows",
+            runner: "windows-latest",
+            name:   ($test.name + " [Windows]")
+          }
+        ] end)
+      )}')
 fi
 
 # An arch filter can select tests that support no matching architecture, so decide

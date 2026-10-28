@@ -177,7 +177,9 @@ resource "null_resource" "push_image" {
   count = (var.image_name != null && var.image_name != "" && var.image_tag != null && var.image_tag != "") ? 1 : 0
 
   provisioner "local-exec" {
-    command = "${path.root}/push_image.sh"
+    # Run the script with bash everywhere: on Windows, Terraform would otherwise hand it to cmd.exe, which cannot run it
+    command     = "${path.root}/push_image.sh"
+    interpreter = ["bash"]
     environment = {
       ACR_NAME         = local.acr_name
       ACR_LOGIN_SERVER = module.container_registry.login_server
