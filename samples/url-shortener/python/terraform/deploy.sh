@@ -51,7 +51,7 @@ fi
 
 # Persist the PostgreSQL credentials for scripts/validate.sh, matching the
 # contract of scripts/deploy.sh.
-cat >"$CURRENT_DIR/../scripts/.last_deploy.env" <<EOF
+cat >"$CURRENT_DIR/../scripts/.last_deploy.${PREFIX}.env" <<EOF
 POSTGRES_ADMIN_PASSWORD=$(terraform output -raw postgres_password)
 POSTGRES_HOST=$(terraform output -raw postgres_host)
 POSTGRES_PORT=$(terraform output -raw postgres_port)

@@ -29,7 +29,7 @@ FUNCTIONS_VERSION='4'
 WEBAPP_ZIPFILE='linklet_webapp.zip'
 WORKER_ZIPFILE='linklet_worker.zip'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_FILE="$CURRENT_DIR/.last_deploy.env"
+STATE_FILE="$CURRENT_DIR/.last_deploy.${PREFIX}.env"
 
 # Get the current subscription
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)

@@ -10,7 +10,7 @@ WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 POSTGRES_ADMIN_USER='linkletadmin'
 POSTGRES_DB_NAME='clicks'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_FILE="$CURRENT_DIR/.last_deploy.env"
+STATE_FILE="$CURRENT_DIR/.last_deploy.${PREFIX}.env"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which

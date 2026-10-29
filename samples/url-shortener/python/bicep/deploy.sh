@@ -89,7 +89,7 @@ fi
 
 # Persist the PostgreSQL credentials for scripts/validate.sh, matching the
 # contract of scripts/deploy.sh.
-cat >"$CURRENT_DIR/../scripts/.last_deploy.env" <<EOF
+cat >"$CURRENT_DIR/../scripts/.last_deploy.${PREFIX}.env" <<EOF
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 POSTGRES_HOST=$POSTGRES_HOST
 POSTGRES_PORT=$POSTGRES_PORT

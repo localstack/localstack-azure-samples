@@ -110,7 +110,7 @@ az login --service-principal -u any-app -p any-pass --tenant any-tenant
 bash scripts/deploy.sh
 ```
 
-The script provisions all resources idempotently, deploys both applications from zip packages and persists the generated PostgreSQL credentials to `scripts/.last_deploy.env` for the validation script.
+The script provisions all resources idempotently, deploys both applications from zip packages and persists the generated PostgreSQL credentials to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix) for the validation script.
 
 ### Terraform
 
@@ -119,7 +119,7 @@ cd terraform
 bash deploy.sh
 ```
 
-The Terraform variant provisions the same resources declaratively and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.env` for the validation script.
+The Terraform variant provisions the same resources declaratively and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix) for the validation script.
 
 ### Bicep
 
@@ -128,7 +128,7 @@ cd bicep
 bash deploy.sh
 ```
 
-The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.env` for the validation script.
+The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix) for the validation script.
 
 ## Testing
 

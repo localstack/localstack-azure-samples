@@ -14,6 +14,6 @@ This directory contains Bash scripts for deploying and validating the sample usi
 
 | Script | Purpose |
 |--------|---------|
-| `deploy.sh` | Idempotently provisions all resources and deploys the web app and the worker from zip packages. Persists the generated PostgreSQL credentials to `.last_deploy.env`. |
+| `deploy.sh` | Idempotently provisions all resources and deploys the web app and the worker from zip packages. Persists the generated PostgreSQL credentials to `.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix). |
 | `validate.sh` | Walks the full causal chain end to end and exits non-zero on any failure. |
 | `call-web-app.sh` | Quick user-level smoke test: home page, shorten a URL, follow the redirect. |
