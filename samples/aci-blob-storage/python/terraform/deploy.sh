@@ -16,6 +16,10 @@ cd "$CURRENT_DIR" || exit
 # (Terraform references the pre-created ACR as a data source)
 # =============================================================================
 
+# Create resource group and ACR first so we can push the image
+RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
+ACR_NAME="${PREFIX}aciacr${SUFFIX}"
+
 # Stop if the Terraform state of a previous run tracks another resource group: run under another PREFIX, the
 # apply would replace that run's resource group and delete its resources
 echo "Checking that the Terraform state tracks no resource group other than [$RESOURCE_GROUP_NAME]..."
@@ -25,10 +29,6 @@ if [[ -n $STATE_RESOURCE_GROUP_NAME && $STATE_RESOURCE_GROUP_NAME != "$RESOURCE_
 	echo "The Terraform state tracks the [$STATE_RESOURCE_GROUP_NAME] resource group of a previous run: delete its terraform.tfstate files, or run with the PREFIX of that run"
 	exit 1
 fi
-
-# Create resource group and ACR first so we can push the image
-RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
-ACR_NAME="${PREFIX}aciacr${SUFFIX}"
 
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 az group create \
