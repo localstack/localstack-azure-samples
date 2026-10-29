@@ -57,44 +57,60 @@ fi
 # Create ACR first so we can push the image
 ACR_NAME="${PREFIX}acaacr${SUFFIX}"
 echo "Creating ACR [$ACR_NAME] for image push..."
-if ! az acr create \
+az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--sku Basic \
 	--admin-enabled true \
-	--only-show-errors 1>/dev/null; then
-	echo "Failed to create ACR [$ACR_NAME]."
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$ACR_NAME] container registry successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group"
 	exit 1
 fi
 
-if ! LOGIN_SERVER=$(az acr show \
+LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the login server of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $LOGIN_SERVER ]]; then
+	echo "Successfully retrieved the login server of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the login server of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
-if ! ACR_USERNAME=$(az acr credential show \
+ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the admin username of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $ACR_USERNAME ]]; then
+	echo "Successfully retrieved the admin username of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin username of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
-if ! ACR_PASSWORD=$(az acr credential show \
+ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the admin password of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $ACR_PASSWORD ]]; then
+	echo "Successfully retrieved the admin password of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin password of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
@@ -108,14 +124,18 @@ if [[ $? != 0 ]]; then
 	exit 1
 fi
 
-if ! docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"; then
-	echo "Failed to tag Docker image [$IMAGE_NAME:$IMAGE_TAG] as [$FULL_IMAGE]."
+docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"
+
+if [[ $? != 0 ]]; then
+	echo "Failed to tag Docker image."
 	exit 1
 fi
 
 echo "Logging in to ACR [$LOGIN_SERVER]..."
-if ! echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null; then
-	echo "Failed to log in to ACR [$LOGIN_SERVER]."
+echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "Failed to log in to ACR."
 	exit 1
 fi
 

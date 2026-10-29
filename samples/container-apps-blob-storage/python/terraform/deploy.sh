@@ -22,53 +22,73 @@ RESOURCE_GROUP_NAME="${PREFIX}-aca-rg"
 ACR_NAME="${PREFIX}acaacr${SUFFIX}"
 
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-if ! az group create \
+az group create \
 	--name "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null; then
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$RESOURCE_GROUP_NAME] resource group successfully created"
+else
+	echo "Failed to create [$RESOURCE_GROUP_NAME] resource group"
 	exit 1
 fi
 
 echo "Creating ACR [$ACR_NAME] for image push..."
-if ! az acr create \
+az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--sku Basic \
 	--admin-enabled true \
-	--only-show-errors 1>/dev/null; then
-	echo "Failed to create ACR [$ACR_NAME]."
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$ACR_NAME] container registry successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group"
 	exit 1
 fi
 
-if ! LOGIN_SERVER=$(az acr show \
+LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the login server of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $LOGIN_SERVER ]]; then
+	echo "Successfully retrieved the login server of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the login server of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
-if ! ACR_USERNAME=$(az acr credential show \
+ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the admin username of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $ACR_USERNAME ]]; then
+	echo "Successfully retrieved the admin username of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin username of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
-if ! ACR_PASSWORD=$(az acr credential show \
+ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
 	--output tsv \
-	--only-show-errors); then
-	echo "Failed to retrieve the admin password of ACR [$ACR_NAME]."
+	--only-show-errors)
+
+if [[ -n $ACR_PASSWORD ]]; then
+	echo "Successfully retrieved the admin password of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin password of the [$ACR_NAME] container registry"
 	exit 1
 fi
 
@@ -82,14 +102,18 @@ if [[ $? != 0 ]]; then
 	exit 1
 fi
 
-if ! docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"; then
-	echo "Failed to tag Docker image [$IMAGE_NAME:$IMAGE_TAG] as [$FULL_IMAGE]."
+docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"
+
+if [[ $? != 0 ]]; then
+	echo "Failed to tag Docker image."
 	exit 1
 fi
 
 echo "Logging in to ACR [$LOGIN_SERVER]..."
-if ! echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null; then
-	echo "Failed to log in to ACR [$LOGIN_SERVER]."
+echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "Failed to log in to ACR."
 	exit 1
 fi
 
@@ -107,38 +131,49 @@ echo "Image pushed to ACR successfully."
 # =============================================================================
 
 echo "Initializing Terraform..."
-if ! terraform init -upgrade; then
-	echo "Failed to initialize Terraform."
+terraform init -upgrade
+
+if [[ $? != 0 ]]; then
+	echo "Terraform init failed. Exiting."
 	exit 1
 fi
 
-# Import the resource group that was pre-created for the image push
+# Import the resource group that was pre-created for the image push, unless a previous run already did
 echo "Importing pre-created resource group into Terraform state..."
-# A re-run finds the group in the state already, and import refuses it; every other failure stops the deploy.
-if terraform state show azurerm_resource_group.example >/dev/null 2>&1; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] is already in the Terraform state."
-elif ! terraform import \
-	-var "prefix=$PREFIX" \
-	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION" \
-	-var "image_name=$IMAGE_NAME" \
-	-var "image_tag=$IMAGE_TAG" \
-	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE" \
-	azurerm_resource_group.example \
-	"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}"; then
-	echo "Failed to import resource group [$RESOURCE_GROUP_NAME] into the Terraform state."
-	exit 1
+terraform state show azurerm_resource_group.example &>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$RESOURCE_GROUP_NAME] resource group already exists in the Terraform state"
+else
+	terraform import \
+		-var "prefix=$PREFIX" \
+		-var "suffix=$SUFFIX" \
+		-var "location=$LOCATION" \
+		-var "image_name=$IMAGE_NAME" \
+		-var "image_tag=$IMAGE_TAG" \
+		-var "managed_identity_type=$MANAGED_IDENTITY_TYPE" \
+		azurerm_resource_group.example \
+		"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}"
+
+	if [[ $? == 0 ]]; then
+		echo "[$RESOURCE_GROUP_NAME] resource group successfully imported into the Terraform state"
+	else
+		echo "Failed to import [$RESOURCE_GROUP_NAME] resource group into the Terraform state"
+		exit 1
+	fi
 fi
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
-if ! terraform plan -out=tfplan \
+terraform plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
 	-var "location=$LOCATION" \
 	-var "image_name=$IMAGE_NAME" \
 	-var "image_tag=$IMAGE_TAG" \
-	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE"; then
+	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE"
+
+if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."
 	exit 1
 fi
@@ -153,34 +188,13 @@ if [[ $? != 0 ]]; then
 fi
 
 # Get the output values
-if ! RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name); then
-	echo "Failed to read the Terraform output [resource_group_name]."
-	exit 1
-fi
-if ! STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name); then
-	echo "Failed to read the Terraform output [storage_account_name]."
-	exit 1
-fi
-if ! ACR_NAME=$(terraform output -raw acr_name); then
-	echo "Failed to read the Terraform output [acr_name]."
-	exit 1
-fi
-if ! ENVIRONMENT_NAME=$(terraform output -raw environment_name); then
-	echo "Failed to read the Terraform output [environment_name]."
-	exit 1
-fi
-if ! APP_NAME=$(terraform output -raw app_name); then
-	echo "Failed to read the Terraform output [app_name]."
-	exit 1
-fi
-if ! FQDN=$(terraform output -raw fqdn); then
-	echo "Failed to read the Terraform output [fqdn]."
-	exit 1
-fi
-if ! PRINCIPAL_ID=$(terraform output -raw principal_id); then
-	echo "Failed to read the Terraform output [principal_id]."
-	exit 1
-fi
+RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
+STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
+ACR_NAME=$(terraform output -raw acr_name)
+ENVIRONMENT_NAME=$(terraform output -raw environment_name)
+APP_NAME=$(terraform output -raw app_name)
+FQDN=$(terraform output -raw fqdn)
+PRINCIPAL_ID=$(terraform output -raw principal_id)
 
 echo ""
 echo "============================================================"
