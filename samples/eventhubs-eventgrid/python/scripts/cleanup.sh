@@ -7,7 +7,7 @@
 # system topic and the Function App all live inside it.
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 RESOURCE_GROUP_NAME="${PREFIX}-ehgrid-rg"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

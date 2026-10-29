@@ -6,7 +6,7 @@
 # wiring that connects them, then the workloads and the data plane.
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='telemetry'
 RESOURCE_GROUP_NAME="${PREFIX}-ehgrid-rg"
 EVENTHUB_NAMESPACE_NAME="${PREFIX}-ehns-${SUFFIX}"

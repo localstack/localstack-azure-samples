@@ -40,62 +40,129 @@ if [[ $? != 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created."
 	else
 		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-		exit
+		exit 1
 	fi
 else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
 fi
 
-echo "Create CosmosDB NoSQL Account"
-    export AZURECOSMOSDB_ENDPOINT=$(az cosmosdb create \
-        --resource-group $RESOURCE_GROUP_NAME \
-        --name $WEB_APP_NAME \
-        --locations regionName=$LOCATION \
-        --query "documentEndpoint" \
-        --output tsv)
+# Create the Cosmos DB account
+echo "Creating [$WEB_APP_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group..."
+AZURECOSMOSDB_ENDPOINT=$(az cosmosdb create \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--name $WEB_APP_NAME \
+	--locations regionName=$LOCATION \
+	--query "documentEndpoint" \
+	--output tsv)
 
-echo "Account created"
-echo "AZURECOSMOSDB_ENDPOINT set to $AZURECOSMOSDB_ENDPOINT"
+if [[ -n $AZURECOSMOSDB_ENDPOINT ]]; then
+	echo "[$WEB_APP_NAME] Cosmos DB account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "AZURECOSMOSDB_ENDPOINT set to $AZURECOSMOSDB_ENDPOINT"
+else
+	echo "Failed to create [$WEB_APP_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+export AZURECOSMOSDB_ENDPOINT
 
-echo "Create CosmosDB NoSQL Database"
+# Create the Cosmos DB database
+echo "Creating [$AZURECOSMOSDB_DATABASENAME] database in the [$WEB_APP_NAME] Cosmos DB account..."
 az cosmosdb sql database create \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --name $AZURECOSMOSDB_DATABASENAME \
-    --account-name $WEB_APP_NAME
+	--resource-group $RESOURCE_GROUP_NAME \
+	--name $AZURECOSMOSDB_DATABASENAME \
+	--account-name $WEB_APP_NAME \
+	--only-show-errors 1>/dev/null
 
-echo "Create CosmosDB NoSQL Container"
+if [[ $? == 0 ]]; then
+	echo "[$AZURECOSMOSDB_DATABASENAME] database successfully created in the [$WEB_APP_NAME] Cosmos DB account"
+else
+	echo "Failed to create [$AZURECOSMOSDB_DATABASENAME] database in the [$WEB_APP_NAME] Cosmos DB account"
+	exit 1
+fi
+
+# Create the Cosmos DB container
+echo "Creating [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database..."
 az cosmosdb sql container create \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --account-name $WEB_APP_NAME \
-    --database-name $AZURECOSMOSDB_DATABASENAME \
-    --name $AZURECOSMOSDB_CONTAINERNAME \
-    --partition-key-path $AURECOSMOSDB_PARTITION_KEY \
-    --throughput 400
+	--resource-group $RESOURCE_GROUP_NAME \
+	--account-name $WEB_APP_NAME \
+	--database-name $AZURECOSMOSDB_DATABASENAME \
+	--name $AZURECOSMOSDB_CONTAINERNAME \
+	--partition-key-path $AURECOSMOSDB_PARTITION_KEY \
+	--throughput 400 \
+	--only-show-errors 1>/dev/null
 
-echo "Fetching DB Account primary master key"
-export AZURECOSMOSDB_PRIMARY_KEY=$(az cosmosdb keys list \
-        --resource-group $RESOURCE_GROUP_NAME \
-        --name $WEB_APP_NAME \
-        --query "primaryMasterKey" \
-        --output tsv)
-echo "Primary master key is $AZURECOSMOSDB_PRIMARY_KEY"
+if [[ $? == 0 ]]; then
+	echo "[$AZURECOSMOSDB_CONTAINERNAME] container successfully created in the [$AZURECOSMOSDB_DATABASENAME] database"
+else
+	echo "Failed to create [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database"
+	exit 1
+fi
 
-echo "Creating App service"
-az appservice plan create --name $WEB_APP_NAME --resource-group $RESOURCE_GROUP_NAME --sku B1 --is-linux
-echo "App service created"
+# Retrieve the primary key of the Cosmos DB account
+echo "Retrieving the primary key of the [$WEB_APP_NAME] Cosmos DB account..."
+AZURECOSMOSDB_PRIMARY_KEY=$(az cosmosdb keys list \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--name $WEB_APP_NAME \
+	--query "primaryMasterKey" \
+	--output tsv)
 
-echo "Creating Web App"
-az webapp create --name $WEB_APP_NAME --resource-group $RESOURCE_GROUP_NAME --plan $WEB_APP_NAME --runtime DOTNETCORE:10.0
-echo "Web App created"
+if [[ -n $AZURECOSMOSDB_PRIMARY_KEY ]]; then
+	echo "Successfully retrieved the primary key of the [$WEB_APP_NAME] Cosmos DB account"
+	echo "Primary master key is $AZURECOSMOSDB_PRIMARY_KEY"
+else
+	echo "Failed to retrieve the primary key of the [$WEB_APP_NAME] Cosmos DB account"
+	exit 1
+fi
+export AZURECOSMOSDB_PRIMARY_KEY
 
-echo "Configure appsettings environment variables"
+# Create the App Service plan
+echo "Creating [$WEB_APP_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group..."
+az appservice plan create \
+	--name $WEB_APP_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--sku B1 \
+	--is-linux \
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$WEB_APP_NAME] App Service plan successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$WEB_APP_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
+# Create the web app
+echo "Creating [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group..."
+az webapp create \
+	--name $WEB_APP_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--plan $WEB_APP_NAME \
+	--runtime DOTNETCORE:10.0 \
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$WEB_APP_NAME] web app successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
+# Set the application settings of the web app
+echo "Setting the application settings of the [$WEB_APP_NAME] web app..."
 az webapp config appsettings set \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --name $WEB_APP_NAME \
-    --settings AZURECOSMOSDB_ENDPOINT=$AZURECOSMOSDB_ENDPOINT \
-               AZURECOSMOSDB_DATABASENAME=$AZURECOSMOSDB_DATABASENAME \
-               AZURECOSMOSDB_CONTAINERNAME=$AZURECOSMOSDB_CONTAINERNAME \
-               AZURECOSMOSDB_PRIMARY_KEY=$AZURECOSMOSDB_PRIMARY_KEY
+	--resource-group $RESOURCE_GROUP_NAME \
+	--name $WEB_APP_NAME \
+	--settings AZURECOSMOSDB_ENDPOINT=$AZURECOSMOSDB_ENDPOINT \
+	AZURECOSMOSDB_DATABASENAME=$AZURECOSMOSDB_DATABASENAME \
+	AZURECOSMOSDB_CONTAINERNAME=$AZURECOSMOSDB_CONTAINERNAME \
+	AZURECOSMOSDB_PRIMARY_KEY=$AZURECOSMOSDB_PRIMARY_KEY \
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "Application settings of the [$WEB_APP_NAME] web app successfully set"
+else
+	echo "Failed to set the application settings of the [$WEB_APP_NAME] web app"
+	exit 1
+fi
 
 # Print the application settings of the web app
 echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
@@ -119,11 +186,18 @@ zip -r "$ZIPFILE" . -x "bin/*" "obj/*" "publish/*" "*.zip"
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
 echo "Using az webapp deploy command for LocalStack emulator environment."
 az webapp deploy \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --name $WEB_APP_NAME \
-    --src-path ${ZIPFILE} \
-    --type zip \
-    --async true
+	--resource-group $RESOURCE_GROUP_NAME \
+	--name $WEB_APP_NAME \
+	--src-path ${ZIPFILE} \
+	--type zip \
+	--async true
+
+if [[ $? == 0 ]]; then
+	echo "[$ZIPFILE] zip package successfully deployed to the [$WEB_APP_NAME] web app"
+else
+	echo "Failed to deploy [$ZIPFILE] zip package to the [$WEB_APP_NAME] web app"
+	exit 1
+fi
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then

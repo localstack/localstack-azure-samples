@@ -8,7 +8,7 @@
 # =============================================================================
 
 # Variables (must match deploy.sh)
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
 ACI_GROUP_NAME="${PREFIX}-aci-planner"
 ACI_GROUP_ADVANCED="${PREFIX}-aci-planner-advanced"

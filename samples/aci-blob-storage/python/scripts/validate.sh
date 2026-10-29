@@ -8,7 +8,7 @@
 # =============================================================================
 
 # Variables (must match deploy.sh)
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 LOCATION='eastus'
 RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}acistorage"

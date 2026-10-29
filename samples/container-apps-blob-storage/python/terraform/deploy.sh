@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 LOCATION='eastus'
 IMAGE_NAME='guestbook'
@@ -21,11 +21,28 @@ cd "$CURRENT_DIR" || exit
 RESOURCE_GROUP_NAME="${PREFIX}-aca-rg"
 ACR_NAME="${PREFIX}acaacr${SUFFIX}"
 
+# Stop if the Terraform state of a previous run tracks another resource group: run under another PREFIX, the
+# apply would replace that run's resource group and delete its resources
+echo "Checking that the Terraform state tracks no resource group other than [$RESOURCE_GROUP_NAME]..."
+STATE_RESOURCE_GROUP_NAME=$(terraform state show -no-color azurerm_resource_group.example 2>/dev/null | awk '$1 == "name" { gsub(/"/, "", $3); print $3 }')
+
+if [[ -n $STATE_RESOURCE_GROUP_NAME && $STATE_RESOURCE_GROUP_NAME != "$RESOURCE_GROUP_NAME" ]]; then
+	echo "The Terraform state tracks the [$STATE_RESOURCE_GROUP_NAME] resource group of a previous run: delete its terraform.tfstate files, or run with the PREFIX of that run"
+	exit 1
+fi
+
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 az group create \
 	--name "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$RESOURCE_GROUP_NAME] resource group successfully created"
+else
+	echo "Failed to create [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
 
 echo "Creating ACR [$ACR_NAME] for image push..."
 az acr create \
@@ -36,12 +53,26 @@ az acr create \
 	--admin-enabled true \
 	--only-show-errors 1>/dev/null
 
+if [[ $? == 0 ]]; then
+	echo "[$ACR_NAME] container registry successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	echo "Failed to create [$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group"
+	exit 1
+fi
+
 LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
 	--only-show-errors)
+
+if [[ -n $LOGIN_SERVER ]]; then
+	echo "Successfully retrieved the login server of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the login server of the [$ACR_NAME] container registry"
+	exit 1
+fi
 
 ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
@@ -50,12 +81,26 @@ ACR_USERNAME=$(az acr credential show \
 	--output tsv \
 	--only-show-errors)
 
+if [[ -n $ACR_USERNAME ]]; then
+	echo "Successfully retrieved the admin username of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin username of the [$ACR_NAME] container registry"
+	exit 1
+fi
+
 ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
 	--output tsv \
 	--only-show-errors)
+
+if [[ -n $ACR_PASSWORD ]]; then
+	echo "Successfully retrieved the admin password of the [$ACR_NAME] container registry"
+else
+	echo "Failed to retrieve the admin password of the [$ACR_NAME] container registry"
+	exit 1
+fi
 
 FULL_IMAGE="${LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
@@ -69,8 +114,18 @@ fi
 
 docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"
 
+if [[ $? != 0 ]]; then
+	echo "Failed to tag Docker image."
+	exit 1
+fi
+
 echo "Logging in to ACR [$LOGIN_SERVER]..."
 echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "Failed to log in to ACR."
+	exit 1
+fi
 
 echo "Pushing image [$FULL_IMAGE]..."
 docker push "$FULL_IMAGE" 2>/dev/null
@@ -88,17 +143,35 @@ echo "Image pushed to ACR successfully."
 echo "Initializing Terraform..."
 terraform init -upgrade
 
-# Import the resource group that was pre-created for the image push
+if [[ $? != 0 ]]; then
+	echo "Terraform init failed. Exiting."
+	exit 1
+fi
+
+# Import the resource group that was pre-created for the image push, unless a previous run already did
 echo "Importing pre-created resource group into Terraform state..."
-terraform import \
-	-var "prefix=$PREFIX" \
-	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION" \
-	-var "image_name=$IMAGE_NAME" \
-	-var "image_tag=$IMAGE_TAG" \
-	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE" \
-	azurerm_resource_group.example \
-	"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
+terraform state show azurerm_resource_group.example &>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "[$RESOURCE_GROUP_NAME] resource group already exists in the Terraform state"
+else
+	terraform import \
+		-var "prefix=$PREFIX" \
+		-var "suffix=$SUFFIX" \
+		-var "location=$LOCATION" \
+		-var "image_name=$IMAGE_NAME" \
+		-var "image_tag=$IMAGE_TAG" \
+		-var "managed_identity_type=$MANAGED_IDENTITY_TYPE" \
+		azurerm_resource_group.example \
+		"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}"
+
+	if [[ $? == 0 ]]; then
+		echo "[$RESOURCE_GROUP_NAME] resource group successfully imported into the Terraform state"
+	else
+		echo "Failed to import [$RESOURCE_GROUP_NAME] resource group into the Terraform state"
+		exit 1
+	fi
+fi
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
@@ -109,6 +182,11 @@ terraform plan -out=tfplan \
 	-var "image_name=$IMAGE_NAME" \
 	-var "image_tag=$IMAGE_TAG" \
 	-var "managed_identity_type=$MANAGED_IDENTITY_TYPE"
+
+if [[ $? != 0 ]]; then
+	echo "Terraform plan failed. Exiting."
+	exit 1
+fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."

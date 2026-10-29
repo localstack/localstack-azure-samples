@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 LOCATION='eastus'
 IMAGE_NAME='vacation-planner'
@@ -19,6 +19,16 @@ cd "$CURRENT_DIR" || exit
 # Create resource group and ACR first so we can push the image
 RESOURCE_GROUP_NAME="${PREFIX}-aci-rg"
 ACR_NAME="${PREFIX}aciacr${SUFFIX}"
+
+# Stop if the Terraform state of a previous run tracks another resource group: run under another PREFIX, the
+# apply would replace that run's resource group and delete its resources
+echo "Checking that the Terraform state tracks no resource group other than [$RESOURCE_GROUP_NAME]..."
+STATE_RESOURCE_GROUP_NAME=$(terraform state show -no-color azurerm_resource_group.example 2>/dev/null | awk '$1 == "name" { gsub(/"/, "", $3); print $3 }')
+
+if [[ -n $STATE_RESOURCE_GROUP_NAME && $STATE_RESOURCE_GROUP_NAME != "$RESOURCE_GROUP_NAME" ]]; then
+	echo "The Terraform state tracks the [$STATE_RESOURCE_GROUP_NAME] resource group of a previous run: delete its terraform.tfstate files, or run with the PREFIX of that run"
+	exit 1
+fi
 
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 az group create \

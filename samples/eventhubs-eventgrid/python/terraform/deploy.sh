@@ -28,6 +28,13 @@ fail() {
 	exit 1
 }
 
+# The configuration's prefix variable, passed only when PREFIX is set: otherwise terraform.tfvars, TF_VAR_prefix
+# or the variable's default decides it
+PREFIX_VARIABLE=()
+if [[ -n $PREFIX ]]; then
+	PREFIX_VARIABLE=(-var "prefix=$PREFIX")
+fi
+
 echo "=== Initializing Terraform ==="
 terraform init -input=false || fail "terraform init failed"
 
@@ -37,7 +44,7 @@ terraform validate || fail "terraform validate failed"
 
 echo ""
 echo "=== Planning ==="
-terraform plan -input=false -out=tfplan || fail "terraform plan failed"
+terraform plan -input=false "${PREFIX_VARIABLE[@]}" -out=tfplan || fail "terraform plan failed"
 
 echo ""
 echo "=== Applying ==="
@@ -45,14 +52,14 @@ terraform apply -input=false -auto-approve tfplan || fail "terraform apply faile
 
 echo ""
 echo "=== Re-applying (the configuration must converge without errors) ==="
-terraform apply -input=false -auto-approve || fail "the second apply failed"
+terraform apply -input=false -auto-approve "${PREFIX_VARIABLE[@]}" || fail "the second apply failed"
 
 # A perfectly idempotent second apply reports "No changes". Against the emulator a few resources
 # still report drift because some properties are accepted on create but not echoed back on read,
 # so the provider re-sends them every run. That is an emulator parity gap rather than a problem
 # with this configuration: the re-apply converges and changes nothing observable.
 DRIFT=$(
-	terraform plan -input=false -detailed-exitcode >/dev/null 2>&1
+	terraform plan -input=false "${PREFIX_VARIABLE[@]}" -detailed-exitcode >/dev/null 2>&1
 	echo $?
 )
 if [[ "$DRIFT" == "0" ]]; then

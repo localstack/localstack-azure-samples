@@ -105,7 +105,7 @@ else
 		echo "[$SQL_SERVER_NAME] sql server successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 fi
 

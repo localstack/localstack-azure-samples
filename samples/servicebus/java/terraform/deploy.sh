@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 LOCATION='westeurope'
 SERVICEBUS_QUEUE_NAME="myqueue" # Queue name is hardcoded in the application properties

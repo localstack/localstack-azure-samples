@@ -8,7 +8,7 @@
 # =============================================================================
 
 # Variables (must match deploy.sh)
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 RESOURCE_GROUP_NAME="${PREFIX}-aca-rg"
 ACA_APP_NAME="${PREFIX}-aca-guestbook"
 ACA_ENV_NAME="${PREFIX}-aca-env"

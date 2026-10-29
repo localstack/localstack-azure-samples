@@ -93,16 +93,25 @@ get_docker_container_app_port() {
 }
 
 call_http_trigger_function() {
-	# The function app to call: the one the caller named, else the only one in the subscription
+	# The function app to call: the one the caller named, else the only one in the sample's resource group or the
+	# subscription
 	function_app_name="$1"
 	if [ -z "$function_app_name" ]; then
-		echo "Getting the name of the only function app in the subscription..."
-		function_app_count=$(az functionapp list --query "length(@)" --output tsv)
+		if [ -n "$PREFIX" ]; then
+			# The samples runner gives every sample its own PREFIX, while the resource group of the sample before
+			# can still be being deleted: look only in this sample's resource group
+			echo "Getting the name of the only function app in the [${PREFIX}-rg] resource group..."
+			function_app_count=$(az functionapp list --resource-group "${PREFIX}-rg" --query "length(@)" --output tsv)
+			function_app_name=$(az functionapp list --resource-group "${PREFIX}-rg" --query "[0].name" --output tsv)
+		else
+			echo "Getting the name of the only function app in the subscription..."
+			function_app_count=$(az functionapp list --query "length(@)" --output tsv)
+			function_app_name=$(az functionapp list --query "[0].name" --output tsv)
+		fi
 		if [ "$function_app_count" != "1" ]; then
 			echo "Error: Found [${function_app_count:-0}] function apps; name the one to call: $0 <function-app-name>"
 			exit 1
 		fi
-		function_app_name=$(az functionapp list --query "[0].name" --output tsv)
 	fi
 
 	if [ -n "$function_app_name" ]; then
