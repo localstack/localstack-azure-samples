@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 SERVICEBUS_NAMESPACE_NAME="${PREFIX}-sb-ns-${SUFFIX}"

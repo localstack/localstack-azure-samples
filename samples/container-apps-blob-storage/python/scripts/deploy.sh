@@ -17,7 +17,7 @@
 # =============================================================================
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 LOCATION='eastus'
 RESOURCE_GROUP_NAME="${PREFIX}-aca-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}acastorage"

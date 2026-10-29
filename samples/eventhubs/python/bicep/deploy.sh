@@ -6,7 +6,7 @@
 # packages are pushed with the Azure CLI, as in the other samples).
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"
 DEPLOYMENT_NAME="eventhubs-fraud-detection"
@@ -47,6 +47,7 @@ az deployment group validate \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--template-file main.bicep \
 	--parameters main.bicepparam \
+	--parameters prefix="$PREFIX" \
 	--only-show-errors 1>/dev/null || fail "the Bicep template did not pass validation"
 
 echo ""
@@ -56,6 +57,7 @@ az deployment group create \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--template-file main.bicep \
 	--parameters main.bicepparam \
+	--parameters prefix="$PREFIX" \
 	--only-show-errors 1>/dev/null || fail "the Bicep deployment failed"
 echo "Template deployed."
 

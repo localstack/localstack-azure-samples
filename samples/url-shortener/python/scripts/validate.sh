@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}urlshortstorage${SUFFIX}"

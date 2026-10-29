@@ -21,7 +21,7 @@
 # =============================================================================
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='payments'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"

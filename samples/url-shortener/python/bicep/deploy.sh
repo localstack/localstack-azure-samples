@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='test'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
@@ -49,6 +49,7 @@ az deployment group validate \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
+	--parameters prefix=$PREFIX \
 	--output none
 
 if [[ $? == 0 ]]; then
@@ -65,6 +66,7 @@ DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
+	--parameters prefix=$PREFIX \
 	--query properties.outputs)
 
 if [[ $? == 0 ]]; then

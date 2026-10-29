@@ -209,6 +209,28 @@ host_arch() {
   esac
 }
 
+# Set PREFIX, from which every sample builds its resource group and resource names ("local" by default), to the
+# letter l and four random lowercase letters, never the previous sample's. The cleanup after each sample deletes
+# every resource group with --no-wait, so a sample that reused the previous one's names could write into a group
+# still being deleted: Azure refuses that with 409 ResourceGroupBeingDeleted, and an emulator that accepts it
+# leaves the new resources behind once the group is gone. Giving every sample its own names avoids both without
+# waiting for the deletes. The prefix keeps the length and the characters of "local", so no name changes length.
+# $RANDOM in this shell rather than a pipeline from /dev/urandom: under pipefail, the SIGPIPE that head gives tr
+# would end the script.
+set_sample_name_prefix() {
+  local letters=abcdefghijklmnopqrstuvwxyz previous="${PREFIX:-}" i
+  while true; do
+    PREFIX=l
+    for (( i = 0; i < 4; i++ )); do
+      PREFIX+="${letters:RANDOM % 26:1}"
+    done
+    if [[ "$PREFIX" != "$previous" ]]; then
+      break
+    fi
+  done
+  export PREFIX
+}
+
 # 2. Handle --list flag: output JSON metadata for CI matrix generation (no tools required)
 #    Each entry has: shard (1-based index), splits (total count), name, watch_folders,
 #    and arches. CI uses watch_folders to detect which tests are affected by changed
@@ -367,6 +389,9 @@ for (( i=START; i<START+COUNT; i++ )); do
     echo "      emulation (slower) and fails outright if the runtime cannot emulate"
     echo "      amd64. Set SKIP_AMD64_ONLY=1 to skip these instead."
   fi
+
+  set_sample_name_prefix
+  echo "Name prefix: $PREFIX"
 
   pushd "$path" > /dev/null
 

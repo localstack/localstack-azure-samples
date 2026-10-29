@@ -13,7 +13,7 @@
 # Everything runs against the LocalStack Azure emulator. Run 'lstk az start-interception' first.
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 SUFFIX='telemetry'
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-ehgrid-rg"

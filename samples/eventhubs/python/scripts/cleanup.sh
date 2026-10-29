@@ -7,7 +7,7 @@
 # Function App and the Web App are all inside it.
 # =============================================================================
 
-PREFIX='local'
+PREFIX="${PREFIX:-local}"
 RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
