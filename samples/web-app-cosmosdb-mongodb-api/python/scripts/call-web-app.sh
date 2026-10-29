@@ -93,16 +93,25 @@ get_docker_container_app_port() {
 }
 
 call_web_app() {
-	# The web app to call: the one the caller named, else the only one in the subscription
+	# The web app to call: the one the caller named, else the only one in the sample's resource group or the
+	# subscription
 	web_app_name="$1"
 	if [ -z "$web_app_name" ]; then
-		echo "Getting the name of the only web app in the subscription..."
-		web_app_count=$(az webapp list --query "length(@)" --output tsv)
+		if [ -n "$PREFIX" ]; then
+			# The samples runner gives every sample its own PREFIX, while the resource group of the sample before
+			# can still be being deleted: look only in this sample's resource group
+			echo "Getting the name of the only web app in the [${PREFIX}-rg] resource group..."
+			web_app_count=$(az webapp list --resource-group "${PREFIX}-rg" --query "length(@)" --output tsv)
+			web_app_name=$(az webapp list --resource-group "${PREFIX}-rg" --query "[0].name" --output tsv)
+		else
+			echo "Getting the name of the only web app in the subscription..."
+			web_app_count=$(az webapp list --query "length(@)" --output tsv)
+			web_app_name=$(az webapp list --query "[0].name" --output tsv)
+		fi
 		if [ "$web_app_count" != "1" ]; then
 			echo "Error: Found [${web_app_count:-0}] web apps; name the one to call: $0 <web-app-name>"
 			exit 1
 		fi
-		web_app_name=$(az webapp list --query "[0].name" --output tsv)
 	fi
 
 	if [ -n "$web_app_name" ]; then
