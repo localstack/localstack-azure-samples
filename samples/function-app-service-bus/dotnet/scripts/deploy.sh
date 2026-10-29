@@ -88,7 +88,7 @@ if [[ $? != 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
 	else
 		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
-		exit
+		exit 1
 	fi
 else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
@@ -114,7 +114,7 @@ if [[ $? != 0 ]]; then
 		echo "[$SERVICE_BUS_NAMESPACE] service bus namespace successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create [$SERVICE_BUS_NAMESPACE] service bus namespace in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 else
 	echo "[$SERVICE_BUS_NAMESPACE] service bus namespace already exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -140,7 +140,7 @@ if [[ $? != 0 ]]; then
 		echo "[$INPUT_QUEUE_NAME] service bus queue successfully created in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
 	else
 		echo "Failed to create [$INPUT_QUEUE_NAME] service bus queue in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
-		exit
+		exit 1
 	fi
 else
 	echo "[$INPUT_QUEUE_NAME] service bus queue already exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
@@ -166,7 +166,7 @@ if [[ $? != 0 ]]; then
 		echo "[$OUTPUT_QUEUE_NAME] service bus queue successfully created in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
 	else
 		echo "Failed to create [$OUTPUT_QUEUE_NAME] service bus queue in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
-		exit
+		exit 1
 	fi
 else
 	echo "[$OUTPUT_QUEUE_NAME] service bus queue already exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
@@ -446,7 +446,7 @@ if [[ $? != 0 ]]; then
 		echo "[$VIRTUAL_NETWORK_NAME] virtual network successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create [$VIRTUAL_NETWORK_NAME] virtual network in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 
 	# Update the function app subnet to associate it with the NAT Gateway and the NSG
@@ -498,7 +498,7 @@ if [[ $? != 0 ]]; then
 		echo "[$PE_SUBNET_NAME] subnet successfully created in the [$VIRTUAL_NETWORK_NAME] virtual network"
 	else
 		echo "Failed to create [$PE_SUBNET_NAME] subnet in the [$VIRTUAL_NETWORK_NAME] virtual network"
-		exit
+		exit 1
 	fi
 else
 	echo "[$PE_SUBNET_NAME] subnet already exists in the [$VIRTUAL_NETWORK_NAME] virtual network"
@@ -517,7 +517,7 @@ if [[ -n $VIRTUAL_NETWORK_ID ]]; then
 	echo "[$VIRTUAL_NETWORK_NAME] virtual network resource id retrieved successfully: $VIRTUAL_NETWORK_ID"
 else
 	echo "Failed to retrieve [$VIRTUAL_NETWORK_NAME] virtual network resource id in the [$RESOURCE_GROUP_NAME] resource group"
-	exit
+	exit 1
 fi
 
 # Create private DNS zones and virtual network links
@@ -544,7 +544,7 @@ for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 			echo "[$DNS_ZONE_NAME] private DNS zone successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 		else
 			echo "Failed to create [$DNS_ZONE_NAME] private DNS zone in the [$RESOURCE_GROUP_NAME] resource group"
-			exit
+			exit 1
 		fi
 	else
 		echo "[$DNS_ZONE_NAME] private DNS zone already exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -575,7 +575,7 @@ for DNS_ZONE_NAME in "${PRIVATE_DNS_ZONE_NAMES[@]}"; do
 			echo "[$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network successfully created"
 		else
 			echo "Failed to create [$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network"
-			exit
+			exit 1
 		fi
 	else
 		echo "[$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network already exists"
@@ -683,7 +683,7 @@ for i in "${!PE_NAMES[@]}"; do
 			echo "Private endpoint [$PE_NAME] successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 		else
 			echo "Failed to create private endpoint [$PE_NAME] in the [$RESOURCE_GROUP_NAME] resource group"
-			exit
+			exit 1
 		fi
 	else
 		echo "Private endpoint [$PE_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -716,7 +716,7 @@ for i in "${!PE_NAMES[@]}"; do
 			echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint successfully created"
 		else
 			echo "Failed to create private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint"
-			exit
+			exit 1
 		fi
 	else
 		echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PE_NAME] private endpoint already exists"
@@ -812,7 +812,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-		exit
+		exit 1
 	fi
 fi
 
@@ -870,7 +870,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit
+		exit 1
 	fi
 fi
 
@@ -912,7 +912,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit
+		exit 1
 	fi
 fi
 
@@ -954,7 +954,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit
+		exit 1
 	fi
 fi
 
@@ -996,7 +996,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit
+		exit 1
 	fi
 fi
 
@@ -1038,7 +1038,7 @@ else
 		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
-		exit
+		exit 1
 	fi
 fi
 

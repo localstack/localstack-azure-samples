@@ -43,7 +43,7 @@ if [[ $? != 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
 	else
 		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
-		exit
+		exit 1
 	fi
 else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
@@ -57,34 +57,46 @@ fi
 # Create ACR first so we can push the image
 ACR_NAME="${PREFIX}acaacr${SUFFIX}"
 echo "Creating ACR [$ACR_NAME] for image push..."
-az acr create \
+if ! az acr create \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--location "$LOCATION" \
 	--sku Basic \
 	--admin-enabled true \
-	--only-show-errors 1>/dev/null
+	--only-show-errors 1>/dev/null; then
+	echo "Failed to create ACR [$ACR_NAME]."
+	exit 1
+fi
 
-LOGIN_SERVER=$(az acr show \
+if ! LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "loginServer" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors); then
+	echo "Failed to retrieve the login server of ACR [$ACR_NAME]."
+	exit 1
+fi
 
-ACR_USERNAME=$(az acr credential show \
+if ! ACR_USERNAME=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "username" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors); then
+	echo "Failed to retrieve the admin username of ACR [$ACR_NAME]."
+	exit 1
+fi
 
-ACR_PASSWORD=$(az acr credential show \
+if ! ACR_PASSWORD=$(az acr credential show \
 	--name "$ACR_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query "passwords[0].value" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors); then
+	echo "Failed to retrieve the admin password of ACR [$ACR_NAME]."
+	exit 1
+fi
 
 FULL_IMAGE="${LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
@@ -96,10 +108,16 @@ if [[ $? != 0 ]]; then
 	exit 1
 fi
 
-docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"
+if ! docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$FULL_IMAGE"; then
+	echo "Failed to tag Docker image [$IMAGE_NAME:$IMAGE_TAG] as [$FULL_IMAGE]."
+	exit 1
+fi
 
 echo "Logging in to ACR [$LOGIN_SERVER]..."
-echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null
+if ! echo "$ACR_PASSWORD" | docker login "$LOGIN_SERVER" --username "$ACR_USERNAME" --password-stdin 2>/dev/null; then
+	echo "Failed to log in to ACR [$LOGIN_SERVER]."
+	exit 1
+fi
 
 echo "Pushing image [$FULL_IMAGE]..."
 docker push "$FULL_IMAGE" 2>/dev/null
@@ -133,7 +151,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			echo "Bicep template [$TEMPLATE] validation succeeded"
 		else
 			echo "Failed to validate Bicep template [$TEMPLATE]"
-			exit
+			exit 1
 		fi
 	else
 		# Validate the Bicep template
@@ -153,7 +171,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 		else
 			echo "Failed to validate Bicep template [$TEMPLATE]"
 			echo "$output"
-			exit
+			exit 1
 		fi
 	fi
 fi

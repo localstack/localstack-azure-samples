@@ -38,7 +38,7 @@ if [[ $? != 0 ]]; then
 		echo "Resource group [$RESOURCE_GROUP_NAME] successfully created in the subscription [$SUBSCRIPTION_NAME]"
 	else
 		echo "Failed to create resource group [$RESOURCE_GROUP_NAME] in the subscription [$SUBSCRIPTION_NAME]"
-		exit
+		exit 1
 	fi
 else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
@@ -64,7 +64,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			echo "Bicep template [$ACR_TEMPLATE] validation succeeded"
 		else
 			echo "Failed to validate Bicep template [$ACR_TEMPLATE]"
-			exit
+			exit 1
 		fi
 	else
 		# Validate the Bicep template
@@ -83,7 +83,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 		else
 			echo "Failed to validate Bicep template [$ACR_TEMPLATE]"
 			echo "$output"
-			exit
+			exit 1
 		fi
 	fi
 fi
@@ -186,7 +186,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			echo "Bicep template [$MAIN_TEMPLATE] validation succeeded"
 		else
 			echo "Failed to validate Bicep template [$MAIN_TEMPLATE]"
-			exit
+			exit 1
 		fi
 	else
 		# Validate the Bicep template
@@ -209,7 +209,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 		else
 			echo "Failed to validate Bicep template [$MAIN_TEMPLATE]"
 			echo "$output"
-			exit
+			exit 1
 		fi
 	fi
 fi

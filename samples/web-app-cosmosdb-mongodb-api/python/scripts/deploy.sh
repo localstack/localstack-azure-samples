@@ -369,7 +369,7 @@ if [[ $? != 0 ]]; then
 		echo "[$VIRTUAL_NETWORK_NAME] virtual network successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create [$VIRTUAL_NETWORK_NAME] virtual network in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 
 	# Update the web app subnet to associate it with the NAT Gateway and the NSG
@@ -421,7 +421,7 @@ if [[ $? != 0 ]]; then
 		echo "[$PE_SUBNET_NAME] subnet successfully created in the [$VIRTUAL_NETWORK_NAME] virtual network"
 	else
 		echo "Failed to create [$PE_SUBNET_NAME] subnet in the [$VIRTUAL_NETWORK_NAME] virtual network"
-		exit
+		exit 1
 	fi
 else
 	echo "[$PE_SUBNET_NAME] subnet already exists in the [$VIRTUAL_NETWORK_NAME] virtual network"
@@ -440,7 +440,7 @@ if [[ -n $VIRTUAL_NETWORK_ID ]]; then
 	echo "[$VIRTUAL_NETWORK_NAME] virtual network resource id retrieved successfully: $VIRTUAL_NETWORK_ID"
 else
 	echo "Failed to retrieve [$VIRTUAL_NETWORK_NAME] virtual network resource id in the [$RESOURCE_GROUP_NAME] resource group"
-	exit
+	exit 1
 fi
 
 # Check if the private DNS Zone already exists
@@ -464,7 +464,7 @@ if [[ $? != 0 ]]; then
 		echo "[$PRIVATE_DNS_ZONE_NAME] private DNS zone successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create [$PRIVATE_DNS_ZONE_NAME] private DNS zone in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 else
 	echo "[$PRIVATE_DNS_ZONE_NAME] private DNS zone already exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -496,7 +496,7 @@ if [[ $? != 0 ]]; then
 		echo "[$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$PRIVATE_DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network successfully created"
 	else
 		echo "Failed to create [$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$PRIVATE_DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network"
-		exit
+		exit 1
 	fi
 else
 	echo "[$VIRTUAL_NETWORK_LINK_NAME] virtual network link between [$PRIVATE_DNS_ZONE_NAME] private DNS zone and [$VIRTUAL_NETWORK_NAME] virtual network already exists"
@@ -530,7 +530,7 @@ if [[ -z $privateEndpointId ]]; then
 		echo "Private endpoint [$PRIVATE_ENDPOINT_NAME] successfully created for the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group"
 	else
 		echo "Failed to create a private endpoint for the [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group"
-		exit
+		exit 1
 	fi
 else
 	echo "Private endpoint [$PRIVATE_ENDPOINT_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -563,7 +563,7 @@ if [[ -z $NAME ]]; then
 		echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint successfully created"
 	else
 		echo "Failed to create private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint"
-		exit
+		exit 1
 	fi
 else
 	echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint already exists"
