@@ -109,12 +109,6 @@ param vnetMetricCategories array = [
   'AllMetrics'
 ]
 
-@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
-param retentionPolicyEnabled bool = true
-
-@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
-param retentionPolicyDays int = 0
-
 @description('Specifies the resource tags.')
 param tags object
 
@@ -124,26 +118,14 @@ param tags object
 var nsgLogs = [for category in nsgLogCategories: {
   category: category
   enabled: true
-  retentionPolicy: {
-    enabled: retentionPolicyEnabled
-    days: retentionPolicyDays
-  }
 }]
 var vnetLogs = [for category in vnetLogCategories: {
   category: category
   enabled: true
-  retentionPolicy: {
-    enabled: retentionPolicyEnabled
-    days: retentionPolicyDays
-  }
 }]
 var vnetMetrics = [for category in vnetMetricCategories: {
   category: category
   enabled: true
-  retentionPolicy: {
-    enabled: retentionPolicyEnabled
-    days: retentionPolicyDays
-  }
 }]
 
 //********************************************

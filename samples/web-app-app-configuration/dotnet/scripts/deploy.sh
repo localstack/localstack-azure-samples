@@ -1604,11 +1604,13 @@ if [[ $? != 0 ]]; then
 	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 
-	# Create the diagnostic settings for the PostgreSQL flexible server to send logs to the Log Analytics workspace
+	# Create the diagnostic settings for the PostgreSQL flexible server to send logs to the Log Analytics workspace,
+	# in the resource-specific PGSQLServerLogs table that Microsoft recommends over the shared AzureDiagnostics table
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$POSTGRES_SERVER_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
+		--export-to-resource-specific true \
 		--logs '[
 			{"category": "PostgreSQLLogs", "enabled": true}
 		]' \
@@ -1673,11 +1675,13 @@ if [[ $? != 0 ]]; then
 	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault..."
 
-	# Create the diagnostic settings for the key vault to send logs to the Log Analytics workspace
+	# Create the diagnostic settings for the key vault to send logs to the Log Analytics workspace, in the
+	# resource-specific AZKVAuditLogs and AZKVPolicyEvaluationDetailsLogs tables rather than AzureDiagnostics
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$KEY_VAULT_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
+		--export-to-resource-specific true \
 		--logs '[
 			{"category": "AuditEvent", "enabled": true},
 			{"category": "AzurePolicyEvaluationDetails", "enabled": true}

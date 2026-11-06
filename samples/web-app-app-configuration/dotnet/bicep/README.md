@@ -30,7 +30,7 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 6. Three [Azure Private DNS Zones](https://learn.microsoft.com/azure/dns/private-dns-privatednszone) (`private-dns-zone.bicep`), `privatelink.postgres.database.azure.com`, `privatelink.azconfig.io` and `privatelink.vaultcore.azure.net`, each linked to the VNet as `link-to-vnet`.
 7. Three [Azure Private Endpoints](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (`private-endpoint.bicep`), groups `postgresqlServer`, `configurationStores` and `vault`, each with a `default` DNS zone group.
 8. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview) and one [Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview) per subnet (inside `virtual-network.bicep`).
-9. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview) (`log-analytics.bicep`).
+9. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview) (`log-analytics.bicep`). The modules of the web app, the plan, the store, the vault, the server and the VNet also deploy the diagnostic settings (named `default`) of their resources; the ones of the Key Vault and of the PostgreSQL server set `logAnalyticsDestinationType: 'Dedicated'`, so their logs land in the resource-specific tables `AZKVAuditLogs`, `AZKVPolicyEvaluationDetailsLogs` and `PGSQLServerLogs`.
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans) (`app-service-plan.bicep`).
 11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) (`web-app.bicep`) with regional VNet integration into *app-subnet*, the user-assigned identity, and the app settings `Endpoints__AppConfiguration` (the store endpoint) and `AZURE_CLIENT_ID` (the identity client id) next to `LOGIN_NAME`, `WEBSITES_PORT` and the Oryx build flags. The template sets **no** `PG_*` app setting: the app loads the five settings from the store.
 
@@ -124,7 +124,12 @@ az keyvault secret list --vault-name local-keyvault-test --query "[].name" --out
 az webapp config appsettings list --name local-webapp-test --resource-group local-rg \
   --query "[?starts_with(name, 'PG_')].name" --output tsv
 bash ../scripts/validate.sh
+
+# read the logs and metrics the diagnostic settings sent to the workspace
+bash ../scripts/query-logs-and-metrics.sh
 ```
+
+See [Logs and metrics](../README.md#logs-and-metrics) for the queries the script runs and for the pages of the Azure Portal Emulator that show the same records.
 
 `<port>` is `5432` in real Azure, or the port suffix of the server's FQDN in LocalStack:
 

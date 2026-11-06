@@ -37,10 +37,10 @@ brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 14. A separate application role (`testuser`) created via `psql`, with the minimum schema privileges on `PlannerDB`, the `activities` table and the seeded rows.
 15. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
 16. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*, forced tunneling, the user-assigned managed identity (`az webapp create --assign-identity <identity id>`), and the app settings `Endpoints__AppConfiguration` (the store endpoint), `AZURE_CLIENT_ID` (the identity client id), `LOGIN_NAME`, `WEBSITES_PORT`, `SCM_DO_BUILD_DURING_DEPLOYMENT` and `ENABLE_ORYX_BUILD`. No `PG_*` setting: the app loads them from the store.
-17. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview) and the diagnostic settings of the web app, the plan, the PostgreSQL server, the App Configuration store, the Key Vault, the VNet and the two NSGs.
+17. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview) and the diagnostic settings of the web app, the plan, the PostgreSQL server, the App Configuration store, the Key Vault, the VNet and the two NSGs. The settings of the Key Vault and of the PostgreSQL server write their logs to the resource-specific tables (`--export-to-resource-specific true`).
 18. The zip deployment of the application code (`az webapp deploy --type zip`).
 
-The Web App uses `testuser`; neither the server-admin login nor the application credentials are written into the Web App's app settings. Use [`validate.sh`](validate.sh) after `deploy.sh` to inspect each Azure resource: it lists the store, its key-values with their content types, the vault and its secret names, the identity, the two role assignments, the three Private DNS Zones, links, Private Endpoints and zone groups, and it exits with a non-zero code if the Web App has any `PG_*` app setting or lacks `Endpoints__AppConfiguration` or `AZURE_CLIENT_ID`.
+The Web App uses `testuser`; neither the server-admin login nor the application credentials are written into the Web App's app settings. Use [`validate.sh`](validate.sh) after `deploy.sh` to inspect each Azure resource: it lists the store, its key-values with their content types, the vault and its secret names, the identity, the two role assignments, the three Private DNS Zones, links, Private Endpoints and zone groups, and it exits with a non-zero code if the Web App has any `PG_*` app setting or lacks `Endpoints__AppConfiguration` or `AZURE_CLIENT_ID`. Use [`query-logs-and-metrics.sh`](query-logs-and-metrics.sh) to read what the diagnostic settings sent to the Log Analytics workspace: it calls the Web App, queries its HTTP, console and platform logs, the App Configuration requests, the Key Vault secret reads, the PostgreSQL server log and the exported metrics until their records arrive, and prints the platform metrics of the four resources (see [Logs and metrics](../README.md#logs-and-metrics)).
 
 ## Usage
 
@@ -56,6 +56,9 @@ bash deploy.sh
 
 # inspect what was deployed
 bash validate.sh
+
+# read the logs and metrics the diagnostic settings sent to the workspace
+bash query-logs-and-metrics.sh
 ```
 
 `deploy.sh` and `validate.sh` accept the following environment overrides:
@@ -73,6 +76,8 @@ bash validate.sh
 | `PG_APP_PASSWORD`    | `TestP@ssw0rd123`  | Password for the application role, stored as the `pg-password` secret       |
 | `LOGIN_NAME`         | `paolo`            | User whose activities the app shows                                         |
 | `DEPLOY_APP`         | `1`                | Set to `0` to skip the zip deployment step                                  |
+
+`query-logs-and-metrics.sh` takes the same `PREFIX` and `SUFFIX`, plus `WEB_APP_CALLS` (the requests it makes to the Web App, `5`), `RETRY_COUNT` (the attempts of each query, `30`) and `SLEEP` (the seconds between attempts, `10`). Raise `RETRY_COUNT` on Azure, where the first records of a new diagnostic setting can take up to 90 minutes.
 
 The script uses [`call-web-app.sh`](call-web-app.sh) (unchanged from the source sample) to demonstrate four ways of hitting the Web App from outside the emulator.
 

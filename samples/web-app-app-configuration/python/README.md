@@ -137,6 +137,120 @@ Loaded 5 settings from App Configuration https://local-appconfig-test.azure.loca
 PostgreSQL schema initialized
 ```
 
+## Logs and metrics
+
+The web app, its App Service plan, the App Configuration store, the key vault, the PostgreSQL server, the VNet and the two NSGs each have a diagnostic setting that sends their resource logs, their platform metrics (`AllMetrics`) or both to the `<prefix>-log-analytics-<suffix>` Log Analytics workspace. The four resources the application uses record what it does:
+
+| Resource                   | Log categories                                                                                                                                                                  | Tables in the workspace                            | What the application leaves there                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Web App                    | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AppServiceAppLogs`, `AppServiceAuditLogs`, `AppServiceIPSecAuditLogs`, `AppServiceAuthenticationLogs` | One table per category, named after it             | The requests it serves, its console output (the gunicorn access log and the application's log lines) and the start of its container |
+| App Configuration store    | `HttpRequest`, `Audit`                                                                                                                                                          | `AACHttpRequest`, `AACAudit`                       | The `GET /kv?key=PG_*` with which the application loads its settings, made by its managed identity                                  |
+| Key Vault                  | `AuditEvent`, `AzurePolicyEvaluationDetails`                                                                                                                                    | `AZKVAuditLogs`, `AZKVPolicyEvaluationDetailsLogs` | The `SecretGet` of `pg-user` and `pg-password` that resolves the two Key Vault references                                           |
+| PostgreSQL flexible server | `PostgreSQLLogs`                                                                                                                                                                | `PGSQLServerLogs`                                  | The connections of the `testuser` role                                                                                              |
+
+Their platform metrics land in the `AzureMetrics` table. The settings of the key vault and of the PostgreSQL server write to the resource-specific tables, which Microsoft recommends over the shared `AzureDiagnostics` table: the Azure CLI script passes `--export-to-resource-specific true`, the Bicep modules set `logAnalyticsDestinationType: 'Dedicated'` and the Terraform modules `log_analytics_destination_type = "Dedicated"`. App Service and App Configuration write to resource-specific tables only. The App Service plan sends its metrics too, and the VNet and the two NSGs their network logs; on the emulator the network categories stay empty, because no traffic crosses an emulated network security group.
+
+### Azure CLI
+
+The query command comes from the `log-analytics` extension of the Azure CLI:
+
+```bash
+az extension add --name log-analytics
+```
+
+The query API identifies a workspace by its workspace id (`customerId`):
+
+```bash
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppServiceHTTPLogs | project TimeGenerated, CsMethod, CsUriStem, ScStatus, TimeTaken | order by TimeGenerated desc | take 5" \
+  --output table
+```
+
+```text
+CsMethod    CsUriStem    ScStatus    TableName      TimeGenerated                TimeTaken
+----------  -----------  ----------  -------------  ---------------------------  -----------
+GET         /            200         PrimaryResult  2026-11-06T16:05:45.368091Z  51
+GET         /            200         PrimaryResult  2026-11-06T16:05:45.283727Z  51
+GET         /            200         PrimaryResult  2026-11-06T16:05:45.188826Z  55
+...
+```
+
+On Azure the table also records the requests of the zip deployment to the app's Kudu site, such as `POST /api/publish` and `GET /api/deployments/latest`. The other tables answer the same way. A few queries to try:
+
+```kusto
+// The line the application writes once it has loaded its settings
+AppServiceConsoleLogs
+| where ResultDescription has "App Configuration"
+| project TimeGenerated, ResultDescription
+
+// The requests that loaded the settings, with the principal id of the web app's managed identity (ClientObjectId)
+AACHttpRequest
+| project TimeGenerated, Method, StatusCode, HitCount, ClientObjectId, RequestURI
+
+// The reads of the two secrets behind the Key Vault references
+AZKVAuditLogs
+| where OperationName == "SecretGet"
+| project TimeGenerated, OperationName, ResultSignature, RequestUri
+
+// The connections of the application role (on Azure the server also logs those of its maintenance role, azuresu)
+PGSQLServerLogs
+| where Message has "connection authorized" and Message has "testuser"
+| project TimeGenerated, Message
+
+// The requests per minute, which the Logs page of the portal draws as a chart
+AppServiceHTTPLogs
+| summarize Requests = count() by bin(TimeGenerated, 1m)
+| render columnchart
+```
+
+The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly.
+
+```bash
+WEB_APP_ID=$(az webapp show \
+  --name local-webapp-test \
+  --resource-group local-rg \
+  --query id \
+  --output tsv)
+
+az monitor metrics list \
+  --resource "$WEB_APP_ID" \
+  --metrics Requests Http2xx BytesSent \
+  --interval PT1M \
+  --aggregation Total \
+  --query "value[].{Metric:name.value,Total:sum(timeseries[].data[].total)}" \
+  --output table
+```
+
+```text
+Metric     Total
+---------  --------
+Requests   8.0
+Http2xx    8.0
+BytesSent  171720.0
+```
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it calls the web app, lists the diagnostic settings of the four resources, runs queries like these (plus the platform events of the web app and the exported `AzureMetrics`) until their records arrive, and prints the metrics of the web app, the store, the vault and the server. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+### Azure Portal Emulator
+
+The emulator serves an emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)):
+
+1. Open the portal and select **Sign in**: the sign-in is a mock and asks for no credentials.
+2. Select **Resource groups**, then `local-rg`, the `local-log-analytics-test` workspace and **Logs**. Type a query, for example the `render columnchart` query above, and select **Run**: the **Results** tab lists the records and the **Chart** tab draws them.
+3. Open the `local-webapp-test` web app. Under **Monitoring**, **Metrics** charts its platform metrics: select the **Requests** metric, which the chart shows with its default **Sum** aggregation. **Logs** runs queries over the records of the web app only, and **Diagnostic settings** lists its diagnostic setting.
+4. The App Configuration store, the key vault and the PostgreSQL server have the same **Metrics**, **Logs** and **Diagnostic settings** pages.
+
+### Delivery times
+
+On the emulator the records are queryable within seconds, and the aggregated ones (`AACHttpRequest` and `AzureMetrics`) once their one-minute window is over. On Azure the records take minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the script. A new setting can also take a while before it delivers anything, and on Azure the records of what the application did while it started, such as its start-up console lines or its secret reads in the key vault, can then be missing for good: once the workspace receives records, `az webapp restart --name local-webapp-test --resource-group local-rg` starts the application again, and the records of the new start arrive.
+
 ## Troubleshooting
 
 - **The app logs `App Configuration load failed ... 403` or `Forbidden` and restarts.** The identity's role assignments have not propagated yet (up to 10 minutes on Azure), or one of them is missing. Check `az role assignment list --assignee <principalId> --all` for App Configuration Data Reader on the store and Key Vault Secrets User on the vault; the app keeps retrying and App Service restarts it until the load succeeds.
