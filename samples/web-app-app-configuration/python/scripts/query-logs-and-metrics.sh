@@ -55,6 +55,11 @@ query_workspace() {
 				--query "$columns" \
 				--output table \
 				--only-show-errors
+
+			if [[ $? != 0 ]]; then
+				echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query that shows the records"
+				EXIT_CODE=1
+			fi
 			return 0
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
@@ -83,6 +88,11 @@ show_diagnostic_settings() {
 		--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
 		--output table \
 		--only-show-errors
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: failed to read the diagnostic settings of the $description"
+		EXIT_CODE=1
+	fi
 }
 
 # Show the totals of the last hour of the platform metrics of a resource, read from the Azure Monitor metrics API
@@ -104,6 +114,11 @@ show_metrics() {
 		--query "value[].{Metric:name.value,Unit:unit,Total:sum(timeseries[].data[].total)}" \
 		--output table \
 		--only-show-errors
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: failed to read the platform metrics of the $description"
+		EXIT_CODE=1
+	fi
 }
 
 # Check whether the log-analytics extension of the Azure CLI, which provides the az monitor log-analytics query
