@@ -1593,18 +1593,22 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] app service plan already exist"
 fi
 
-# Check whether the diagnostic settings for the PostgreSQL flexible server already exist
+# Check whether the diagnostic settings for the PostgreSQL flexible server already exist and send its logs to resource-specific
+# tables: a setting an earlier version of this script created sends them to AzureDiagnostics, and the create below
+# updates it
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server already exist..."
-az monitor diagnostic-settings show \
+POSTGRES_DESTINATION_TYPE=$(az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$POSTGRES_SERVER_ID" \
-	--only-show-errors &>/dev/null
+	--query logAnalyticsDestinationType \
+	--output tsv \
+	--only-show-errors 2>/dev/null)
 
-if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server actually exist"
+if [[ $POSTGRES_DESTINATION_TYPE != "Dedicated" ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server that send its logs to resource-specific tables actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 
-	# Create the diagnostic settings for the PostgreSQL flexible server to send logs to the Log Analytics workspace,
+	# Create (or update) the diagnostic settings for the PostgreSQL flexible server to send logs to the Log Analytics workspace,
 	# in the resource-specific PGSQLServerLogs table that Microsoft recommends over the shared AzureDiagnostics table
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
@@ -1664,18 +1668,22 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_CONFIG_NAME] App Configuration store already exist"
 fi
 
-# Check whether the diagnostic settings for the key vault already exist
+# Check whether the diagnostic settings for the key vault already exist and send its logs to resource-specific
+# tables: a setting an earlier version of this script created sends them to AzureDiagnostics, and the create below
+# updates it
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault already exist..."
-az monitor diagnostic-settings show \
+KEY_VAULT_DESTINATION_TYPE=$(az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$KEY_VAULT_ID" \
-	--only-show-errors &>/dev/null
+	--query logAnalyticsDestinationType \
+	--output tsv \
+	--only-show-errors 2>/dev/null)
 
-if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault actually exist"
+if [[ $KEY_VAULT_DESTINATION_TYPE != "Dedicated" ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault that send its logs to resource-specific tables actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault..."
 
-	# Create the diagnostic settings for the key vault to send logs to the Log Analytics workspace, in the
+	# Create (or update) the diagnostic settings for the key vault to send logs to the Log Analytics workspace, in the
 	# resource-specific AZKVAuditLogs and AZKVPolicyEvaluationDetailsLogs tables rather than AzureDiagnostics
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
