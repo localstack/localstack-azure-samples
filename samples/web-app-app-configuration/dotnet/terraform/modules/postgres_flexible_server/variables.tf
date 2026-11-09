@@ -119,6 +119,17 @@ variable "metric_categories" {
   default     = ["AllMetrics"]
 }
 
+variable "log_analytics_destination_type" {
+  description = "(Optional) Specifies where the diagnostic setting writes the logs in the workspace: Dedicated writes the server logs to the resource-specific PGSQLServerLogs table that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table."
+  type        = string
+  default     = "Dedicated"
+
+  validation {
+    condition     = contains(["AzureDiagnostics", "Dedicated"], var.log_analytics_destination_type)
+    error_message = "The log_analytics_destination_type must be AzureDiagnostics or Dedicated."
+  }
+}
+
 variable "tags" {
   description = "(Optional) Specifies the tags of the PostgreSQL flexible server."
   type        = map(string)

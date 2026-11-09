@@ -69,12 +69,6 @@ param metricCategories array = [
   'AllMetrics'
 ]
 
-@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
-param retentionPolicyEnabled bool = true
-
-@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
-param retentionPolicyDays int = 0
-
 @description('Specifies the resource tags.')
 param tags object
 
@@ -88,20 +82,12 @@ var logs = [
   for category in logCategories: {
     category: category
     enabled: true
-    retentionPolicy: {
-      enabled: retentionPolicyEnabled
-      days: retentionPolicyDays
-    }
   }
 ]
 var metrics = [
   for category in metricCategories: {
     category: category
     enabled: true
-    retentionPolicy: {
-      enabled: retentionPolicyEnabled
-      days: retentionPolicyDays
-    }
   }
 ]
 

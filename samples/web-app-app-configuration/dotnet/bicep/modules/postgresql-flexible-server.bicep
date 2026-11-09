@@ -109,11 +109,12 @@ param metricCategories array = [
   'AllMetrics'
 ]
 
-@description('Specifies whether the retention policy of the diagnostic settings is enabled.')
-param retentionPolicyEnabled bool = true
-
-@description('Specifies the retention of the diagnostic settings in days (0 keeps the data as long as the workspace does).')
-param retentionPolicyDays int = 0
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes the server logs to the resource-specific PGSQLServerLogs table that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
 
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {}
@@ -124,18 +125,10 @@ param tags object = {}
 var logs = [for category in logCategories: {
   category: category
   enabled: true
-  retentionPolicy: {
-    enabled: retentionPolicyEnabled
-    days: retentionPolicyDays
-  }
 }]
 var metrics = [for category in metricCategories: {
   category: category
   enabled: true
-  retentionPolicy: {
-    enabled: retentionPolicyEnabled
-    days: retentionPolicyDays
-  }
 }]
 
 //********************************************
@@ -203,6 +196,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: server
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
     logs: logs
     metrics: metrics
   }
