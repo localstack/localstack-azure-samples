@@ -76,6 +76,9 @@ else
 	exit 1
 fi
 
+# Newer Azure CLI versions may print a Bicep notice on stdout; keep only the JSON outputs
+DEPLOYMENT_OUTPUTS=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/^{/,$p')
+
 WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .webAppName.value)
 FUNCTION_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .functionAppName.value)
 WEB_APP_HOSTNAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r .webAppHostName.value)

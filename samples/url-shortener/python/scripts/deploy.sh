@@ -301,7 +301,7 @@ echo "Creating [$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] Postg
 az postgres flexible-server db create \
 	--server-name $POSTGRES_SERVER_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
-	--name $POSTGRES_DB_NAME 1>/dev/null
+	--database-name $POSTGRES_DB_NAME 1>/dev/null
 
 if [[ $? == 0 ]]; then
 	echo "[$POSTGRES_DB_NAME] database successfully created on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
