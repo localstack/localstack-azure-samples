@@ -13,9 +13,17 @@ public class DeleteModel(IActivityStore store, ILogger<DeleteModel> logger) : Pa
     {
         if (!string.IsNullOrWhiteSpace(id))
         {
-            await store.DeleteAsync(id, cancellationToken);
-            logger.LogInformation("Activity deleted: {Id}", id);
-            TempData["Flash"] = "Activity deleted.";
+            try
+            {
+                await store.DeleteAsync(id, cancellationToken);
+                logger.LogInformation("Activity deleted: {Id}", id);
+                TempData["Flash"] = "Activity deleted.";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Could not delete the activity");
+                TempData["Flash"] = IndexModel.DatabaseUnavailable;
+            }
         }
 
         return RedirectToPage("/Index");

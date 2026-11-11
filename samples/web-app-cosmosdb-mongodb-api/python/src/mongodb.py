@@ -78,11 +78,16 @@ class MongoDbClient:
         # Connect with connection string
         self._connect_with_connection_string(connection_string)
 
-        if database_name:
-            self.create_database_if_not_exists(database_name)
-            if collection_name:
-                self.create_collection_if_not_exists(
-                    database_name, collection_name)
+        # Close the connection when the database is not usable, so that a caller that retries does not leak clients
+        try:
+            if database_name:
+                self.create_database_if_not_exists(database_name)
+                if collection_name:
+                    self.create_collection_if_not_exists(
+                        database_name, collection_name)
+        except Exception:
+            self.close()
+            raise
 
     def _connect_with_connection_string(self, connection_string: str):
         """Connect to MongoDB using connection string."""

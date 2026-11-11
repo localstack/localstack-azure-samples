@@ -101,6 +101,71 @@ else
 	exit 1
 fi
 
+# Make sure the CosmosDB account runs the MongoDB server version of MONGODB_API_VERSION. The Azure CLI sends the
+# --server-version of az cosmosdb create and az cosmosdb update as a ServerVersion property, which the service
+# ignores, so the account keeps the default server version, 3.6, which the MongoDB driver of the web app refuses.
+# The script sets the serverVersion property itself, with the API version the Azure CLI uses, and waits until the
+# account reports the new server version, which takes about a minute. The MongoDB endpoint can go on serving the old
+# version for a while after that: the web app starts without the database and connects once the endpoint switched.
+echo "Getting [$COSMOSDB_ACCOUNT_NAME] CosmosDB account MongoDB server version in the [$RESOURCE_GROUP_NAME] resource group..."
+SERVER_VERSION=$(az cosmosdb show \
+	--name $COSMOSDB_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query "apiProperties.serverVersion" \
+	--output tsv \
+	--only-show-errors)
+
+if [ -n "$SERVER_VERSION" ]; then
+	echo "MongoDB server version retrieved successfully: $SERVER_VERSION"
+else
+	echo "Failed to retrieve MongoDB server version."
+	exit 1
+fi
+
+if [[ "$SERVER_VERSION" != "$MONGODB_API_VERSION" ]]; then
+	echo "Upgrading [$COSMOSDB_ACCOUNT_NAME] CosmosDB account to MongoDB server version [$MONGODB_API_VERSION]..."
+	az rest \
+		--method patch \
+		--url "${COSMOSDB_ACCOUNT_ID}?api-version=2026-03-15" \
+		--body "{\"properties\": {\"apiProperties\": {\"serverVersion\": \"$MONGODB_API_VERSION\"}}}" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -ne 0 ]; then
+		echo "Failed to upgrade [$COSMOSDB_ACCOUNT_NAME] CosmosDB account to MongoDB server version [$MONGODB_API_VERSION]"
+		exit 1
+	fi
+
+	for ATTEMPT in $(seq 1 60); do
+		SERVER_VERSION=$(az cosmosdb show \
+			--name $COSMOSDB_ACCOUNT_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--query "apiProperties.serverVersion" \
+			--output tsv \
+			--only-show-errors)
+		PROVISIONING_STATE=$(az cosmosdb show \
+			--name $COSMOSDB_ACCOUNT_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--query "provisioningState" \
+			--output tsv \
+			--only-show-errors)
+
+		if [[ "$SERVER_VERSION" == "$MONGODB_API_VERSION" && "$PROVISIONING_STATE" == "Succeeded" ]]; then
+			break
+		fi
+		echo "Waiting for the upgrade of [$COSMOSDB_ACCOUNT_NAME] CosmosDB account (attempt $ATTEMPT of 60)..."
+		sleep 10
+	done
+
+	if [[ "$SERVER_VERSION" == "$MONGODB_API_VERSION" && "$PROVISIONING_STATE" == "Succeeded" ]]; then
+		echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account successfully upgraded to MongoDB server version [$MONGODB_API_VERSION]"
+	else
+		echo "Failed to upgrade [$COSMOSDB_ACCOUNT_NAME] CosmosDB account: it still runs MongoDB server version [$SERVER_VERSION]"
+		exit 1
+	fi
+else
+	echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account already runs MongoDB server version [$MONGODB_API_VERSION]"
+fi
+
 # Retrieve document endpoint
 echo "Getting [$COSMOSDB_ACCOUNT_NAME] CosmosDB account document endpoint in the [$RESOURCE_GROUP_NAME] resource group..."
 DOCUMENT_ENDPOINT=$(az cosmosdb show \
