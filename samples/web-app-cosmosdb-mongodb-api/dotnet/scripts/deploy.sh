@@ -62,7 +62,6 @@ az cosmosdb show \
 	--only-show-errors &>/dev/null
 
 if [[ $? != 0 ]]; then
-	COSMOSDB_ACCOUNT_EXISTED="false"
 	echo "No [$COSMOSDB_ACCOUNT_NAME] CosmosDB account already exists in the [$RESOURCE_GROUP_NAME] resource group"
 	echo "Creating [$COSMOSDB_ACCOUNT_NAME] CosmosDB account in the [$RESOURCE_GROUP_NAME] resource group..."
 
@@ -83,7 +82,6 @@ if [[ $? != 0 ]]; then
 		exit 1
 	fi
 else
-	COSMOSDB_ACCOUNT_EXISTED="true"
 	echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
@@ -107,8 +105,8 @@ fi
 # --server-version of az cosmosdb create and az cosmosdb update as a ServerVersion property, which the service
 # ignores, so the account keeps the default server version, 3.6, which the MongoDB driver of the web app refuses.
 # The script sets the serverVersion property itself, with the API version the Azure CLI uses, and waits until the
-# account reports the new server version, which takes about a minute. After upgrading an account that already
-# existed, the script also waits with mongosh for the MongoDB endpoint, before it deploys the web app (see below).
+# account reports the new server version, which takes about a minute. The MongoDB endpoint can go on serving the old
+# version for a while after that: the web app starts without the database and connects once the endpoint switched.
 echo "Getting [$COSMOSDB_ACCOUNT_NAME] CosmosDB account MongoDB server version in the [$RESOURCE_GROUP_NAME] resource group..."
 SERVER_VERSION=$(az cosmosdb show \
 	--name $COSMOSDB_ACCOUNT_NAME \
@@ -125,14 +123,6 @@ else
 fi
 
 if [[ "$SERVER_VERSION" != "$MONGODB_API_VERSION" ]]; then
-	if [[ "$COSMOSDB_ACCOUNT_EXISTED" == "true" ]]; then
-		if ! command -v mongosh &>/dev/null; then
-			echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account runs MongoDB server version [$SERVER_VERSION]: upgrading it to [$MONGODB_API_VERSION] needs mongosh, to wait for its MongoDB endpoint before deploying the web app."
-			echo "Install mongosh (https://www.mongodb.com/docs/mongodb-shell/install/) and run the script again."
-			exit 1
-		fi
-	fi
-
 	echo "Upgrading [$COSMOSDB_ACCOUNT_NAME] CosmosDB account to MongoDB server version [$MONGODB_API_VERSION]..."
 	az rest \
 		--method patch \
@@ -167,14 +157,12 @@ if [[ "$SERVER_VERSION" != "$MONGODB_API_VERSION" ]]; then
 	done
 
 	if [[ "$SERVER_VERSION" == "$MONGODB_API_VERSION" && "$PROVISIONING_STATE" == "Succeeded" ]]; then
-		COSMOSDB_ACCOUNT_UPGRADED="true"
 		echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account successfully upgraded to MongoDB server version [$MONGODB_API_VERSION]"
 	else
 		echo "Failed to upgrade [$COSMOSDB_ACCOUNT_NAME] CosmosDB account: it still runs MongoDB server version [$SERVER_VERSION]"
 		exit 1
 	fi
 else
-	COSMOSDB_ACCOUNT_UPGRADED="false"
 	echo "[$COSMOSDB_ACCOUNT_NAME] CosmosDB account already runs MongoDB server version [$MONGODB_API_VERSION]"
 fi
 
@@ -984,42 +972,6 @@ if [[ $? != 0 ]]; then
 	fi
 else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet already exist"
-fi
-
-# An account that already existed before this run can hold the data of an earlier deployment. Microsoft documents that
-# an upgrade of the MongoDB server version takes around 15 minutes to complete, and the MongoDB endpoint of such an
-# account can go on serving the old version for most of that time, although the account already reports the new one.
-# The MongoDB driver of the web app refuses the old version, so a web app deployed in the meantime fails to start.
-# After upgrading such an account, the script waits until the endpoint serves at least MongoDB 4.4 (wire version 9),
-# which the MongoDB drivers of both web apps accept, before it deploys the web app.
-if [[ "$COSMOSDB_ACCOUNT_EXISTED" == "true" && "$COSMOSDB_ACCOUNT_UPGRADED" == "true" ]]; then
-	if [ -z "$COSMOSDB_CONNECTION_STRING" ]; then
-		echo "Failed: no connection string to wait for the MongoDB endpoint of [$COSMOSDB_ACCOUNT_NAME] CosmosDB account."
-		exit 1
-	fi
-
-	echo "Waiting for the MongoDB endpoint of [$COSMOSDB_ACCOUNT_NAME] CosmosDB account to serve MongoDB server version [$MONGODB_API_VERSION]..."
-	MONGODB_ENDPOINT_READY="false"
-
-	for ATTEMPT in $(seq 1 40); do
-		mongosh "$COSMOSDB_CONNECTION_STRING" \
-			--quiet \
-			--eval 'if (db.hello().maxWireVersion < 9) { quit(1) }' &>/dev/null
-
-		if [[ $? == 0 ]]; then
-			MONGODB_ENDPOINT_READY="true"
-			break
-		fi
-		echo "The MongoDB endpoint does not serve the new MongoDB server version yet (attempt $ATTEMPT of 40)..."
-		sleep 30
-	done
-
-	if [[ "$MONGODB_ENDPOINT_READY" == "true" ]]; then
-		echo "The MongoDB endpoint of [$COSMOSDB_ACCOUNT_NAME] CosmosDB account serves MongoDB server version [$MONGODB_API_VERSION]"
-	else
-		echo "Failed: the MongoDB endpoint of [$COSMOSDB_ACCOUNT_NAME] CosmosDB account does not serve MongoDB server version [$MONGODB_API_VERSION] yet. Run the script again in a few minutes."
-		exit 1
-	fi
 fi
 
 # Change current directory to source folder

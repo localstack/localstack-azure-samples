@@ -34,7 +34,6 @@ The web app enables users to plan and manage vacation activities, with all data 
 - [.NET SDK 10.0](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 - [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/)
 - [MongoDB C# Driver](https://www.mongodb.com/docs/drivers/csharp/current/)
-- [mongosh](https://www.mongodb.com/docs/mongodb-shell/install/), if you run `scripts/deploy.sh` over an earlier deployment whose Cosmos DB account does not run MongoDB server version 7.0 yet: after upgrading the account, the script waits with mongosh until its MongoDB endpoint serves the new version, so that the web app starts at once.
 - [Bicep extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-bicep), if you plan to install the sample via Bicep.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads), if you plan to install the sample via Terraform.
 

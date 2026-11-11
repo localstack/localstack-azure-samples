@@ -7,6 +7,9 @@ namespace VacationPlanner.Pages;
 
 public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : PageModel
 {
+    /// <summary>Shown instead of an error page while the database is not reachable; the next request tries again.</summary>
+    internal const string DatabaseUnavailable = "The database is not available. Try again in a minute.";
+
     public IReadOnlyList<Activity> Activities { get; private set; } = [];
 
     /// <summary>Flash messages set by the previous request (the equivalent of Flask's <c>flash()</c>).</summary>
@@ -20,7 +23,15 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        Activities = await store.ListAsync(cancellationToken);
+        try
+        {
+            Activities = await store.ListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not read the activities");
+            TempData["Flash"] = DatabaseUnavailable;
+        }
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
@@ -29,17 +40,25 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
         var id = RowId?.Trim();
         if (!string.IsNullOrEmpty(text))
         {
-            if (!string.IsNullOrEmpty(id))
+            try
             {
-                await store.UpdateAsync(id, text, cancellationToken);
-                logger.LogInformation("Activity updated: {Id}", id);
-                TempData["Flash"] = "Activity updated!";
+                if (!string.IsNullOrEmpty(id))
+                {
+                    await store.UpdateAsync(id, text, cancellationToken);
+                    logger.LogInformation("Activity updated: {Id}", id);
+                    TempData["Flash"] = "Activity updated!";
+                }
+                else
+                {
+                    await store.AddAsync(text, cancellationToken);
+                    logger.LogInformation("Activity added: {Activity}", text);
+                    TempData["Flash"] = "Activity added!";
+                }
             }
-            else
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                await store.AddAsync(text, cancellationToken);
-                logger.LogInformation("Activity added: {Activity}", text);
-                TempData["Flash"] = "Activity added!";
+                logger.LogError(ex, "Could not save the activity");
+                TempData["Flash"] = DatabaseUnavailable;
             }
         }
 
