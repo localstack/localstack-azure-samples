@@ -357,3 +357,14 @@ variable "tags" {
     iac         = "terraform"
   }
 }
+variable "log_analytics_sku" {
+  description = "SKU of the Log Analytics workspace."
+  type        = string
+  default     = "PerGB2018"
+}
+
+variable "log_analytics_retention_in_days" {
+  description = "Data retention of the Log Analytics workspace in days."
+  type        = number
+  default     = 30
+}

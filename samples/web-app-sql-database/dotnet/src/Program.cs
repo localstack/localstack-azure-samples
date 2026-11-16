@@ -1,8 +1,25 @@
 using System.Diagnostics;
+using Microsoft.OpenTelemetry;
+using OpenTelemetry.Metrics;
 using VacationPlanner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var startupLogger = LoggerFactory.Create(logging => logging.AddConsole()).CreateLogger("Startup");
+
+// When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+// Distro sends to Application Insights the requests the app serves, its calls to Azure SQL Database (its SQL Client
+// instrumentation is on by default) and to Key Vault, its log records (traces), the exceptions it logs, and the custom
+// events and the custom metric of ActivityTelemetry.
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    // The distro exports the custom metrics of the meters it's told about
+    builder.Services.ConfigureOpenTelemetryMeterProvider(
+        (_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
+    builder.UseMicrosoftOpenTelemetry(options =>
+    {
+        options.Exporters = ExportTarget.AzureMonitor;
+    });
+}
 
 // Code deployments built by Oryx export PORT (and ASPNETCORE_URLS); custom images and local runs set PORT.
 var httpPort = int.Parse(Environment.GetEnvironmentVariable("PORT") ?? "8080");

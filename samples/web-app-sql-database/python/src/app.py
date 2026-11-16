@@ -3,9 +3,29 @@ import logging
 import os
 from typing import List, Tuple
 
-from activities import ActivitiesHelper
-from certificates import get_certificate_info, get_ssl_context_from_keyvault
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application: the loggers of the other modules are its children
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the app serves, its calls to Key Vault, the records of the
+# application's loggers (traces), the exceptions they log, the custom events and the custom metric below. It runs
+# before Flask is imported, so that its instrumentation wraps it.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+    # The distro instruments no ODBC driver: the generic DB-API instrumentation wraps pyodbc.connect, so that the
+    # statements the app runs on Azure SQL Database arrive as dependencies too
+    import pyodbc
+    from opentelemetry.instrumentation.dbapi import trace_integration
+
+    trace_integration(pyodbc, "connect", "mssql")
+
+from activities import ActivitiesHelper  # noqa: E402
+from certificates import get_certificate_info, get_ssl_context_from_keyvault  # noqa: E402
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for  # noqa: E402
+from opentelemetry import metrics  # noqa: E402
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
@@ -25,8 +45,24 @@ logging.getLogger('azure').setLevel(logging.WARNING)
 logging.getLogger('werkzeug').setLevel(logging.INFO)
 
 # Get application logger
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(LOGGER_NAME)
 logger.setLevel(logging.INFO)
+
+# The custom metric: the number of activities added, updated and deleted, by operation (customMetrics table)
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    """Send a custom event (customEvents table) and count the operation in the custom metric."""
+    # The Microsoft OpenTelemetry Distro sends a log record that carries the microsoft.custom_event.name attribute as a
+    # custom event named after its value, with the other attributes as its custom dimensions.
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
 
 # Global variables for Azure SQL Database configuration
 activities_helper: ActivitiesHelper
@@ -53,8 +89,9 @@ def read_activities_from_db(username: str | None = None) -> List[Tuple[str, str]
             activity_list = activities_helper.read_activities(username)
             for activity in activity_list:
                 result.append((activity["id"], activity["activity"]))
-    except (ConnectionError, ValueError, KeyError) as e:
-        logger.error("Error reading activities: %s", e)
+    except (ConnectionError, ValueError, KeyError):
+        # The distro sends a log record that carries an exception to Application Insights as an exception
+        logger.exception("Error reading activities.")
     return result
 
 @app.route('/', methods=['GET', 'POST'])
@@ -79,6 +116,7 @@ def index():
                     if updated_activity:
                         flash('Activity updated.')
                         logger.info(f"Activity updated: {row_id}")
+                        track_activity_event("ActivityUpdated", "update", row_id)
                 else:
                     # Create an activity document with the activity text provided
                     activity_doc: dict = create_activity(activity_text)
@@ -91,8 +129,9 @@ def index():
                         activities.append((inserted_activity["id"], inserted_activity["activity"]))
                         flash('Activity added.')
                         logger.info(f"Activity created: {inserted_activity['id']}")
-            except (ConnectionError, ValueError) as e:
-                logger.error("Error creating/updating activity: %s", e)
+                        track_activity_event("ActivityAdded", "add", inserted_activity["id"])
+            except (ConnectionError, ValueError):
+                logger.exception("Error creating/updating activity.")
 
         return redirect(url_for('index'))
 
@@ -119,10 +158,11 @@ def delete(activity_id: int):
             if rows_deleted > 0:
                 flash('Activity deleted.')
                 logger.info(f"Activity deleted: {db_activity_id}")
+                track_activity_event("ActivityDeleted", "delete", db_activity_id)
             else:
                 logger.warning(f"No activity found with ID: {db_activity_id}")
-    except (ConnectionError, ValueError) as e:
-        logger.error("Error deleting activity: %s", e)
+    except (ConnectionError, ValueError):
+        logger.exception("Error deleting activity.")
 
     return redirect(url_for('index'))
 
@@ -135,8 +175,8 @@ def update(activity_id: int):
             activity_text = activities[activity_id][1]
             # Redirect to index with edit parameters
             return redirect(url_for('index', edit_id=db_activity_id, edit_activity=activity_text))
-    except (ConnectionError, ValueError) as e:
-        logger.error("Error preparing activity for update: %s", e)
+    except (ConnectionError, ValueError):
+        logger.exception("Error preparing activity for update.")
 
     return redirect(url_for('index'))
 
@@ -157,7 +197,7 @@ def validate_certificate():
         info = get_certificate_info(vault_uri, cert_name)
         return jsonify(info), 200
     except Exception as e:
-        logger.error("Error validating certificate: %s", e)
+        logger.exception("Error validating certificate.")
         return jsonify({"error": str(e)}), 500
 
 # Read debug environment variable

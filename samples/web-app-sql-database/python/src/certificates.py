@@ -16,7 +16,8 @@ from cryptography.hazmat.primitives.serialization import (
     pkcs12,
 )
 
-logger = logging.getLogger(__name__)
+# A child of the application's logger, so that the Microsoft OpenTelemetry Distro sends its records too
+logger = logging.getLogger("webapp.certificates")
 
 
 def get_ssl_context_from_keyvault(vault_url: str, cert_name: str) -> ssl.SSLContext:
