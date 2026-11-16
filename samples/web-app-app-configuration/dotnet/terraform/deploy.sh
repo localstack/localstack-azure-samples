@@ -355,14 +355,14 @@ az appconfig kv list \
 	--output table \
 	--only-show-errors
 
-# Print the application settings of the web app: no PG_* setting, only the store endpoint and the
+# Print the names of the application settings of the web app, never their values, which hold secrets: no PG_* setting, only the store endpoint and the
 # identity client id next to the platform settings.
-echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
+echo "Retrieving the names of the application settings of the web app [$WEB_APP_NAME]..."
 az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
-	--query "[].{Name:name,Value:value}" \
-	--output table \
+	--query "[].name" \
+	--output tsv \
 	--only-show-errors
 
 if [[ $DEPLOY_APP == 1 ]]; then

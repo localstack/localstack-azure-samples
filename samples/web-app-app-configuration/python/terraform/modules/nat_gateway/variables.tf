@@ -69,3 +69,38 @@ variable "public_ip_sku" {
     error_message = "The public_ip_sku must be Basic or Standard."
   }
 }
+
+variable "log_analytics_workspace_id" {
+  description = "(Required) Specifies the resource id of the Log Analytics workspace."
+  type        = string
+}
+
+variable "diagnostic_setting_name" {
+  description = "(Optional) Specifies the name of the diagnostic settings of the NAT Gateway and of its public IP."
+  type        = string
+  default     = "DiagnosticsSettings"
+}
+
+variable "public_ip_log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the public IP sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["DDoSProtectionNotifications", "DDoSMitigationFlowLogs", "DDoSMitigationReports"]
+}
+
+variable "public_ip_metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic setting of the public IP sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}
+
+variable "nat_gateway_log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["NatGatewayFlowlogsV1"]
+}
+
+variable "nat_gateway_metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}

@@ -16,15 +16,16 @@ The web app enables users to plan and manage vacation activities; all data is pe
 4. [Azure Private Endpoints](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): `<prefix>-postgres-pe-<suffix>` (group `postgresqlServer`), `<prefix>-appconfig-pe-<suffix>` (group `configurationStores`) and `<prefix>-keyvault-pe-<suffix>` (group `vault`).
 5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview): Deterministic outbound connectivity for the Web App subnet.
 6. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): One NSG per subnet.
-7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes the diagnostic logs and metrics of every resource, the store and the vault included.
-8. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): Public-access server hosting the `PlannerDB` database. Burstable `Standard_B1ms`, version 16, 32 GiB storage, 7-day backup retention, HA disabled. A permissive firewall rule (`0.0.0.0` to `255.255.255.255`) lets the deploy machine run the post-create psql bootstrap; the Web App itself reaches the server through the Private Endpoint.
-9. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB`: Created at provisioning time; the post-deploy psql step creates the `activities` table and seeds the demo rows.
-10. [Azure App Configuration store](https://learn.microsoft.com/en-us/azure/azure-app-configuration/overview) `<prefix>-appconfig-<suffix>` (Standard tier): Holds the five connection settings as key-values, see [Configuration design](#configuration-design). Access keys stay enabled (the default) because the deployment scripts and templates write the key-values with them; the Web App never uses them.
-11. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) `<prefix>-keyvault-<suffix>` with the [Azure RBAC permission model](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide): Holds the secrets `pg-user` and `pg-password` with the credentials of the PostgreSQL application role.
-12. [User-assigned managed identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) `<prefix>-identity-<suffix>`, assigned to the Web App, with two [role assignments](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles): [App Configuration Data Reader](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/integration#app-configuration-data-reader) on the store and [Key Vault Secrets User](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/security#key-vault-secrets-user) on the vault.
-13. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
-14. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask *Vacation Planner* app with regional VNet integration into *app-subnet* and the user-assigned managed identity. Its app settings hold the store endpoint (`Endpoints__AppConfiguration`), the identity client id (`AZURE_CLIENT_ID`), `LOGIN_NAME`, `WEBSITES_PORT` and the Oryx build flags. No `PG_*` app setting exists: the app connects to PostgreSQL with the dedicated application role (`testuser`) it reads from the store, and the server-admin login is never used at runtime.
-15. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes the diagnostic logs and metrics of every resource, the store and the vault included, the telemetry of Application Insights, and the audit records of the queries run on it.
+8. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) `<prefix>-insights-<suffix>`: A workspace-based resource that collects the requests, the calls to App Configuration, Key Vault and PostgreSQL, the log records, the exceptions, the custom events and the custom metric of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting. See [Application Insights](#application-insights).
+9. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): Public-access server hosting the `PlannerDB` database. Burstable `Standard_B1ms`, version 16, 32 GiB storage, 7-day backup retention, HA disabled. A permissive firewall rule (`0.0.0.0` to `255.255.255.255`) lets the deploy machine run the post-create psql bootstrap; the Web App itself reaches the server through the Private Endpoint.
+10. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB`: Created at provisioning time; the post-deploy psql step creates the `activities` table and seeds the demo rows.
+11. [Azure App Configuration store](https://learn.microsoft.com/en-us/azure/azure-app-configuration/overview) `<prefix>-appconfig-<suffix>` (Standard tier): Holds the five connection settings as key-values, see [Configuration design](#configuration-design). Access keys stay enabled (the default) because the deployment scripts and templates write the key-values with them; the Web App never uses them.
+12. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) `<prefix>-keyvault-<suffix>` with the [Azure RBAC permission model](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide): Holds the secrets `pg-user` and `pg-password` with the credentials of the PostgreSQL application role.
+13. [User-assigned managed identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) `<prefix>-identity-<suffix>`, assigned to the Web App, with two [role assignments](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles): [App Configuration Data Reader](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/integration#app-configuration-data-reader) on the store and [Key Vault Secrets User](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/security#key-vault-secrets-user) on the vault.
+14. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
+15. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the Python Flask *Vacation Planner* app with regional VNet integration into *app-subnet* and the user-assigned managed identity. Its app settings hold the store endpoint (`Endpoints__AppConfiguration`), the identity client id (`AZURE_CLIENT_ID`), `LOGIN_NAME`, `WEBSITES_PORT`, the connection string of the Application Insights resource (`APPLICATIONINSIGHTS_CONNECTION_STRING`) and the Oryx build flags. No `PG_*` app setting exists: the app connects to PostgreSQL with the dedicated application role (`testuser`) it reads from the store, and the server-admin login is never used at runtime.
+16. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): *(Optional)* Configures continuous deployment from a public GitHub repository.
 
 The deploy scripts and templates follow the same pattern as the sibling [`web-app-postgresql-flexible-server`](../../web-app-postgresql-flexible-server/python/) sample: after provisioning, they (i) connect as the server admin via the public endpoint and the firewall rule, (ii) create the application role `testuser` with its own password, (iii) grant minimum schema privileges on `PlannerDB`, (iv) create the `activities` table and (v) seed the sample rows. The difference is step (vi): the role name and password are not written onto the Web App's app settings; they are stored in Key Vault and referenced from the App Configuration store at provisioning time, and the app loads them from there.
 
@@ -137,9 +138,53 @@ Loaded 5 settings from App Configuration https://local-appconfig-test.azure.loca
 PostgreSQL schema initialized
 ```
 
+## Application Insights
+
+The web app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` workspace. The three deployment methods set the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource, and the application turns on the [Microsoft OpenTelemetry Distro](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=python) when the setting is present. The application also sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each activity it adds, updates or deletes, counts these operations in the `activities` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), and logs the exceptions it catches:
+
+```python
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+from flask import Flask
+from opentelemetry import metrics
+
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
+```
+
+The distro starts before the application imports Flask and psycopg2, so that its instrumentations wrap them, and it collects the records of the `webapp` logger and of its children (`webapp.database`, `webapp.settings`).
+
+The workspace keeps the telemetry in these tables:
+
+| Table             | What the web app sends                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`     | The requests it serves, such as `GET /`                                                                                  |
+| `AppDependencies` | Its calls to App Configuration, Key Vault and PostgreSQL                                                                 |
+| `AppTraces`       | The records of its loggers, such as the line it writes once it has loaded its settings                                   |
+| `AppEvents`       | The `ActivityAdded`, `ActivityUpdated` and `ActivityDeleted` custom events, with the id of the activity in `activity.id` |
+| `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
+| `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to PostgreSQL fails                                          |
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+
 ## Logs and metrics
 
-The web app, its App Service plan, the App Configuration store, the key vault, the PostgreSQL server, the VNet and the two NSGs each have a diagnostic setting that sends their resource logs, their platform metrics (`AllMetrics`) or both to the `<prefix>-log-analytics-<suffix>` Log Analytics workspace. The four resources the application uses record what it does:
+The web app, its App Service plan, the App Configuration store, the key vault, the PostgreSQL server, the VNet, the two NSGs, the NAT Gateway and its public IP each have a diagnostic setting that sends their resource logs, their platform metrics (`AllMetrics`) or both to the `<prefix>-log-analytics-<suffix>` Log Analytics workspace, and the workspace has one that sends the audit records of the queries run on it (`Audit`, table `LAQueryLogs`) to itself. The Application Insights resource has none: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The private endpoints and the private DNS zones offer no diagnostic settings, and neither does the managed identity. The four resources the application uses record what it does:
 
 | Resource                   | Log categories                                                                                                                                                                  | Tables in the workspace                            | What the application leaves there                                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -264,13 +309,13 @@ On the emulator the records are queryable within seconds, and the aggregated one
 
 You can use [pgAdmin](https://www.pgadmin.org/) to explore and manage the deployed database. Connect using:
 
-| Field    | Value                                                                       |
-| -------- | --------------------------------------------------------------------------- |
-| Host     | `localhost`                                                                 |
+| Field    | Value                                                                             |
+| -------- | --------------------------------------------------------------------------------- |
+| Host     | `localhost`                                                                       |
 | Port     | (see `docker ps` for the host-mapped port of the backing `postgres:18` container) |
-| Database | `PlannerDB`                                                                 |
-| Username | `testuser` *(or `pgadmin` for admin operations)*                            |
-| Password | `TestP@ssw0rd123` *(or `P@ssw0rd1234!` for the admin)*                      |
+| Database | `PlannerDB`                                                                       |
+| Username | `testuser` *(or `pgadmin` for admin operations)*                                  |
+| Password | `TestP@ssw0rd123` *(or `P@ssw0rd1234!` for the admin)*                            |
 
 The application role credentials are the values of the `pg-user` and `pg-password` secrets; read them with `az keyvault secret show --vault-name local-keyvault-test --name pg-password --query value --output tsv` when you override the defaults. Or use [psql](https://www.postgresql.org/docs/current/app-psql.html):
 

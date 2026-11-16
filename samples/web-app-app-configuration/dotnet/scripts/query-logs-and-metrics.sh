@@ -20,6 +20,7 @@ APP_CONFIG_NAME="${PREFIX}-appconfig-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-keyvault-${SUFFIX}"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 POSTGRES_SERVER_NAME="${PREFIX}-pgflex-${SUFFIX}"
+NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
@@ -241,11 +242,44 @@ else
 	exit 1
 fi
 
-# Show where the diagnostic settings send the logs and metrics of the web app and of the three services it reads
+# Get the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP: a public IP prefix with
+# the scripts and Bicep, a public IP address with Terraform
+echo "Retrieving the resource ids of the [$LOG_ANALYTICS_NAME] Log Analytics workspace, of the [$NAT_GATEWAY_NAME] NAT Gateway and of its public IP..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_PUBLIC_IP_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "publicIpPrefixes[0].id || publicIpAddresses[0].id" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID && -n $NAT_GATEWAY_ID && -n $NAT_GATEWAY_PUBLIC_IP_ID ]]; then
+	echo "Resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP successfully retrieved"
+else
+	echo "Failed to retrieve the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP"
+	exit 1
+fi
+
+# Show where the diagnostic settings send the logs and metrics of the web app, of the three services it reads, of the
+# network resources and of the workspace itself
 show_diagnostic_settings "$WEB_APP_ID" "[$WEB_APP_NAME] web app"
 show_diagnostic_settings "$APP_CONFIG_ID" "[$APP_CONFIG_NAME] App Configuration store"
 show_diagnostic_settings "$KEY_VAULT_ID" "[$KEY_VAULT_NAME] key vault"
 show_diagnostic_settings "$POSTGRES_SERVER_ID" "[$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
+show_diagnostic_settings "$NAT_GATEWAY_ID" "[$NAT_GATEWAY_NAME] NAT Gateway"
+show_diagnostic_settings "$NAT_GATEWAY_PUBLIC_IP_ID" "public IP of the [$NAT_GATEWAY_NAME] NAT Gateway"
+show_diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace"
 
 # Wait until the web app answers: on Azure the asynchronous zip deployment can still be building the app
 echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [https://$WEB_APP_HOST_NAME/]..."
@@ -324,6 +358,13 @@ query_workspace \
 	"Platform metrics exported to the [$LOG_ANALYTICS_NAME] Log Analytics workspace (AzureMetrics)" \
 	"AzureMetrics | where MetricName in ('Requests', 'HttpIncomingRequestCount', 'ServiceApiHit', 'connections_succeeded') | summarize Total = sum(Total) by ResourceProvider, Resource, MetricName | order by ResourceProvider asc" \
 	"[].{Provider:ResourceProvider,Resource:Resource,Metric:MetricName,Total:Total}"
+
+# The audit records of the queries run on the workspace, among them the ones above (LAQueryLogs, from the diagnostic
+# setting of the workspace itself)
+query_workspace \
+	"Latest queries run on the [$LOG_ANALYTICS_NAME] Log Analytics workspace (LAQueryLogs)" \
+	"LAQueryLogs | project TimeGenerated, ResponseCode, Query = substring(QueryText, 0, 80) | order by TimeGenerated desc | take 5" \
+	"[].{Time:TimeGenerated,Response:ResponseCode,Query:Query}"
 
 # The same platform metrics, read from the Azure Monitor metrics API: they need no diagnostic setting
 show_metrics "$WEB_APP_ID" "[$WEB_APP_NAME] web app" Requests Http2xx Http4xx Http5xx BytesReceived BytesSent
