@@ -107,7 +107,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.func_subnet_name) = module.virtual_network.subnet_ids[var.func_subnet_name]
   }
-  tags = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
 }
 
 # Create a storage account
@@ -334,8 +335,11 @@ module "function_app" {
   tags                          = var.tags
 
   app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT                         = "false"
-    AzureWebJobsStorage                                    = module.storage_account.primary_connection_string
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "false"
+    # The core.windows.net suffix, as on Azure and as the Azure CLI script sets it: the provider's
+    # primary_connection_string carries the storage endpoint suffix of the current cloud, which on the emulator holds a
+    # port that the Functions host can't parse, so the host would keep none of its data in the storage account
+    AzureWebJobsStorage                                    = "DefaultEndpointsProtocol=https;AccountName=${module.storage_account.name};AccountKey=${module.storage_account.primary_access_key};EndpointSuffix=core.windows.net"
     FUNCTIONS_WORKER_RUNTIME                               = var.functions_worker_runtime
     FUNCTIONS_EXTENSION_VERSION                            = var.functions_extension_version
     AZURE_CLIENT_ID                                        = module.managed_identity.client_id

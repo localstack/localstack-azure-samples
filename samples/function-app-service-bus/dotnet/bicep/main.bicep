@@ -309,6 +309,12 @@ module workspace 'modules/log-analytics.bicep' = {
   }
 }
 
+// The storage account, referenced here to build the connection string of the Functions host from its key: an output of
+// the module would keep the key in the deployment history
+resource storageAccountResource 'Microsoft.Storage/storageAccounts@2025-06-01' existing = {
+  name: storageAccountName
+}
+
 module storageAccount 'modules/storage-account.bicep' = {
   name: 'storageAccount'
   params: {
@@ -374,7 +380,7 @@ module network 'modules/virtual-network.bicep' = {
 module blobStoragePrivateDnsZone 'modules/private-dns-zone.bicep' = {
   name: 'blobStoragePrivateDnsZone'
   params: {
-    name: 'privatelink.blob.core.windows.net'
+    name: 'privatelink.blob.${environment().suffixes.storage}'
     vnetId: network.outputs.virtualNetworkId
     tags: tags
   }
@@ -398,7 +404,7 @@ module blobStoragePrivateEndpoint 'modules/private-endpoint.bicep' = {
 module queueStoragePrivateDnsZone 'modules/private-dns-zone.bicep' = {
   name: 'queueStoragePrivateDnsZone'
   params: {
-    name: 'privatelink.queue.core.windows.net'
+    name: 'privatelink.queue.${environment().suffixes.storage}'
     vnetId: network.outputs.virtualNetworkId
     tags: tags
   }
@@ -422,7 +428,7 @@ module queueStoragePrivateEndpoint 'modules/private-endpoint.bicep' = {
 module tableStoragePrivateDnsZone 'modules/private-dns-zone.bicep' = {
   name: 'tableStoragePrivateDnsZone'
   params: {
-    name: 'privatelink.table.core.windows.net'
+    name: 'privatelink.table.${environment().suffixes.storage}'
     vnetId: network.outputs.virtualNetworkId
     tags: tags
   }
@@ -522,7 +528,7 @@ module functionApp 'modules/function-app.bicep' = {
       }
       {
         name: 'AzureWebJobsStorage'
-        value: storageAccount.outputs.connectionString
+        value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountResource.name};AccountKey=${storageAccountResource.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
       }
       {
         name: 'FUNCTIONS_WORKER_RUNTIME'
@@ -534,7 +540,7 @@ module functionApp 'modules/function-app.bicep' = {
       }
       {
         name: 'AZURE_CLIENT_ID'
-        value: managedIdentityType == 'UserAssigned' ? managedIdentity.outputs.clientId : ''
+        value: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
       }
       {
         name: 'SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace'
@@ -546,7 +552,7 @@ module functionApp 'modules/function-app.bicep' = {
       }
       {
         name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
-        value: managedIdentityType == 'UserAssigned' ? 'ClientId=${managedIdentity.outputs.clientId};Authorization=AAD' : ''
+        value: managedIdentityType == 'UserAssigned' ? 'ClientId=${managedIdentity!.outputs.clientId};Authorization=AAD' : ''
       }
       {
         name: 'INPUT_QUEUE_NAME'

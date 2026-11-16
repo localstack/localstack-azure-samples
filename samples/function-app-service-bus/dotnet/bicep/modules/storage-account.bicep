@@ -97,7 +97,9 @@ var logCategories = [
   'StorageWrite'
   'StorageDelete'
 ]
+// Capacity holds the hourly capacity metrics, Transaction the metrics of the requests
 var metricCategories = [
+  'Capacity'
   'Transaction'
 ]
 var logs = [
@@ -215,6 +217,16 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   }
 }
 
+// The storage account exports only metrics; the logs of the requests are exported by its services.
+resource storageAccountDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: storageAccount
+  properties: {
+    workspaceId: workspaceId
+    metrics: metrics
+  }
+}
+
 resource blobServicesDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   name: '${diagnosticSettingsName}-blobService'
   scope: storageAccount::blobService
@@ -262,4 +274,3 @@ resource fileServicesDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2
 
 output id string = storageAccount.id
 output name string = storageAccount.name
-output connectionString string = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'

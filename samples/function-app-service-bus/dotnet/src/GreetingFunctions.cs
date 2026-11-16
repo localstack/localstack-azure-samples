@@ -235,6 +235,7 @@ public class HelloWorld
 
         // Log the successful processing of the message
         _logger.LogInformation("[GreetingHandler] Processed message [{messageId}] successfully: {greetingText}", message.MessageId, greetingText);
+        GreetingTelemetry.Track(_logger, "GreetingProcessed", "process", requestMessage.Name);
 
         // Return the response message
         return outputMessage;
@@ -294,6 +295,7 @@ public class HelloWorld
             _logger.LogInformation("[GreetingRequester] Sending message to input queue '{inputQueue}'...", _inputQueueName);
             await sender.SendMessageAsync(serviceBusMessage);
             _logger.LogInformation("[GreetingRequester] Successfully sent message to input queue '{inputQueue}' with name: {Name}", _inputQueueName, selectedName);
+            GreetingTelemetry.Track(_logger, "GreetingRequested", "request", selectedName);
 
             // Record sent name in history
             lock (_historyLock)
@@ -377,6 +379,7 @@ public class HelloWorld
 
                                 // Complete the message after successful processing
                                 await receiver.CompleteMessageAsync(receivedMessage);
+                                GreetingTelemetry.Track(_logger, "GreetingReceived", "receive", responseMessage.Text ?? string.Empty);
 
                                 // Record received greeting in history
                                 lock (_historyLock)

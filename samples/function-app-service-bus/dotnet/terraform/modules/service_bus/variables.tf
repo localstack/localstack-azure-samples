@@ -171,3 +171,14 @@ variable "forward_dead_lettered_messages_to" {
   type        = string
   default     = null
 }
+
+variable "log_analytics_destination_type" {
+  description = "(Optional) Specifies where the diagnostic setting writes the logs in the workspace: Dedicated writes them to the resource-specific AZMSOperationalLogs and AZMSRunTimeAuditLogs tables that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table."
+  type        = string
+  default     = "Dedicated"
+
+  validation {
+    condition     = contains(["AzureDiagnostics", "Dedicated"], var.log_analytics_destination_type)
+    error_message = "The log_analytics_destination_type must be AzureDiagnostics or Dedicated."
+  }
+}

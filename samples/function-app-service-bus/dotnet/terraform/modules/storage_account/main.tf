@@ -34,6 +34,22 @@ resource "azurerm_storage_account" "example" {
   }
 }
 
+# The storage account exports only metrics; the logs of the requests are exported by its services. Capacity holds the
+# hourly capacity metrics, Transaction the metrics of the requests.
+resource "azurerm_monitor_diagnostic_setting" "account" {
+  name                       = "DiagnosticsSettings"
+  target_resource_id         = azurerm_storage_account.example.id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_metric {
+    category = "Capacity"
+  }
+
+  enabled_metric {
+    category = "Transaction"
+  }
+}
+
 resource "azurerm_monitor_diagnostic_setting" "blob" {
   name                       = "DiagnosticsSettings-blobService"
   target_resource_id         = "${azurerm_storage_account.example.id}/blobServices/default/"
@@ -49,6 +65,10 @@ resource "azurerm_monitor_diagnostic_setting" "blob" {
 
   enabled_log {
     category = "StorageDelete"
+  }
+
+  enabled_metric {
+    category = "Capacity"
   }
 
   enabled_metric {
@@ -74,6 +94,10 @@ resource "azurerm_monitor_diagnostic_setting" "queue" {
   }
 
   enabled_metric {
+    category = "Capacity"
+  }
+
+  enabled_metric {
     category = "Transaction"
   }
 }
@@ -96,6 +120,10 @@ resource "azurerm_monitor_diagnostic_setting" "table" {
   }
 
   enabled_metric {
+    category = "Capacity"
+  }
+
+  enabled_metric {
     category = "Transaction"
   }
 }
@@ -115,6 +143,10 @@ resource "azurerm_monitor_diagnostic_setting" "file" {
 
   enabled_log {
     category = "StorageDelete"
+  }
+
+  enabled_metric {
+    category = "Capacity"
   }
 
   enabled_metric {

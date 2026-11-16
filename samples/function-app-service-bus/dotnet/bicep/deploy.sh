@@ -112,11 +112,13 @@ if [[ -z "$FUNCTION_APP_NAME" || -z "$SERVICE_BUS_NAME" ]]; then
 	exit 1
 fi
 
-# Print the application settings of the function app
-echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
+# Print the names of the application settings of the function app, never their values, which hold secrets
+echo "Retrieving the names of the application settings of the function app [$FUNCTION_APP_NAME]..."
 az functionapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME"
+	--name "$FUNCTION_APP_NAME" \
+	--query "[].name" \
+	--output tsv
 
 # CD into the function app directory
 cd ../src || exit

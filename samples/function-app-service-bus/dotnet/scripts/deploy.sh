@@ -172,7 +172,7 @@ else
 	echo "[$OUTPUT_QUEUE_NAME] service bus queue already exists in the [$SERVICE_BUS_NAMESPACE] service bus namespace"
 fi
 
-# Retrieve and display connection string
+# Retrieve the connection string of the namespace, never printed: it holds a key
 SERVICE_BUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys list \
 	--name RootManageSharedAccessKey \
 	--namespace-name $SERVICE_BUS_NAMESPACE \
@@ -180,7 +180,12 @@ SERVICE_BUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys 
 	--query primaryConnectionString \
 	--output tsv)
 
-echo "Service Bus connection string: $SERVICE_BUS_CONNECTION_STRING"
+if [[ -n $SERVICE_BUS_CONNECTION_STRING ]]; then
+	echo "Connection string of the [$SERVICE_BUS_NAMESPACE] service bus namespace successfully retrieved"
+else
+	echo "Failed to retrieve the connection string of the [$SERVICE_BUS_NAMESPACE] service bus namespace"
+	exit 1
+fi
 
 # Get the Service Bus namespace resource id
 echo "Getting [$SERVICE_BUS_NAMESPACE] service bus namespace resource id in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -618,7 +623,7 @@ STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--output tsv)
 
 if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-	echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
+	echo "Storage account key retrieved successfully"
 else
 	echo "Failed to retrieve storage account key."
 	exit 1
@@ -626,7 +631,7 @@ fi
 
 # Construct the storage connection string for LocalStack
 STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-echo "Storage connection string constructed: [$STORAGE_CONNECTION_STRING]"
+echo "Storage connection string constructed"
 
 # Get the storage account resource id
 echo "Getting [$STORAGE_ACCOUNT_NAME] storage account resource id in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -728,6 +733,38 @@ if [ $DEPLOY -eq 0 ]; then
 	exit 0
 fi
 
+# Check if the log analytics workspace already exists
+echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the Log Analytics workspace
+	az monitor log-analytics workspace create \
+		--name "$LOG_ANALYTICS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--query-access "Enabled" \
+		--retention-time 30 \
+		--sku "PerNode" \
+		--tags $TAGS \
+		--only-show-errors 1>/dev/null
+	
+	if [[ $? == 0 ]]; then
+		echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+else
+	echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group"
+fi
+
 # Check if the application insights component already exists
 echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
 az monitor app-insights component show \
@@ -745,6 +782,7 @@ if [[ $? != 0 ]]; then
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
 		--application-type "web" \
+		--workspace "$LOG_ANALYTICS_NAME" \
 		--tags $TAGS \
 		--only-show-errors 1>/dev/null
 
@@ -1157,10 +1195,10 @@ az functionapp config appsettings set \
 	APPLICATIONINSIGHTS_AUTHENTICATION_STRING="ClientId=${CLIENT_ID};Authorization=AAD" \
 	AZURE_CLIENT_ID="$CLIENT_ID" \
 	SCM_DO_BUILD_DURING_DEPLOYMENT=false \
-	FUNCTIONS_WORKER_RUNTIME=${RUNTIME,,} \
+	FUNCTIONS_WORKER_RUNTIME="$(echo "$RUNTIME" | tr '[:upper:]' '[:lower:]')" \
 	FUNCTIONS_EXTENSION_VERSION=~$FUNCTIONS_VERSION \
 	AzureWebJobsStorage="$STORAGE_CONNECTION_STRING" \
-	SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace="${SERVICE_BUS_NAMESPACE,,}.servicebus.windows.net" \
+	SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace="$(echo "$SERVICE_BUS_NAMESPACE" | tr '[:upper:]' '[:lower:]').servicebus.windows.net" \
 	INPUT_QUEUE_NAME="input" \
 	OUTPUT_QUEUE_NAME="output" \
 	NAMES="Paolo,John,Jane,Max,Mary,Leo,Mia,Anna,Lisa,Anastasia" \
@@ -1172,38 +1210,6 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to set function app settings for [$FUNCTION_APP_NAME]."
 	exit 1
-fi
-
-# Check if the log analytics workspace already exists
-echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group..."
-az monitor log-analytics workspace show \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--workspace-name "$LOG_ANALYTICS_NAME" \
-	--only-show-errors &>/dev/null
-
-if [[ $? != 0 ]]; then
-	echo "No [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exists in the [$RESOURCE_GROUP_NAME] resource group"
-	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
-
-	# Create the Log Analytics workspace
-	az monitor log-analytics workspace create \
-		--name "$LOG_ANALYTICS_NAME" \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--location "$LOCATION" \
-		--query-access "Enabled" \
-		--retention-time 30 \
-		--sku "PerNode" \
-		--tags $TAGS \
-		--only-show-errors 1>/dev/null
-	
-	if [[ $? == 0 ]]; then
-		echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created in the [$RESOURCE_GROUP_NAME] resource group"
-	else
-		echo "Failed to create [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group"
-		exit 1
-	fi
-else
-	echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
 # Check whether the diagnostic settings for the function app already exist
@@ -1272,22 +1278,28 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] app service plan already exist"
 fi
 
-# Check whether the diagnostic settings for the service bus namespace already exist
+# Check whether the diagnostic settings for the service bus namespace already exist and send its logs to
+# resource-specific tables: a setting an earlier version of this script created sends them to AzureDiagnostics, and the
+# create below updates it
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace already exist..."
-az monitor diagnostic-settings show \
+SERVICE_BUS_DESTINATION_TYPE=$(az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$SERVICE_BUS_NAMESPACE_ID" \
-	--only-show-errors &>/dev/null
+	--query logAnalyticsDestinationType \
+	--output tsv \
+	--only-show-errors 2>/dev/null)
 
-if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace actually exist"
+if [[ $SERVICE_BUS_DESTINATION_TYPE != "Dedicated" ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace that send its logs to resource-specific tables actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SERVICE_BUS_NAMESPACE] service bus namespace..."
 
-	# Create the diagnostic settings for the service bus namespace to send logs to the Log Analytics workspace
+	# Create (or update) the diagnostic settings for the service bus namespace to send its logs to the Log Analytics
+	# workspace, in the resource-specific AZMSOperationalLogs and AZMSRunTimeAuditLogs tables rather than AzureDiagnostics
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$SERVICE_BUS_NAMESPACE_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
+		--export-to-resource-specific true \
 		--logs '[
 			{"category": "ApplicationMetricsLogs", "enabled": true},
 			{"category": "DiagnosticErrorLogs", "enabled": true},
@@ -1405,6 +1417,209 @@ if [[ $? != 0 ]]; then
 	fi
 else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet already exist"
+fi
+
+# Check whether the diagnostic settings of the storage account already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$STORAGE_ACCOUNT_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+	# Create the diagnostic settings that send the capacity and transaction metrics of the storage account to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$STORAGE_ACCOUNT_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "Capacity", "enabled": true},
+			{"category": "Transaction", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+fi
+
+# The Functions host keeps its own data in the storage account (AzureWebJobsStorage): each of its blob, queue, table and
+# file services gets diagnostic settings that send the logs of its requests (StorageBlobLogs, StorageQueueLogs,
+# StorageTableLogs, StorageFileLogs) and its capacity and transaction metrics to the Log Analytics workspace
+for SERVICE in blob queue table file; do
+	SERVICE_RESOURCE_ID="$STORAGE_ACCOUNT_ID/${SERVICE}Services/default"
+	echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+	az monitor diagnostic-settings show \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$SERVICE_RESOURCE_ID" \
+		--only-show-errors &>/dev/null
+
+	if [[ $? != 0 ]]; then
+		echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+		echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+		az monitor diagnostic-settings create \
+			--name "$DIAGNOSTIC_SETTINGS_NAME" \
+			--resource "$SERVICE_RESOURCE_ID" \
+			--workspace "$LOG_ANALYTICS_NAME" \
+			--logs '[
+				{"category": "StorageRead", "enabled": true},
+				{"category": "StorageWrite", "enabled": true},
+				{"category": "StorageDelete", "enabled": true}
+			]' \
+			--metrics '[
+				{"category": "Capacity", "enabled": true},
+				{"category": "Transaction", "enabled": true}
+			]' \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+		else
+			echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account"
+			exit 1
+		fi
+	else
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+	fi
+done
+
+# Get the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP prefix
+echo "Retrieving the resource ids of the [$LOG_ANALYTICS_NAME] Log Analytics workspace, of the [$NAT_GATEWAY_NAME] NAT Gateway and of the [$PIP_PREFIX_NAME] public IP prefix..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+PIP_PREFIX_ID=$(az network public-ip prefix show \
+	--name "$PIP_PREFIX_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID && -n $NAT_GATEWAY_ID && -n $PIP_PREFIX_ID ]]; then
+	echo "Resource ids of the Log Analytics workspace, of the NAT Gateway and of the public IP prefix successfully retrieved"
+else
+	echo "Failed to retrieve the resource ids of the Log Analytics workspace, of the NAT Gateway and of the public IP prefix"
+	exit 1
+fi
+
+# Check whether the diagnostic settings for the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
+fi
+
+# Check whether the diagnostic settings for the NAT Gateway already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$NAT_GATEWAY_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway..."
+
+	# Create the diagnostic settings for the NAT Gateway to send its metrics to the Log Analytics workspace. A Standard
+	# NAT Gateway has no resource logs: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one.
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$NAT_GATEWAY_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway already exist"
+fi
+
+# Check whether the diagnostic settings for the public IP prefix of the NAT Gateway already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$PIP_PREFIX_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix..."
+
+	# Create the diagnostic settings for the public IP prefix to send its DDoS protection logs and its metrics to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$PIP_PREFIX_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "DDoSProtectionNotifications", "enabled": true},
+			{"category": "DDoSMitigationFlowLogs", "enabled": true},
+			{"category": "DDoSMitigationReports", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix already exist"
 fi
 
 # CD into the function app directory
