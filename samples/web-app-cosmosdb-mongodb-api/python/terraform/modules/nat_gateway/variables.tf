@@ -41,3 +41,38 @@ variable "subnet_ids" {
   description = "(Required) A map of subnet ids to associate with the NAT Gateway"
   type        = map(string)
 }
+
+variable "log_analytics_workspace_id" {
+  description = "(Required) Specifies the resource id of the Log Analytics workspace."
+  type        = string
+}
+
+variable "diagnostic_setting_name" {
+  description = "(Optional) Specifies the name of the diagnostic settings of the NAT Gateway and of its public IP."
+  type        = string
+  default     = "DiagnosticsSettings"
+}
+
+variable "public_ip_log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the public IP sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["DDoSProtectionNotifications", "DDoSMitigationFlowLogs", "DDoSMitigationReports"]
+}
+
+variable "public_ip_metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic setting of the public IP sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}
+
+variable "nat_gateway_log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace. A Standard NAT Gateway has none: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one."
+  type        = list(string)
+  default     = []
+}
+
+variable "nat_gateway_metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}

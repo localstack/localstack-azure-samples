@@ -92,6 +92,35 @@ var vnetMetrics = [for category in vnetMetricCategories: {
     days: 0
   }
 }]
+var publicIpPrefixLogCategories = [
+  'DDoSProtectionNotifications'
+  'DDoSMitigationFlowLogs'
+  'DDoSMitigationReports'
+]
+var publicIpPrefixMetricCategories = [
+  'AllMetrics'
+]
+// A Standard NAT Gateway has no resource logs: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one
+var natGatewayLogCategories = []
+var natGatewayMetricCategories = [
+  'AllMetrics'
+]
+var publicIpPrefixLogs = [for category in publicIpPrefixLogCategories: {
+  category: category
+  enabled: true
+}]
+var publicIpPrefixMetrics = [for category in publicIpPrefixMetricCategories: {
+  category: category
+  enabled: true
+}]
+var natGatewayLogs = [for category in natGatewayLogCategories: {
+  category: category
+  enabled: true
+}]
+var natGatewayMetrics = [for category in natGatewayMetricCategories: {
+  category: category
+  enabled: true
+}]
 
 //********************************************
 // Resources
@@ -225,6 +254,26 @@ resource vnetDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-0
     workspaceId: workspaceId
     logs: vnetLogs
     metrics: vnetMetrics
+  }
+}
+
+resource natGatewayPublicIpPrefixDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(workspaceId)) {
+  name: diagnosticSettingsName
+  scope: natGatewayPublicIpPrefix
+  properties: {
+    workspaceId: workspaceId
+    logs: publicIpPrefixLogs
+    metrics: publicIpPrefixMetrics
+  }
+}
+
+resource natGatewayDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(workspaceId)) {
+  name: diagnosticSettingsName
+  scope: natGateway
+  properties: {
+    workspaceId: workspaceId
+    logs: natGatewayLogs
+    metrics: natGatewayMetrics
   }
 }
 

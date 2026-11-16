@@ -1,17 +1,18 @@
 # Local Variables
 locals {
-  prefix                      = lower(var.prefix)
-  suffix                      = lower(var.suffix)
-  resource_group_name         = "${var.prefix}-rg"
-  log_analytics_name          = "${local.prefix}-log-analytics-${local.suffix}"
-  virtual_network_name        = "${local.prefix}-vnet-${local.suffix}"
-  nat_gateway_name            = "${local.prefix}-nat-gateway-${local.suffix}"
-  private_endpoint_name       = "${local.prefix}-mongodb-pe-${local.suffix}"
-  webapp_subnet_nsg_name      = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
-  pe_subnet_nsg_name          = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
-  cosmosdb_account_name       = "${local.prefix}-mongodb-${local.suffix}"
-  app_service_plan_name       = "${local.prefix}-app-service-plan-${local.suffix}"
-  web_app_name                = "${local.prefix}-webapp-${local.suffix}"
+  prefix                    = lower(var.prefix)
+  suffix                    = lower(var.suffix)
+  resource_group_name       = "${var.prefix}-rg"
+  log_analytics_name        = "${local.prefix}-log-analytics-${local.suffix}"
+  application_insights_name = "${local.prefix}-insights-${local.suffix}"
+  virtual_network_name      = "${local.prefix}-vnet-${local.suffix}"
+  nat_gateway_name          = "${local.prefix}-nat-gateway-${local.suffix}"
+  private_endpoint_name     = "${local.prefix}-mongodb-pe-${local.suffix}"
+  webapp_subnet_nsg_name    = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
+  pe_subnet_nsg_name        = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
+  cosmosdb_account_name     = "${local.prefix}-mongodb-${local.suffix}"
+  app_service_plan_name     = "${local.prefix}-app-service-plan-${local.suffix}"
+  web_app_name              = "${local.prefix}-webapp-${local.suffix}"
 }
 
 # Data Sources
@@ -33,6 +34,17 @@ module "log_analytics_workspace" {
   resource_group_name = azurerm_resource_group.example.name
   tags                = var.tags
 }
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies, logs,
+# exceptions, custom events and custom metrics
+module "application_insights" {
+  source              = "./modules/application_insights"
+  name                = local.application_insights_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  workspace_id        = module.log_analytics_workspace.id
+  tags                = var.tags
+}
+
 
 # Create a virtual network with subnets
 module "virtual_network" {
@@ -84,7 +96,7 @@ module "pe_subnet_network_security_group" {
   log_analytics_workspace_id = module.log_analytics_workspace.id
   tags                       = var.tags
   subnet_ids = {
-    (var.pe_subnet_name)     = module.virtual_network.subnet_ids[var.pe_subnet_name]
+    (var.pe_subnet_name) = module.virtual_network.subnet_ids[var.pe_subnet_name]
   }
 }
 
@@ -100,7 +112,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
   }
-  tags = var.tags
+  tags                       = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
 }
 
 # Create a private DNS zone for the CosmosDB MongoDB account and link it to the virtual network
@@ -182,11 +195,12 @@ module "web_app" {
   tags                          = var.tags
 
   app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
-    COSMOSDB_CONNECTION_STRING     = module.cosmosdb_mongodb.primary_mongodb_connection_string
-    COSMOSDB_DATABASE_NAME         = module.cosmosdb_mongodb.database_name
-    COSMOSDB_COLLECTION_NAME       = var.cosmosdb_collection_name
-    LOGIN_NAME                     = var.login_name
-    WEBSITES_PORT                   = var.websites_port
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "true"
+    COSMOSDB_CONNECTION_STRING            = module.cosmosdb_mongodb.primary_mongodb_connection_string
+    COSMOSDB_DATABASE_NAME                = module.cosmosdb_mongodb.database_name
+    COSMOSDB_COLLECTION_NAME              = var.cosmosdb_collection_name
+    LOGIN_NAME                            = var.login_name
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
+    WEBSITES_PORT                         = var.websites_port
   }
 }

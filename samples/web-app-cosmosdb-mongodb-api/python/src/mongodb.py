@@ -15,7 +15,8 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 # Configure logging
-logger = logging.getLogger(__name__)
+# A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
+logger = logging.getLogger(f"webapp.{__name__}")
 logger.setLevel(logging.INFO)
 
 
