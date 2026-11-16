@@ -101,7 +101,7 @@ resource "azurerm_linux_function_app" "example" {
 
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME                  = var.runtime_name
-    SCM_DO_BUILD_DURING_DEPLOYMENT            = "true"
+    SCM_DO_BUILD_DURING_DEPLOYMENT            = "false"
     AzureWebJobsStorage                       = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
     WEBSITE_STORAGE_ACCOUNT_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"
     STORAGE_ACCOUNT_CONNECTION_STRING         = "DefaultEndpointsProtocol=https;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};EndpointSuffix=core.windows.net;"

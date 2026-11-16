@@ -12,6 +12,8 @@ USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 
 # Change the current directory to the script's directory
@@ -126,11 +128,34 @@ cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-az functionapp deploy \
-    --resource-group "$RESOURCE_GROUP_NAME" \
-    --name "$FUNCTION_APP_NAME" \
-    --src-path $ZIPFILE \
-    --type zip 1>/dev/null
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
+	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
 
 # Remove the zip package of the function app
 if [ -f "$ZIPFILE" ]; then

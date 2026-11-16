@@ -97,13 +97,33 @@ Once the resources and serverless application have been deployed, you can use th
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 FILE_PATH="input.txt"
 INPUT_CONTAINER_NAME="input"
 OUTPUT_CONTAINER_NAME="output"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMP_OUTPUT_FILE=""
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+cleanup() {
+	if [ -n "$TEMP_OUTPUT_FILE" ] && [ -f "$TEMP_OUTPUT_FILE" ]; then
+		rm -f "$TEMP_OUTPUT_FILE"
+	fi
+}
+
+trap cleanup EXIT
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -180,9 +200,10 @@ else
 	exit 1
 fi
 
-# Loop n times to check whether the function app processed the input file and generated the result file in the output container
-n=10
-seconds=5
+# Loop n times to check whether the function app processed the input file and generated the result file in the output container.
+# On Azure the blob trigger can take a minute or more to pick up a new blob: raise RETRY_COUNT there.
+n="${RETRY_COUNT:-36}"
+seconds="${SLEEP:-5}"
 
 for ((i=1; i<=n; i++)); do
 	echo "Checking for [$BLOB_NAME] file in the [$OUTPUT_CONTAINER_NAME] container (Attempt $i of $n)..."
@@ -197,6 +218,24 @@ for ((i=1; i<=n; i++)); do
 
 	if [ "$BLOB_EXISTS" == "true" ]; then
 		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
+		TEMP_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/processed-output.XXXXXX")" || { echo "Failed to create temporary file." >&2; exit 1; }
+		TEMP_OUTPUT_FILE="$(native_path "$TEMP_OUTPUT_FILE")"
+
+		az storage blob download \
+			--container-name "$OUTPUT_CONTAINER_NAME" \
+			--name "$BLOB_NAME" \
+			--file "$TEMP_OUTPUT_FILE" \
+			--account-name "$STORAGE_ACCOUNT_NAME" \
+			--auth-mode login 1>/dev/null || { echo "Failed to download processed blob [$BLOB_NAME] from container [$OUTPUT_CONTAINER_NAME]." >&2; exit 1; }
+
+		echo "Input file [$FILE_PATH]:"
+		cat "$FILE_PATH"
+
+		echo ""
+		echo "Processed output file [$BLOB_NAME]:"
+		cat "$TEMP_OUTPUT_FILE"
+		echo ""
+
 		exit 0
 	fi
 
@@ -211,16 +250,21 @@ exit 1
 If everything works as expected, you should see output similar to the following:
 
 ```bash
-./test.sh 
+./test.sh
 Container [input] already exists.
 Container [output] already exists.
 Finished[#############################################################]  100.0000%
-[input-2025-12-03-10-58-54.txt] file uploaded successfully to the [input] container.
-Blob [input-2025-12-03-10-58-54.txt] exists in container [input]. Upload verified.
-Checking for [input-2025-12-03-10-58-54.txt] file in the [output] container (Attempt 1 of 10)...
+[input-2026-11-16-14-37-05.txt] file uploaded successfully to the [input] container.
+Blob [input-2026-11-16-14-37-05.txt] exists in container [input]. Upload verified.
+Checking for [input-2026-11-16-14-37-05.txt] file in the [output] container (Attempt 1 of 36)...
 Processed file not found yet. Waiting for 5 seconds before retrying...
-Checking for [input-2025-12-03-10-58-54.txt] file in the [output] container (Attempt 2 of 10)...
-Processed file [input-2025-12-03-10-58-54.txt] found in the [output] container.
+Checking for [input-2026-11-16-14-37-05.txt] file in the [output] container (Attempt 2 of 36)...
+Processed file [input-2026-11-16-14-37-05.txt] found in the [output] container.
+Finished[#############################################################]  100.0000%
+Input file [input.txt]:
+Hi mate, how are you?
+Processed output file [input-2026-11-16-14-37-05.txt]:
+HI MATE, HOW ARE YOU?
 ```
 
 ## Application Insights

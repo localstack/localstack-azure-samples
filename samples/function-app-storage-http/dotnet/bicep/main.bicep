@@ -262,7 +262,7 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
   resource configAppSettings 'config' = {
     name: 'appsettings'
     properties: {
-      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'false'
       AzureWebJobsStorage: storageAccountConnectionString
 	    WEBSITE_STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
       STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
