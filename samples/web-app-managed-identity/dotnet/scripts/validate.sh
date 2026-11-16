@@ -36,14 +36,18 @@ az webapp show \
 	--output table \
 	--only-show-errors
 
-# Check user-assigned managed identity
+# Check user-assigned managed identity, which only the deployments with a user-assigned identity create
 echo -e "\n[$MANAGED_IDENTITY_NAME] managed identity:\n"
 az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ClientId:clientId,PrincipalId:principalId}' \
 	--output table \
-	--only-show-errors
+	--only-show-errors 2>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$MANAGED_IDENTITY_NAME] managed identity: the web app uses its system-assigned managed identity"
+fi
 
 # Check storage account
 echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account:\n"
@@ -104,6 +108,41 @@ echo -e "\nApp Service plan diagnostic settings:\n"
 az monitor diagnostic-settings list \
 	--resource "$APP_SERVICE_PLAN_ID" \
 	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+# Check the diagnostic settings of the storage account, of its blob service and of the Log Analytics workspace
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID" \
+	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] blob service diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID/blobServices/default" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+echo -e "\n[$LOG_ANALYTICS_NAME] Log Analytics workspace diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$LOG_ANALYTICS_ID" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
 	--output table \
 	--only-show-errors
 

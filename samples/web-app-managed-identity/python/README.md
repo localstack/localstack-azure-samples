@@ -21,8 +21,8 @@ The following diagram illustrates the architecture of the solution:
 - **Azure App Service Plan**: Provides compute resources for the web app
 - **Azure Blob Storage**: Stores activity data as blobs in a container
 - **Azure Entra Tenant**: Issues security tokens via OAuth 2.0
-- **Azure Application Insights**: Collects the requests, the calls to Blob Storage and the log records of the web app
-- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the logs and metrics that the diagnostic settings of the web app and of the App Service plan send to it
+- **Azure Application Insights**: Collects the requests, the calls to Blob Storage, the log records, the exceptions, the custom events and the custom metric of the web app
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, the logs and metrics that the diagnostic settings of the web app, of the App Service plan, of the storage account and of its blob service send to it, and the audit records of the queries run on it
 
 ## Security
 
@@ -119,13 +119,34 @@ if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
 from flask import Flask
 ```
 
-The distro starts before the application imports Flask, so that its Flask instrumentation wraps the application. The workspace keeps the telemetry in these tables:
+The distro starts before the application imports Flask, so that its Flask instrumentation wraps the application. The application also sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each activity it adds, updates or deletes, counts these operations in the `activities` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), and logs the exceptions it catches with `logger.exception`. The distro sends a log record that carries the `microsoft.custom_event.name` attribute as a custom event named after its value, with the other attributes as its custom dimensions:
 
-| Table             | What the web app sends                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------- |
-| `AppRequests`     | The requests it serves, such as `GET /`                                                      |
-| `AppDependencies` | Its calls to Blob Storage, such as `GET /activities` and `ContainerClient.list_blobs`        |
-| `AppTraces`       | The records of its `webapp` logger, such as `Read 3 activities from container 'activities'.` |
+```python
+from opentelemetry import metrics
+
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
+```
+
+The workspace keeps the telemetry in these tables:
+
+| Table             | What the web app sends                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`     | The requests it serves, such as `GET /`                                                                                  |
+| `AppDependencies` | Its calls to Blob Storage, such as `GET /activities` and `ContainerClient.list_blobs`                                    |
+| `AppTraces`       | The records of its `webapp` logger, such as `Read 3 activities from container 'activities'.`                             |
+| `AppEvents`       | The `ActivityAdded`, `ActivityUpdated` and `ActivityDeleted` custom events, with the id of the activity in `activity.id` |
+| `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
+| `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to Blob Storage fails                                        |
 
 The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
 
@@ -152,16 +173,21 @@ ContainerOperations.list_blob_flat_segment  0             True       PrimaryResu
 ContainerClient.list_blobs                  0             True       PrimaryResult                                                                     2026-11-16T09:12:54.085223Z
 ```
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app and reads the three tables back, retrying until their records arrive. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
 
 ## Logs and metrics
 
-The web app and its App Service plan each have a [diagnostic setting](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) named `default` that sends their resource logs and their platform metrics (`AllMetrics`) to the same workspace:
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one named `default` that sends its resource logs and its platform metrics to the same workspace:
 
-| Resource         | Log categories                                                                                                                                                                  | Tables in the workspace                | What the web app leaves there                                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Web App          | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AppServiceAppLogs`, `AppServiceAuditLogs`, `AppServiceIPSecAuditLogs`, `AppServiceAuthenticationLogs` | One table per category, named after it | The requests it serves, its console output (the Gunicorn request lines and the records of its `webapp` logger) and the start of its container |
-| App Service plan | None: metrics only                                                                                                                                                              | `AzureMetrics`                         | The CPU and memory use of its instances                                                                                             |
+| Resource                | Log categories                                                                                                                                                                  | Tables in the workspace                | What the web app leaves there                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web App                 | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AppServiceAppLogs`, `AppServiceAuditLogs`, `AppServiceIPSecAuditLogs`, `AppServiceAuthenticationLogs` | One table per category, named after it | The requests it serves, its console output (the Gunicorn request lines and the records of its `webapp` logger) and the start of its container |
+| App Service plan        | None: metrics only                                                                                                                                                              | `AzureMetrics`                         | The CPU and memory use of its instances                                                                                                       |
+| Storage account         | None: metrics only                                                                                                                                                              | `AzureMetrics`                         | The transactions of the account, such as the requests of the web app to its blobs                                                             |
+| Blob service            | `StorageRead`, `StorageWrite`, `StorageDelete`                                                                                                                                  | `StorageBlobLogs`, `AzureMetrics`      | Each request of the web app to the blobs, authenticated with its managed identity (`OAuth`), and the transactions of the service              |
+| Log Analytics workspace | `Audit`                                                                                                                                                                         | `LAQueryLogs`, `AzureMetrics`          | The queries run on the workspace, such as the ones of the scripts below                                                                       |
+
+The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The user-assigned managed identity offers no diagnostic settings.
 
 The platform metrics of the web app, such as `Requests`, `Http2xx` and `BytesSent`, land in the `AzureMetrics` table too. A few queries to try:
 
@@ -180,6 +206,11 @@ AppServiceConsoleLogs
 AzureMetrics
 | where MetricName in ("CpuPercentage", "MemoryPercentage")
 | project TimeGenerated, MetricName, Average
+
+// The requests of the web app to the blobs, with the way they authenticated
+StorageBlobLogs
+| project TimeGenerated, OperationName, StatusCode, AuthenticationType, ObjectKey
+| order by TimeGenerated desc
 ```
 
 The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly.
@@ -200,7 +231,7 @@ az monitor metrics list \
   --output table
 ```
 
-[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the web app and of the plan, calls the web app, reads the HTTP requests, the console output and the platform events of the web app and the exported platform metrics of both resources until their records arrive, and prints the metrics of the web app. It exits with a non-zero code in the same cases as `query-telemetry.sh`.
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the web app, of the plan, of the storage account, of its blob service and of the workspace, calls the web app, and reads until their records arrive the HTTP requests, the console output and the platform events of the web app, the exported platform metrics of the web app and of the plan, the requests to the blobs, the transaction metrics of the storage account and of its blob service, and the audit records of the queries run on the workspace. It ends with the metrics of the web app and of the storage account read from the metrics API. It exits with a non-zero code in the same cases as `query-telemetry.sh`.
 
 ### Delivery times
 

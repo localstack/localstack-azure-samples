@@ -567,12 +567,13 @@ if [[ $? != 0 ]]; then
 	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account..."
 
-	# Create the diagnostic settings that send the transaction metrics of the storage account to the Log Analytics workspace
+	# Create the diagnostic settings that send the capacity and transaction metrics of the storage account to the Log Analytics workspace
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
 		--metrics '[
+			{"category": "Capacity", "enabled": true},
 			{"category": "Transaction", "enabled": true}
 		]' \
 		--only-show-errors 1>/dev/null
@@ -599,7 +600,7 @@ if [[ $? != 0 ]]; then
 	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account..."
 
-	# Create the diagnostic settings that send the logs of the requests to the blobs (StorageBlobLogs) and the transaction metrics of the blob service to the Log Analytics workspace
+	# Create the diagnostic settings that send the logs of the requests to the blobs (StorageBlobLogs) and the capacity and transaction metrics of the blob service to the Log Analytics workspace
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$BLOB_SERVICE_RESOURCE_ID" \
@@ -610,6 +611,7 @@ if [[ $? != 0 ]]; then
 			{"category": "StorageDelete", "enabled": true}
 		]' \
 		--metrics '[
+			{"category": "Capacity", "enabled": true},
 			{"category": "Transaction", "enabled": true}
 		]' \
 		--only-show-errors 1>/dev/null

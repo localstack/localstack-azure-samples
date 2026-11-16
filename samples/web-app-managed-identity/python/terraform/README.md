@@ -33,7 +33,7 @@ Alternatively, download a pre-built binary from the [lstk releases page](https:/
 
 ## Architecture Overview
 
-The [main.tf](main.tf) Terraform module creates the following Azure resources:
+The [main.tf](main.tf) Terraform configuration creates the following Azure resources, each through a module in the [modules](modules) folder:
 
 1. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob storage for persisting vacation activity data. The web application stores each activity as a JSON blob file in the `activities` container.
 2. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Defines the compute resources (CPU, memory, and scaling options) that host the web application.
@@ -41,9 +41,9 @@ The [main.tf](main.tf) Terraform module creates the following Azure resources:
 4. [Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): Provides secure, credential-free authentication between the web app and storage account. Supports both system-assigned and user-assigned identity types.
 5. [Role Assignment](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments): Grants the web app's managed identity the *Storage Blob Data Contributor* role, enabling read/write access to blob containers.
 6. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Enables continuous deployment from a Git repository for automated application updates.
-7. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, and the logs and metrics that the diagnostic settings send to it.
-8. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the requests, the calls to Blob Storage and the log records of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
-9. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs and the platform metrics of the web app, and the platform metrics of the App Service plan, to the Log Analytics workspace.
+7. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, the logs and metrics that the diagnostic settings send to it, and the audit records of the queries run on it.
+8. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the requests, the calls to Blob Storage, the log records, the exceptions, the custom events and the custom metric of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
+9. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs and the platform metrics of the web app, the platform metrics of the App Service plan and of the storage account, the logs and the transaction metrics of the blob service, and the query audit of the workspace itself to the Log Analytics workspace. The Application Insights resource has none: a workspace-based resource can't send to the workspace it's based on.
 
 The web app allows users to plan and manage vacation activities, storing all activity data as blob files in the `activities` containers in the [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview). For more information, see [Azure Web App with Managed Identity](../README.md).
 
@@ -157,14 +157,18 @@ az webapp show \
 	--output table \
 	--only-show-errors
 
-# Check user-assigned managed identity
+# Check user-assigned managed identity, which only the deployments with a user-assigned identity create
 echo -e "\n[$MANAGED_IDENTITY_NAME] managed identity:\n"
 az identity show \
 	--name "$MANAGED_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ClientId:clientId,PrincipalId:principalId}' \
 	--output table \
-	--only-show-errors
+	--only-show-errors 2>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$MANAGED_IDENTITY_NAME] managed identity: the web app uses its system-assigned managed identity"
+fi
 
 # Check storage account
 echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account:\n"
@@ -225,6 +229,41 @@ echo -e "\nApp Service plan diagnostic settings:\n"
 az monitor diagnostic-settings list \
 	--resource "$APP_SERVICE_PLAN_ID" \
 	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+# Check the diagnostic settings of the storage account, of its blob service and of the Log Analytics workspace
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID" \
+	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] blob service diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID/blobServices/default" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+echo -e "\n[$LOG_ANALYTICS_NAME] Log Analytics workspace diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$LOG_ANALYTICS_ID" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
 	--output table \
 	--only-show-errors
 

@@ -70,9 +70,9 @@ variable "blob_log_categories" {
 }
 
 variable "metric_categories" {
-  description = "(Optional) Specifies the metric categories that the diagnostic settings of the storage account and of its blob service send to the Log Analytics workspace (AzureMetrics table)."
+  description = "(Optional) Specifies the metric categories that the diagnostic settings of the storage account and of its blob service send to the Log Analytics workspace (AzureMetrics table): Capacity holds the hourly capacity metrics, Transaction the metrics of the requests."
   type        = list(string)
-  default     = ["Transaction"]
+  default     = ["Capacity", "Transaction"]
 }
 
 variable "tags" {
