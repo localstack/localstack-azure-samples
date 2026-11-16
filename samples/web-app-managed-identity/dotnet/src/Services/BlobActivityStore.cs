@@ -68,18 +68,24 @@ public sealed class BlobActivityStore : IActivityStore
         return activities;
     }
 
-    public Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task AddAsync(string text, CancellationToken cancellationToken)
     {
         var name = $"{DateTime.Now:yyyy-MM-dd-HH-mm-ss}-activity.txt";
-        return UploadAsync(name, text, cancellationToken);
+        await UploadAsync(name, text, cancellationToken);
+        ActivityTelemetry.Track(_logger, "ActivityAdded", "add", name);
     }
 
-    public Task UpdateAsync(string id, string text, CancellationToken cancellationToken) => UploadAsync(id, text, cancellationToken);
+    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    {
+        await UploadAsync(id, text, cancellationToken);
+        ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
+    }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
     {
         await _container.GetBlobClient(id).DeleteIfExistsAsync(cancellationToken: cancellationToken);
         _logger.LogInformation("Deleted blob '{Blob}' from container '{Container}'", id, _container.Name);
+        ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

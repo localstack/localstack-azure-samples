@@ -9,7 +9,14 @@ locals {
   application_insights_name = "${var.prefix}-insights-${var.suffix}"
 }
 
-# Create the Log Analytics workspace that the Application Insights component sends its telemetry to
+# Create a resource group
+resource "azurerm_resource_group" "example" {
+  name     = local.resource_group_name
+  location = var.location
+  tags     = var.tags
+}
+
+# Create the Log Analytics workspace that receives the logs and metrics of the resources and the telemetry of the web app
 module "log_analytics" {
   source              = "./modules/log_analytics"
   name                = local.log_analytics_name
@@ -18,7 +25,7 @@ module "log_analytics" {
   tags                = var.tags
 }
 
-# Create the workspace-based Application Insights component that collects the web app's requests, dependencies and logs
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies, logs, exceptions, custom events and custom metrics
 module "application_insights" {
   source              = "./modules/application_insights"
   name                = local.application_insights_name
@@ -28,148 +35,81 @@ module "application_insights" {
   tags                = var.tags
 }
 
-# Create a resource group
-resource "azurerm_resource_group" "example" {
-  name     = local.resource_group_name
-  location = var.location
-  tags     = var.tags
+# Create the storage account, its blob container and the diagnostic settings of the account and of its blob service
+module "storage_account" {
+  source                     = "./modules/storage_account"
+  name                       = local.storage_account_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = azurerm_resource_group.example.location
+  account_kind               = var.account_kind
+  account_tier               = var.account_tier
+  account_replication_type   = var.account_replication_type
+  container_names            = [var.storage_container_name]
+  log_analytics_workspace_id = module.log_analytics.id
+  diagnostic_setting_name    = var.diagnostic_settings_name
+  tags                       = var.tags
 }
 
-# Create a storage account
-resource "azurerm_storage_account" "example" {
-  name                     = local.storage_account_name
-  resource_group_name      = azurerm_resource_group.example.name
-  location                 = azurerm_resource_group.example.location
-  account_replication_type = var.account_replication_type
-  account_kind             = var.account_kind
-  account_tier             = var.account_tier
-  tags                     = var.tags
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
-}
-
-# Create storage container
-resource "azurerm_storage_container" "example" {
-  name                  = var.storage_container_name
-  storage_account_id    = azurerm_storage_account.example.id
-  container_access_type = "private"
-}
-
-# Conditionally create a user assigned identity for the function app
-resource "azurerm_user_assigned_identity" "identity" {
-  count = var.managed_identity_type == "UserAssigned" ? 1 : 0
-
+# Conditionally create a user-assigned identity for the web app
+module "managed_identity" {
+  source              = "./modules/managed_identity"
+  count               = var.managed_identity_type == "UserAssigned" ? 1 : 0
   name                = local.managed_identity_name
   resource_group_name = azurerm_resource_group.example.name
   location            = azurerm_resource_group.example.location
+  tags                = var.tags
 }
 
-# Assign Storage Blob Data Contributor role to the function app identity
-resource "azurerm_role_assignment" "blob_contributor" {
-  scope                = azurerm_storage_account.example.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = var.managed_identity_type == "UserAssigned" ? azurerm_user_assigned_identity.identity[0].principal_id : azurerm_linux_web_app.example.identity[0].principal_id
+# Create the App Service plan and its diagnostic setting
+module "app_service_plan" {
+  source                     = "./modules/app_service_plan"
+  name                       = local.app_service_plan_name
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = azurerm_resource_group.example.location
+  sku_name                   = var.sku_name
+  os_type                    = var.os_type
+  zone_balancing_enabled     = var.zone_balancing_enabled
+  log_analytics_workspace_id = module.log_analytics.id
+  diagnostic_setting_name    = var.diagnostic_settings_name
+  metric_categories          = var.metric_categories
+  tags                       = var.tags
 }
 
-# Create a service plan
-resource "azurerm_service_plan" "example" {
-  name                   = local.app_service_plan_name
-  resource_group_name    = azurerm_resource_group.example.name
-  location               = azurerm_resource_group.example.location
-  sku_name               = var.sku_name
-  os_type                = var.os_type
-  zone_balancing_enabled = var.zone_balancing_enabled
-  tags                   = var.tags
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
-}
-
-# Create a web app
-resource "azurerm_linux_web_app" "example" {
+# Create the web app and its diagnostic setting
+module "web_app" {
+  source                        = "./modules/web_app"
   name                          = local.web_app_name
   resource_group_name           = azurerm_resource_group.example.name
   location                      = azurerm_resource_group.example.location
-  service_plan_id               = azurerm_service_plan.example.id
+  service_plan_id               = module.app_service_plan.id
   https_only                    = var.https_only
   public_network_access_enabled = var.webapp_public_network_access_enabled
-  client_affinity_enabled       = false
+  always_on                     = var.always_on
+  http2_enabled                 = var.http2_enabled
+  minimum_tls_version           = var.minimum_tls_version
+  dotnet_version                = var.dotnet_version
+  identity_type                 = var.managed_identity_type
+  identity_ids                  = var.managed_identity_type == "UserAssigned" ? [module.managed_identity[0].id] : []
+  log_analytics_workspace_id    = module.log_analytics.id
+  diagnostic_setting_name       = var.diagnostic_settings_name
+  log_categories                = var.log_categories
+  metric_categories             = var.metric_categories
   tags                          = var.tags
-
-  identity {
-    type = var.managed_identity_type
-    identity_ids = var.managed_identity_type == "UserAssigned" ? [
-      azurerm_user_assigned_identity.identity[0].id
-    ] : []
-  }
-
-  site_config {
-    always_on           = var.always_on
-    http2_enabled       = var.http2_enabled
-    minimum_tls_version = var.minimum_tls_version
-    application_stack {
-      dotnet_version = var.dotnet_version
-    }
-  }
 
   app_settings = {
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "true"
     ENABLE_ORYX_BUILD                     = "true"
-    AZURE_STORAGE_ACCOUNT_URL             = azurerm_storage_account.example.primary_blob_endpoint
-    CONTAINER_NAME                        = azurerm_storage_container.example.name
-    AZURE_CLIENT_ID                       = var.managed_identity_type == "UserAssigned" ? azurerm_user_assigned_identity.identity[0].client_id : ""
+    AZURE_STORAGE_ACCOUNT_URL             = module.storage_account.primary_blob_endpoint
+    CONTAINER_NAME                        = var.storage_container_name
+    AZURE_CLIENT_ID                       = var.managed_identity_type == "UserAssigned" ? module.managed_identity[0].client_id : ""
     APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
   }
-
-  lifecycle {
-    ignore_changes = [
-      tags
-    ]
-  }
 }
 
-# Send the logs and the platform metrics of the web app to the Log Analytics workspace
-resource "azurerm_monitor_diagnostic_setting" "web_app" {
-  name                       = var.diagnostic_settings_name
-  target_resource_id         = azurerm_linux_web_app.example.id
-  log_analytics_workspace_id = module.log_analytics.id
-
-  dynamic "enabled_log" {
-    for_each = toset(var.log_categories)
-    content {
-      category = enabled_log.value
-    }
-  }
-
-  dynamic "enabled_metric" {
-    for_each = toset(var.metric_categories)
-    content {
-      category = enabled_metric.value
-    }
-  }
-}
-
-# Send the platform metrics of the App Service plan to the Log Analytics workspace
-resource "azurerm_monitor_diagnostic_setting" "app_service_plan" {
-  name                       = var.diagnostic_settings_name
-  target_resource_id         = azurerm_service_plan.example.id
-  log_analytics_workspace_id = module.log_analytics.id
-
-  dynamic "enabled_metric" {
-    for_each = toset(var.metric_categories)
-    content {
-      category = enabled_metric.value
-    }
-  }
+# Assign the Storage Blob Data Contributor role on the storage account to the identity of the web app
+module "storage_blob_data_contributor_role_assignment" {
+  source               = "./modules/role_assignment"
+  scope                = module.storage_account.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.managed_identity_type == "UserAssigned" ? module.managed_identity[0].principal_id : module.web_app.principal_id
 }

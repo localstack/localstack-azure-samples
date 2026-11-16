@@ -3,9 +3,10 @@
 # Usage: query-logs-and-metrics.sh
 #
 # Calls the web app, then reads back what the diagnostic settings of the sample sent to its Log Analytics workspace:
-# the HTTP requests, console output and platform events of the web app, and the exported platform metrics of the web
-# app and of its App Service plan. It ends with the platform metrics of the web app read from the Azure Monitor
-# metrics API.
+# the HTTP requests, console output and platform events of the web app, the exported platform metrics of the web app and
+# of its App Service plan, the requests of the web app to the blobs of the storage account and the transaction metrics
+# of the storage account and of its blob service, and the audit records of the queries run on the workspace. It ends
+# with the platform metrics of the web app and of the storage account read from the Azure Monitor metrics API.
 #
 # The records reach the workspace within seconds on the emulator, and the metrics once their one-minute window is
 # over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
@@ -16,6 +17,7 @@ PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
@@ -190,6 +192,38 @@ else
 	exit 1
 fi
 
+# Get the resource id of the storage account
+echo "Retrieving the resource id of the [$STORAGE_ACCOUNT_NAME] storage account..."
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $STORAGE_ACCOUNT_ID ]]; then
+	echo "Resource id [$STORAGE_ACCOUNT_ID] of the [$STORAGE_ACCOUNT_NAME] storage account successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$STORAGE_ACCOUNT_NAME] storage account"
+	exit 1
+fi
+
+# Get the resource id of the Log Analytics workspace
+echo "Retrieving the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID ]]; then
+	echo "Resource id [$LOG_ANALYTICS_ID] of the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
 # Get the default host name of the web app
 echo "Retrieving the default host name of the [$WEB_APP_NAME] web app..."
 WEB_APP_HOST_NAME=$(az webapp show \
@@ -206,9 +240,12 @@ else
 	exit 1
 fi
 
-# Show where the diagnostic settings send the logs and metrics of the web app and of its App Service plan
+# Show where the diagnostic settings send the logs and metrics of the resources
 show_diagnostic_settings "$WEB_APP_ID" "[$WEB_APP_NAME] web app"
 show_diagnostic_settings "$APP_SERVICE_PLAN_ID" "App Service plan"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID/blobServices/default" "blob service of the [$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace"
 
 # Wait until the web app answers: on Azure the asynchronous zip deployment can still be building the app
 echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [https://$WEB_APP_HOST_NAME/]..."
@@ -274,7 +311,31 @@ query_workspace \
 	"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' and MetricName in ('CpuPercentage', 'MemoryPercentage') | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}"
 
-# The same platform metrics of the web app, read from the Azure Monitor metrics API: they need no diagnostic setting
+# The requests of the web app to the blobs of the storage account, which it authenticates with its managed identity
+# (StorageBlobLogs, from the diagnostic setting of the blob service)
+query_workspace \
+	"Latest requests to the blobs of the [$STORAGE_ACCOUNT_NAME] storage account (StorageBlobLogs)" \
+	"StorageBlobLogs | where AccountName =~ '$STORAGE_ACCOUNT_NAME' | project TimeGenerated, OperationName, StatusCode, AuthenticationType, ObjectKey | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Operation:OperationName,Status:StatusCode,Authentication:AuthenticationType,Object:ObjectKey}"
+
+# The transaction metrics that the diagnostic settings of the storage account and of its blob service export to the
+# workspace (AzureMetrics), one record per metric and minute for each of the two
+query_workspace \
+	"Transaction metrics of the [$STORAGE_ACCOUNT_NAME] storage account exported to the workspace (AzureMetrics)" \
+	"AzureMetrics | where _ResourceId startswith '$STORAGE_ACCOUNT_ID' and MetricName == 'Transactions' | extend Scope = iff(_ResourceId endswith '/blobServices/default', 'blob service', 'storage account') | summarize Minutes = count(), Total = sum(Total) by Scope, MetricName | order by Scope asc" \
+	"[].{Scope:Scope,Metric:MetricName,Minutes:Minutes,Total:Total}" \
+	2
+
+# The audit records of the queries run on the workspace, among them the ones above (LAQueryLogs, from the diagnostic
+# setting of the workspace itself)
+query_workspace \
+	"Latest queries run on the [$LOG_ANALYTICS_NAME] Log Analytics workspace (LAQueryLogs)" \
+	"LAQueryLogs | project TimeGenerated, ResponseCode, Query = substring(QueryText, 0, 80) | order by TimeGenerated desc | take 5" \
+	"[].{Time:TimeGenerated,Response:ResponseCode,Query:Query}"
+
+# The same platform metrics of the web app and of the storage account, read from the Azure Monitor metrics API: they
+# need no diagnostic setting
 show_metrics "$WEB_APP_ID" "[$WEB_APP_NAME] web app" Requests Http2xx Http4xx Http5xx BytesReceived BytesSent
+show_metrics "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account" Transactions Ingress Egress
 
 exit $EXIT_CODE

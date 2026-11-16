@@ -1,3 +1,5 @@
+# The component has no diagnostic setting: its telemetry is already stored in the workspace it's based on, and a
+# diagnostic setting of a workspace-based component can't send to that workspace.
 resource "azurerm_application_insights" "example" {
   name                         = var.name
   location                     = var.location

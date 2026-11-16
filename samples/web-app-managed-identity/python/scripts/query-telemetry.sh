@@ -2,10 +2,12 @@
 
 # Usage: query-telemetry.sh
 #
-# Waits for the web app to answer (the deploy scripts upload it asynchronously), calls it, then reads back what the
-# Microsoft OpenTelemetry Distro sent through the connection string of the Application Insights resource to its Log
-# Analytics workspace: the requests the web app served (AppRequests), its calls to Blob Storage (AppDependencies) and
-# the application's own log records (AppTraces).
+# Waits for the web app to answer (the deploy scripts upload it asynchronously), calls it, adds an activity, then reads
+# back what the Microsoft OpenTelemetry Distro sent through the connection string of the Application Insights resource
+# to its Log Analytics workspace: the requests the web app served (AppRequests), its calls to Blob Storage
+# (AppDependencies), the application's own log records (AppTraces), the custom event of the activity (AppEvents), the
+# custom metric that counts the activities (AppMetrics), and the exceptions the application logged, if any
+# (AppExceptions).
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so the wait and every
 # query are retried: raise RETRY_COUNT there.
@@ -69,6 +71,42 @@ query_workspace() {
 	echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace returned [${records:-0}] of the [$minimum_records] records expected after $RETRY_COUNT attempts."
 	echo "On Azure the first records of a new component can take several minutes: run the script again later or raise RETRY_COUNT."
 	EXIT_CODE=1
+}
+
+# Run a KQL query on the Log Analytics workspace once and print the records it returns as a table, or say that there
+# are none: for records that only an unexpected event produces
+# $1: what the query reads
+# $2: the KQL query
+# $3: the JMESPath projection that names and orders the columns of the table
+# $4: what it means when there are no records
+show_workspace_records() {
+	local description=$1
+	local query=$2
+	local columns=$3
+	local when_empty=$4
+	local records
+
+	echo -e "\n$description:\n"
+	records=$(az monitor log-analytics query \
+		--workspace "$WORKSPACE_ID" \
+		--analytics-query "$query" \
+		--query "length(@)" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query"
+		EXIT_CODE=1
+	elif [[ $records == 0 ]]; then
+		echo "$when_empty"
+	else
+		az monitor log-analytics query \
+			--workspace "$WORKSPACE_ID" \
+			--analytics-query "$query" \
+			--query "$columns" \
+			--output table \
+			--only-show-errors
+	fi
 }
 
 # Check whether the log-analytics extension of the Azure CLI, which provides the az monitor log-analytics query
@@ -157,6 +195,31 @@ for CALL in $(seq 1 "$WEB_APP_CALLS"); do
 	echo "Call $CALL of $WEB_APP_CALLS to the [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]"
 done
 
+# Add an activity, so that AppEvents holds its ActivityAdded custom event and AppMetrics the activities custom metric.
+# The form of the .NET app carries an antiforgery token, without which ASP.NET Core refuses the post: the script reads
+# the form first and sends the token back with the cookie that came with it. The Python app has no such token.
+ACTIVITY="Telemetry check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+COOKIE_JAR=$(mktemp)
+echo "Adding the [$ACTIVITY] activity with the [$WEB_APP_NAME] web app..."
+FORM_TOKEN=$(curl --max-time 30 --silent --cookie-jar "$COOKIE_JAR" "https://$WEB_APP_HOST_NAME/" |
+	grep -o 'name="__RequestVerificationToken"[^>]*value="[^"]*"' |
+	head -n 1 |
+	sed 's/.*value="//; s/"$//')
+STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" \
+	--cookie "$COOKIE_JAR" \
+	--data-urlencode "activity=$ACTIVITY" \
+	--data-urlencode "__RequestVerificationToken=$FORM_TOKEN" \
+	"https://$WEB_APP_HOST_NAME/")
+rm -f "$COOKIE_JAR"
+
+# The app redirects to its page once it stored the activity
+if [[ $STATUS_CODE == 302 ]]; then
+	echo "The [$WEB_APP_NAME] web app stored the [$ACTIVITY] activity"
+else
+	echo "ERROR: the [$WEB_APP_NAME] web app answered the new activity with status code [$STATUS_CODE]"
+	EXIT_CODE=1
+fi
+
 # The requests the web app served (AppRequests)
 query_workspace \
 	"Latest requests served by the [$WEB_APP_NAME] web app (AppRequests)" \
@@ -174,5 +237,25 @@ query_workspace \
 	"Latest log records of the [$WEB_APP_NAME] web app (AppTraces)" \
 	"AppTraces | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
+# The custom events of the activities added, including the one above, with the id of each activity (AppEvents)
+query_workspace \
+	"Latest ActivityAdded custom events of the [$WEB_APP_NAME] web app (AppEvents)" \
+	"AppEvents | where Name == 'ActivityAdded' | project TimeGenerated, Name, ActivityId = tostring(Properties['activity.id']) | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Name:Name,Activity:ActivityId}"
+
+# The custom metric that counts the activities by operation, exported once a minute (AppMetrics)
+query_workspace \
+	"Custom metric of the activities (AppMetrics)" \
+	"AppMetrics | where Name == 'activities' | summarize Total = sum(Sum) by Name, Operation = tostring(Properties['operation'])" \
+	"[].{Metric:Name,Operation:Operation,Total:Total}"
+
+# The exceptions the application logged with their stack trace (AppExceptions): a call to Blob Storage that fails, for
+# example after the blob container was deleted, produces one
+show_workspace_records \
+	"Latest exceptions of the [$WEB_APP_NAME] web app (AppExceptions)" \
+	"AppExceptions | project TimeGenerated, ExceptionType, OuterMessage | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Exception:ExceptionType,Message:OuterMessage}" \
+	"No exceptions: the [$WEB_APP_NAME] web app logged none."
 
 exit $EXIT_CODE

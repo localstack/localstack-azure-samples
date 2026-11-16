@@ -35,3 +35,21 @@ variable "tags" {
   type        = map(any)
   default     = {}
 }
+
+variable "diagnostic_setting_name" {
+  description = "(Optional) Specifies the name of the diagnostic setting of the workspace."
+  type        = string
+  default     = "default"
+}
+
+variable "log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the workspace sends to the workspace itself. Audit records the queries run on the workspace in the LAQueryLogs table."
+  type        = list(string)
+  default     = ["Audit"]
+}
+
+variable "metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic setting of the workspace sends to the workspace itself."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}

@@ -1,13 +1,17 @@
 using System.Diagnostics;
 using Microsoft.OpenTelemetry;
+using OpenTelemetry.Metrics;
 using VacationPlanner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
-// Distro sends to Application Insights the requests the app serves, its calls to Blob Storage, and its log records.
+// Distro sends to Application Insights the requests the app serves, its calls to Blob Storage, its log records (traces),
+// the exceptions it logs, and the custom events and the custom metric of ActivityTelemetry.
 if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
+    // The distro exports the custom metrics of the meters it's told about
+    builder.Services.ConfigureOpenTelemetryMeterProvider((_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
     builder.UseMicrosoftOpenTelemetry(options =>
     {
         options.Exporters = ExportTarget.AzureMonitor;
