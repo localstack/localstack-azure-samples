@@ -11,7 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
     // The distro exports the custom metrics of the meters it's told about
-    builder.Services.ConfigureOpenTelemetryMeterProvider((_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
+    builder.Services.ConfigureOpenTelemetryMeterProvider(
+        (_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
     builder.UseMicrosoftOpenTelemetry(options =>
     {
         options.Exporters = ExportTarget.AzureMonitor;
@@ -31,8 +32,13 @@ var storageOptions = BlobStorageOptions.FromEnvironment();
 builder.Services.AddRazorPages();
 builder.Services.AddSingleton<IActivityStore>(sp =>
     new BlobActivityStore(storageOptions, sp.GetRequiredService<ILogger<BlobActivityStore>>()));
-builder.Services.AddHostedService(sp =>
-    new StoreInitializer(sp.GetRequiredService<IActivityStore>(), sp.GetRequiredService<ILogger<StoreInitializer>>()));
+// The role assignment of the web app's identity on the storage account can take minutes to take effect on Azure: until
+// then, creating the container fails with 403, so the initializer retries for up to two minutes before giving up.
+builder.Services.AddHostedService(sp => new StoreInitializer(
+    sp.GetRequiredService<IActivityStore>(),
+    sp.GetRequiredService<ILogger<StoreInitializer>>(),
+    attempts: 30,
+    delay: TimeSpan.FromSeconds(4)));
 
 var app = builder.Build();
 

@@ -123,7 +123,8 @@ The application also sends a [custom event](https://learn.microsoft.com/en-us/az
 
 ```csharp
 // Program.cs: the distro exports the custom metrics of the meters it's told about
-builder.Services.ConfigureOpenTelemetryMeterProvider((_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
+builder.Services.ConfigureOpenTelemetryMeterProvider(
+    (_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
 
 // ActivityTelemetry.cs
 public static void Track(ILogger logger, string eventName, string operation, string activityId)
