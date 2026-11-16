@@ -74,10 +74,12 @@ public sealed class MySqlActivityStore(MySqlOptions options, ILogger<MySqlActivi
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new MySqlCommand(
             "INSERT IGNORE INTO activities (id, username, activity) VALUES (@id, @username, @activity)", connection);
-        command.Parameters.AddWithValue("@id", ActivityId.Create(options.Username, text));
+        var id = ActivityId.Create(options.Username, text);
+        command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@username", options.Username);
         command.Parameters.AddWithValue("@activity", text);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        ActivityTelemetry.Track(logger, "ActivityAdded", "add", id);
     }
 
     public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
@@ -87,6 +89,7 @@ public sealed class MySqlActivityStore(MySqlOptions options, ILogger<MySqlActivi
         command.Parameters.AddWithValue("@activity", text);
         command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        ActivityTelemetry.Track(logger, "ActivityUpdated", "update", id);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
@@ -95,6 +98,7 @@ public sealed class MySqlActivityStore(MySqlOptions options, ILogger<MySqlActivi
         await using var command = new MySqlCommand("DELETE FROM activities WHERE id = @id", connection);
         command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        ActivityTelemetry.Track(logger, "ActivityDeleted", "delete", id);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

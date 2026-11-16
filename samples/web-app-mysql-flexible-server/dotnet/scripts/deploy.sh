@@ -17,6 +17,7 @@ SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
 WEB_APP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
 PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
@@ -961,22 +962,48 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] app service plan already exist"
 fi
 
-# Check whether the diagnostic settings for the MySQL flexible server already exist
+# Turn on the audit log of the MySQL flexible server for the connection events: audit logging is off by default, and the
+# MySqlAuditLogs category of the diagnostic settings below has records only once the server writes them
+for PARAMETER in "audit_log_enabled=ON" "audit_log_events=CONNECTION"; do
+	PARAMETER_NAME="${PARAMETER%%=*}"
+	PARAMETER_VALUE="${PARAMETER#*=}"
+	echo "Setting the [$PARAMETER_NAME] parameter of the [$MYSQL_SERVER_NAME] MySQL flexible server to [$PARAMETER_VALUE]..."
+	az mysql flexible-server parameter set \
+		--server-name "$MYSQL_SERVER_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$PARAMETER_NAME" \
+		--value "$PARAMETER_VALUE" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$PARAMETER_NAME] parameter of the [$MYSQL_SERVER_NAME] MySQL flexible server successfully set to [$PARAMETER_VALUE]"
+	else
+		echo "Failed to set the [$PARAMETER_NAME] parameter of the [$MYSQL_SERVER_NAME] MySQL flexible server to [$PARAMETER_VALUE]"
+		exit 1
+	fi
+done
+
+# Check whether the diagnostic settings for the MySQL flexible server already exist and send its logs to resource-specific tables:
+# a setting an earlier version of this script created sends them to AzureDiagnostics, and the create below updates it
 echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$MYSQL_SERVER_NAME] MySQL flexible server already exist..."
-az monitor diagnostic-settings show \
+MYSQL_SERVER_DESTINATION_TYPE=$(az monitor diagnostic-settings show \
 	--name "$DIAGNOSTIC_SETTINGS_NAME" \
 	--resource "$MYSQL_SERVER_ID" \
-	--only-show-errors &>/dev/null
+	--query logAnalyticsDestinationType \
+	--output tsv \
+	--only-show-errors 2>/dev/null)
 
-if [[ $? != 0 ]]; then
-	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$MYSQL_SERVER_NAME] MySQL flexible server actually exist"
+if [[ $MYSQL_SERVER_DESTINATION_TYPE != "Dedicated" ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$MYSQL_SERVER_NAME] MySQL flexible server that send its logs to resource-specific tables actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$MYSQL_SERVER_NAME] MySQL flexible server..."
 
-	# Create the diagnostic settings for the MySQL flexible server to send logs to the Log Analytics workspace
+	# Create (or update) the diagnostic settings for the MySQL flexible server to send its logs to the Log Analytics workspace, in
+	# the resource-specific MySqlAuditLogs and MySqlSlowLogs tables rather than AzureDiagnostics
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$MYSQL_SERVER_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
+		--export-to-resource-specific true \
 		--logs '[
 			{"category": "MySqlSlowLogs", "enabled": true},
 			{"category": "MySqlAuditLogs", "enabled": true}
@@ -1092,6 +1119,201 @@ if [[ $? != 0 ]]; then
 	fi
 else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PE_SUBNET_NSG_NAME] network security group for the private endpoint subnet already exist"
+fi
+
+# Check if the Application Insights component already exists
+echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create a workspace-based Application Insights component that stores the telemetry of the web app in the Log
+	# Analytics workspace
+	az monitor app-insights component create \
+		--app "$APPLICATION_INSIGHTS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--application-type web \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
+# Get the connection string of the Application Insights component
+echo "Getting the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component..."
+APPLICATION_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query connectionString \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APPLICATION_INSIGHTS_CONNECTION_STRING ]]; then
+	echo "Connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component retrieved successfully."
+else
+	echo "Failed to retrieve the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component."
+	exit 1
+fi
+
+# Hand the connection string to the web app: the Microsoft OpenTelemetry Distro in the app sends its telemetry to it
+echo "Setting the APPLICATIONINSIGHTS_CONNECTION_STRING app setting of the [$WEB_APP_NAME] web app..."
+az webapp config appsettings set \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--settings APPLICATIONINSIGHTS_CONNECTION_STRING="$APPLICATION_INSIGHTS_CONNECTION_STRING" \
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "APPLICATIONINSIGHTS_CONNECTION_STRING app setting of the [$WEB_APP_NAME] web app set successfully."
+else
+	echo "Failed to set the APPLICATIONINSIGHTS_CONNECTION_STRING app setting of the [$WEB_APP_NAME] web app."
+	exit 1
+fi
+
+# Get the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP prefix
+echo "Retrieving the resource ids of the [$LOG_ANALYTICS_NAME] Log Analytics workspace, of the [$NAT_GATEWAY_NAME] NAT Gateway and of the [$PIP_PREFIX_NAME] public IP prefix..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+PIP_PREFIX_ID=$(az network public-ip prefix show \
+	--name "$PIP_PREFIX_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID && -n $NAT_GATEWAY_ID && -n $PIP_PREFIX_ID ]]; then
+	echo "Resource ids of the Log Analytics workspace, of the NAT Gateway and of the public IP prefix successfully retrieved"
+else
+	echo "Failed to retrieve the resource ids of the Log Analytics workspace, of the NAT Gateway and of the public IP prefix"
+	exit 1
+fi
+
+# Check whether the diagnostic settings for the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
+fi
+
+# Check whether the diagnostic settings for the NAT Gateway already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$NAT_GATEWAY_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway..."
+
+	# Create the diagnostic settings for the NAT Gateway to send its flow logs and its metrics to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$NAT_GATEWAY_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "NatGatewayFlowlogsV1", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway already exist"
+fi
+
+# Check whether the diagnostic settings for the public IP prefix of the NAT Gateway already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$PIP_PREFIX_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix..."
+
+	# Create the diagnostic settings for the public IP prefix to send its DDoS protection logs and its metrics to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$PIP_PREFIX_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "DDoSProtectionNotifications", "enabled": true},
+			{"category": "DDoSMitigationFlowLogs", "enabled": true},
+			{"category": "DDoSMitigationReports", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$PIP_PREFIX_NAME] public IP prefix already exist"
 fi
 
 # Change current directory to source folder

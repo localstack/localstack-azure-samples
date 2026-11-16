@@ -148,6 +148,9 @@ param mysqlPrivateEndpointName string = ''
 @description('Specifies the name of the Azure Log Analytics resource.')
 param logAnalyticsName string = ''
 
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
 @description('Specifies the service tier of the workspace.')
 @allowed(['Free','Standalone','PerNode','PerGB2018'])
 param logAnalyticsSku string = 'PerNode'
@@ -188,6 +191,16 @@ module workspace 'modules/log-analytics.bicep' = {
     tags: tags
     sku: logAnalyticsSku
     retentionInDays: logAnalyticsRetentionInDays
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -249,7 +262,6 @@ module privateEndpoint 'modules/private-endpoint.bicep' = {
       : mysqlPrivateEndpointName
     privateLinkServiceId: mysqlServer.outputs.id
     privateDnsZoneId: privateDnsZone.outputs.id
-    vnetId: network.outputs.virtualNetworkId
     subnetId: network.outputs.peSubnetId
     groupIds: [
       'mysqlServer'
@@ -293,6 +305,7 @@ module webApp 'modules/web-app.bicep' = {
     mysqlPort: mysqlPort
     mysqlDatabase: mysqlServer.outputs.databaseName
     username: username
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     workspaceId: workspace.outputs.id
     tags: tags
   }
@@ -306,3 +319,5 @@ output webAppDefaultHostName string = webApp.outputs.defaultHostName
 output mysqlServerName string = mysqlServer.outputs.name
 output mysqlFqdn string = mysqlServer.outputs.fqdn
 output databaseName string = mysqlServer.outputs.databaseName
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

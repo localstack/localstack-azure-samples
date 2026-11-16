@@ -79,3 +79,31 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "log_analytics_destination_type" {
+  description = "(Optional) Specifies where the diagnostic setting writes the logs in the workspace: Dedicated writes them to the resource-specific MySqlAuditLogs and MySqlSlowLogs tables that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table."
+  type        = string
+  default     = "Dedicated"
+
+  validation {
+    condition     = contains(["AzureDiagnostics", "Dedicated"], var.log_analytics_destination_type)
+    error_message = "The log_analytics_destination_type must be AzureDiagnostics or Dedicated."
+  }
+}
+
+variable "audit_log_enabled" {
+  description = "(Optional) Specifies whether the server writes its audit log, whose records the MySqlAuditLogs category of the diagnostic setting sends to the workspace. Azure turns it off by default."
+  type        = string
+  default     = "ON"
+
+  validation {
+    condition     = contains(["ON", "OFF"], var.audit_log_enabled)
+    error_message = "The audit_log_enabled must be ON or OFF."
+  }
+}
+
+variable "audit_log_events" {
+  description = "(Optional) Specifies the comma-separated types of the events that the audit log records: CONNECTION for the connections to the server."
+  type        = string
+  default     = "CONNECTION"
+}
