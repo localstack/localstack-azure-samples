@@ -100,9 +100,8 @@ var publicIpPrefixLogCategories = [
 var publicIpPrefixMetricCategories = [
   'AllMetrics'
 ]
-var natGatewayLogCategories = [
-  'NatGatewayFlowlogsV1'
-]
+// A Standard NAT Gateway has no resource logs: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one
+var natGatewayLogCategories = []
 var natGatewayMetricCategories = [
   'AllMetrics'
 ]

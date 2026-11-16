@@ -66,9 +66,9 @@ variable "public_ip_metric_categories" {
 }
 
 variable "nat_gateway_log_categories" {
-  description = "(Optional) Specifies the log categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace."
+  description = "(Optional) Specifies the log categories that the diagnostic setting of the NAT Gateway sends to the Log Analytics workspace. A Standard NAT Gateway has none: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one."
   type        = list(string)
-  default     = ["NatGatewayFlowlogsV1"]
+  default     = []
 }
 
 variable "nat_gateway_metric_categories" {

@@ -121,10 +121,8 @@ param publicIpPrefixMetricCategories array = [
   'AllMetrics'
 ]
 
-@description('Specifies the log categories that the diagnostic settings of the NAT Gateway send to the Log Analytics workspace.')
-param natGatewayLogCategories array = [
-  'NatGatewayFlowlogsV1'
-]
+@description('Specifies the log categories that the diagnostic settings of the NAT Gateway send to the Log Analytics workspace. A Standard NAT Gateway has none: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one.')
+param natGatewayLogCategories array = []
 
 @description('Specifies the metric categories that the diagnostic settings of the NAT Gateway send to the Log Analytics workspace.')
 param natGatewayMetricCategories array = [

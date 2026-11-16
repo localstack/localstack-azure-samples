@@ -1944,14 +1944,12 @@ if [[ $? != 0 ]]; then
 	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway actually exist"
 	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$NAT_GATEWAY_NAME] NAT Gateway..."
 
-	# Create the diagnostic settings for the NAT Gateway to send its flow logs and its metrics to the Log Analytics workspace
+	# Create the diagnostic settings for the NAT Gateway to send its metrics to the Log Analytics workspace. A Standard
+	# NAT Gateway has no resource logs: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one.
 	az monitor diagnostic-settings create \
 		--name "$DIAGNOSTIC_SETTINGS_NAME" \
 		--resource "$NAT_GATEWAY_ID" \
 		--workspace "$LOG_ANALYTICS_NAME" \
-		--logs '[
-			{"category": "NatGatewayFlowlogsV1", "enabled": true}
-		]' \
 		--metrics '[
 			{"category": "AllMetrics", "enabled": true}
 		]' \
