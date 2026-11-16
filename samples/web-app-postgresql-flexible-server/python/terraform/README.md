@@ -28,11 +28,12 @@ The Terraform configuration provisions:
 4. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (group `postgresqlServer`).
 5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview).
 6. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
-7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
-8. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`AllowAllIPs`, `0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-apply psql bootstrap.
-9. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB`.
-10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration. `PG_HOST` / `PG_PORT` / `PG_DATABASE` are written by Terraform; `PG_USER` and `PG_PASSWORD` are written by `deploy.sh` after psql creates the application role.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview), with a diagnostic setting that sends the audit records of the queries run on the workspace to the workspace itself.
+8. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
+9. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`AllowAllIPs`, `0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-apply psql bootstrap.
+10. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB`.
+11. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
+12. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration. `PG_HOST` / `PG_PORT` / `PG_DATABASE` are written by Terraform; `PG_USER` and `PG_PASSWORD` are written by `deploy.sh` after psql creates the application role. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 ## Provisioning Script
 
@@ -61,6 +62,17 @@ Override any of the variables in [`variables.tf`](variables.tf) by editing [`ter
 | `pg_database_name`         | `PlannerDB`      | Application database                     |
 
 For non-dev deployments, set `pg_admin_password` via env var: `PG_ADMIN_PASSWORD=... bash deploy.sh`.
+
+## Telemetry, logs and metrics
+
+Once the web app is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
 
 ## Related Documentation
 

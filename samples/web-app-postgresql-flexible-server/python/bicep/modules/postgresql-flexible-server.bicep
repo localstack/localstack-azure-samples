@@ -66,6 +66,13 @@ param firewallEndIp string = '255.255.255.255'
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes them to the resource-specific PGSQLServerLogs table that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {}
 
@@ -142,6 +149,8 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-0
   }
 }
 
+// Azure runs one operation at a time on a flexible server ("ServerIsBusy" otherwise), so the firewall rule
+// waits for the database instead of being created in parallel with it.
 resource firewallRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
   parent: server
   name: firewallRuleName
@@ -149,6 +158,9 @@ resource firewallRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2
     startIpAddress: firewallStartIp
     endIpAddress: firewallEndIp
   }
+  dependsOn: [
+    database
+  ]
 }
 
 resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
@@ -156,6 +168,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: server
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
     logs: logs
     metrics: metrics
   }
