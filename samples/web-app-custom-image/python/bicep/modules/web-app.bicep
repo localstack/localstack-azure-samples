@@ -41,6 +41,9 @@ param publicNetworkAccess string = 'Enabled'
 @description('Specifies whether HTTPS is enforced for the Azure Web App.')
 param httpsOnly bool = true
 
+@description('Specifies the connection string of the Application Insights resource the app sends its telemetry to.')
+param applicationInsightsConnectionString string
+
 @description('Specifies the name of the hosting plan.')
 param hostingPlanName string
 
@@ -179,6 +182,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     WEBSITES_PORT: '80'
     APP_NAME: 'Custom Image'
     IMAGE_NAME: '${loginServer}/${imageName}:${imageTag}'
+    APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString
   }
 }
 

@@ -4,6 +4,7 @@ locals {
   suffix                     = lower(var.suffix)
   resource_group_name        = "${var.prefix}-rg"
   log_analytics_name         = "${local.prefix}-log-analytics-${local.suffix}"
+  application_insights_name  = "${local.prefix}-insights-${local.suffix}"
   virtual_network_name       = "${local.prefix}-vnet-${local.suffix}"
   nat_gateway_name           = "${local.prefix}-nat-gateway-${local.suffix}"
   nat_gateway_ip_prefix_name = "${local.prefix}-nat-gateway-pip-prefix-${local.suffix}"
@@ -33,6 +34,17 @@ module "log_analytics_workspace" {
   name                = local.log_analytics_name
   location            = var.location
   resource_group_name = azurerm_resource_group.example.name
+  tags                = var.tags
+}
+
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies, logs,
+# exceptions, custom events and custom metrics
+module "application_insights" {
+  source              = "./modules/application_insights"
+  name                = local.application_insights_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  workspace_id        = module.log_analytics_workspace.id
   tags                = var.tags
 }
 
@@ -117,7 +129,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
   }
-  tags = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
 }
 
 # Create a private DNS zone for the CosmosDB MongoDB account and link it to the virtual network
@@ -220,6 +233,8 @@ module "web_app" {
     WEBSITES_PORT                  = var.websites_port
     APP_NAME                       = "Custom Image"
     IMAGE_NAME                     = "${module.container_registry.login_server}/${var.image_name}:${var.image_tag}"
+    # The Microsoft OpenTelemetry Distro in the app sends its telemetry to this Application Insights resource
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
   }
 
   depends_on = [null_resource.push_image]

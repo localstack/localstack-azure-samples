@@ -173,6 +173,9 @@ param acrName string = ''
 @description('Specifies the name of the Azure Log Analytics resource.')
 param logAnalyticsWorkspaceName string = ''
 
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {
   environment: 'test'
@@ -196,6 +199,17 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2025-07-01' existin
 }
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2024-11-01-preview' existing = {
   name: acrName == '' ? toLower('${prefix}acr${suffix}') : acrName
+}
+
+// The workspace-based Application Insights resource that collects the telemetry of the web app
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.id
+    tags: tags
+  }
 }
 
 module managedIdentity 'modules/managed-identity.bicep' = {
@@ -247,7 +261,6 @@ module privateEndpoints 'modules/private-endpoint.bicep' = {
     name: privateEndpointName
     privateLinkServiceId: containerRegistry.id
     privateDnsZoneId: privateDnsZone.outputs.id
-    vnetId: network.outputs.virtualNetworkId
     subnetId: network.outputs.peSubnetId
     groupIds: [
       'registry'
@@ -291,6 +304,7 @@ module webApp 'modules/web-app.bicep' = {
     managedIdentityName: managedIdentity.outputs.name
     managedIdentityType: 'UserAssigned'
     workspaceId: workspace.id
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     tags: tags
   }
 }
@@ -303,3 +317,5 @@ output webAppName string = webApp.outputs.name
 output acrName string = containerRegistry.name
 output acrLoginServer string = containerRegistry.properties.loginServer
 output managedIdentityName string = managedIdentity.outputs.name
+output logAnalyticsName string = workspace.name
+output applicationInsightsName string = applicationInsights.outputs.name
