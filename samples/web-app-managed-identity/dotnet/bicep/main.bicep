@@ -157,10 +157,62 @@ param containerName string = 'activities'
 ])
 param managedIdentityType string = 'SystemAssigned'
 
+@description('Specifies the name of the diagnostic settings of the web app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the web app send to the Log Analytics workspace.')
+param logCategories array = [
+  'AppServiceHTTPLogs'
+  'AppServiceConsoleLogs'
+  'AppServiceAppLogs'
+  'AppServiceAuditLogs'
+  'AppServiceIPSecAuditLogs'
+  'AppServicePlatformLogs'
+  'AppServiceAuthenticationLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the web app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
 var managedIdentityName = '${prefix}-identity-${suffix}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
+var diagnosticLogs = [
+  for category in logCategories: {
+    category: category
+    enabled: true
+  }
+]
+var diagnosticMetrics = [
+  for category in metricCategories: {
+    category: category
+    enabled: true
+  }
+]
+
+module logAnalytics 'modules/log-analytics.bicep' = {
+  name: 'logAnalytics'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: logAnalytics.outputs.id
+    tags: tags
+  }
+}
 
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (managedIdentityType == 'UserAssigned') {
   name: managedIdentityName
@@ -253,6 +305,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     CONTAINER_NAME: container.name
     AZURE_STORAGE_ACCOUNT_URL: storageAccount.properties.primaryEndpoints.blob
     AZURE_CLIENT_ID: managedIdentityType == 'SystemAssigned' ? '' : managedIdentity.properties.clientId
+    APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
   }
   dependsOn: [
     storageBlobDataOwnerRoleAssignment
@@ -269,7 +322,28 @@ resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = i
   }
 }
 
+resource webAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: webApp
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    logs: diagnosticLogs
+    metrics: diagnosticMetrics
+  }
+}
+
+resource appServicePlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: appServicePlan
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    metrics: diagnosticMetrics
+  }
+}
+
 output appServicePlanName string = appServicePlan.name
 output webAppName string = webApp.name
 output webAppUrl string = webApp.properties.defaultHostName
 output storageAccountName string = storageAccountName
+output logAnalyticsName string = logAnalyticsName
+output applicationInsightsName string = applicationInsightsName

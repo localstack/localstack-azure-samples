@@ -223,3 +223,29 @@ variable "tags" {
     iac         = "terraform"
   }
 }
+
+variable "diagnostic_settings_name" {
+  description = "(Optional) Specifies the name of the diagnostic settings of the web app and of the App Service plan."
+  type        = string
+  default     = "default"
+}
+
+variable "log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic settings of the web app send to the Log Analytics workspace."
+  type        = list(string)
+  default = [
+    "AppServiceHTTPLogs",
+    "AppServiceConsoleLogs",
+    "AppServiceAppLogs",
+    "AppServiceAuditLogs",
+    "AppServiceIPSecAuditLogs",
+    "AppServicePlatformLogs",
+    "AppServiceAuthenticationLogs",
+  ]
+}
+
+variable "metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic settings of the web app and of the App Service plan send to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
+}

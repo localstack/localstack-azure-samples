@@ -25,6 +25,11 @@ The system uses a **hybrid storage approach** combining:
 - **Azure Table Storage**: for persistent winner records
 - **In-memory Dictionary**: for fast access to active game data with thread-safe operations
 
+The functions run on a Linux App Service plan of the Basic (B1) tier, with Always On turned on so that the timer, queue and blob triggers keep running. The sample doesn't use the Linux Consumption plan, because .NET 9 is the last .NET version that it supports ([Supported languages in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages)). For monitoring, the sample adds:
+
+- **Azure Application Insights**: Collects the invocations and the log records of the functions and of the Functions host
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the logs and metrics that the diagnostic settings of the function app and of the App Service plan send to it
+
 ## Azure Functions Triggers and Bindings
 
 ### Triggers Used
@@ -173,6 +178,79 @@ Use the [call-http-triggers.sh](./scripts/call-http-triggers.sh) script to quick
 2. **Via localhost and host port mapped to the container's port**: Use `127.0.0.1` with the host port mapped to the container's port `80`.
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the function app from the Docker host machine.
 
+## Application Insights
+
+The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The Functions host sends the telemetry itself, without any change to the code of the functions, once the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting holds the connection string of the resource ([Monitor executions in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-monitoring)): the Azure CLI script passes `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and the Bicep and Terraform modules set it themselves. The workspace keeps the telemetry in these tables:
+
+| Table         | What the function app sends                                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `AppRequests` | The invocations of the functions, such as those of the `CreateGame` timer function, which runs when the host starts and then every minute |
+| `AppTraces`   | The log records of the functions and of the Functions host, such as `Executed 'Functions.ProcessGameFile'`                                |
+
+The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
+
+```bash
+az extension add --name log-analytics
+
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppRequests | summarize Invocations = count(), Failed = countif(Success == false) by Name | order by Name asc" \
+  --output table
+```
+
+```text
+Failed    Invocations    Name               TableName
+--------  -------------  -----------------  -------------
+0         2              CreateGame         PrimaryResult
+0         2              HandleGameEvent    PrimaryResult
+0         2              ProcessGameFile    PrimaryResult
+0         2              ProcessScoreboard  PrimaryResult
+```
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) reads both tables back, retrying until their records arrive: the timer keeps the function app busy by itself, so the script calls nothing. It exits with a non-zero code when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+## Logs and metrics
+
+The function app and its App Service plan each have a [diagnostic setting](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) named `default` that sends their resource logs and their platform metrics (`AllMetrics`) to the same workspace:
+
+| Resource         | Log categories     | Tables in the workspace | What the function app leaves there                                                                                                                   |
+| ---------------- | ------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function App     | `FunctionAppLogs`  | `FunctionAppLogs`       | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function (`Function.CreateGame`) |
+| App Service plan | None: metrics only | `AzureMetrics`          | The CPU and memory use of its instances                                                                                                              |
+
+The platform metrics of the function app, such as the executions of its functions (`FunctionExecutionCount`), land in the `AzureMetrics` table too. A few queries to try:
+
+```kusto
+// The records of the invocations of the timer function
+FunctionAppLogs
+| where Category == "Function.CreateGame"
+| project TimeGenerated, EventName, Level, Message
+
+// The records of the invocations, counted per function
+FunctionAppLogs
+| where Category startswith "Function."
+| summarize Records = count() by FunctionName
+
+// The executions of the functions per minute
+AzureMetrics
+| where MetricName == "FunctionExecutionCount"
+| project TimeGenerated, Total
+```
+
+The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly, for example with `az monitor metrics list --resource <function-app-id> --metrics FunctionExecutionCount --aggregation Total`.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the function app and of the plan, reads the invocation records and the exported platform metrics of both resources until their records arrive, and prints the executions of the function app from the metrics API. It exits with a non-zero code when a query still lacks its records after `RETRY_COUNT` attempts. On Azure an execution can be counted in the minute after the one in which it ran.
+
+### Delivery times
+
+On the emulator the records are queryable within seconds, and the platform metrics (`AzureMetrics`) once their one-minute window is over. On Azure the telemetry of Application Insights takes a few minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the scripts. On Azure the records of what the app did while it started can be missing for good when its diagnostic setting was created shortly before: the scripts read the latest records, which their own calls produced.
+
 ## Storage Contents
 
 You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/storage/storage-explorer/vs-azure-tools-storage-manage-with-storage-explorer) to confirm that your Azure Function app creates the expected storage entities in the emulated storage account. To do this:
@@ -221,6 +299,10 @@ Explore the following resources to deepen your understanding of Azure Functions,
 - [Azure Blob Storage](https://docs.microsoft.com/en-us/azure/storage/blobs/)
 - [Azure Queue Storage](https://docs.microsoft.com/en-us/azure/storage/queues/)
 - [Azure Table Storage](https://docs.microsoft.com/en-us/azure/storage/tables/)
+- [Application Insights overview](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview)
+- [Monitor executions in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-monitoring)
+- [Diagnostic settings in Azure Monitor](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings)
+- [Log Analytics workspace overview](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview)
 
 ### LocalStack for Azure
 

@@ -21,6 +21,8 @@ The following diagram illustrates the architecture of the solution:
 - **Azure App Service Plan**: Provides compute resources for the web app
 - **Azure Blob Storage**: Stores activity data as blobs in a container
 - **Azure Entra Tenant**: Issues security tokens via OAuth 2.0
+- **Azure Application Insights**: Collects the requests, the calls to Blob Storage and the log records of the web app
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the logs and metrics that the diagnostic settings of the web app and of the App Service plan send to it
 
 ## Security
 
@@ -101,6 +103,109 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the web app from the Docker host machine.
 4. **Via the default hostname**: Call the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
 
+## Application Insights
+
+The web app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The three deployment methods set the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource, and the application turns on the [Microsoft OpenTelemetry Distro](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=aspnetcore), the `Microsoft.OpenTelemetry` package, when the setting is present:
+
+```csharp
+using Microsoft.OpenTelemetry;
+
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.UseMicrosoftOpenTelemetry(options =>
+    {
+        options.Exporters = ExportTarget.AzureMonitor;
+    });
+}
+```
+
+The workspace keeps the telemetry in these tables:
+
+| Table             | What the web app sends                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `AppRequests`     | The requests it serves, such as `GET /Index`                                                          |
+| `AppDependencies` | Its calls to Blob Storage, such as `GET /activities` and `BlobContainerClient.GetBlobs`              |
+| `AppTraces`       | The records of its `ILogger` loggers, such as `Retrieved 3 blob(s) from container 'activities'`      |
+
+The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
+
+```bash
+az extension add --name log-analytics
+
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppDependencies | project TimeGenerated, Name, Target, ResultCode, Success | order by TimeGenerated desc | take 3" \
+  --output table
+```
+
+```text
+Name                          ResultCode    Success    TableName      Target                                                             TimeGenerated
+----------------------------  ------------  ---------  -------------  -----------------------------------------------------------------  ---------------------------
+GET /activities               200           True       PrimaryResult  localstoragetest.blob.core.azure.localhost.localstack.cloud:4566   2026-11-16T09:12:51.866138Z
+BlobContainerClient.GetBlobs                True       PrimaryResult                                                                     2026-11-16T09:12:51.866053Z
+GET /activities               200           True       PrimaryResult  localstoragetest.blob.core.azure.localhost.localstack.cloud:4566   2026-11-16T09:12:51.808341Z
+```
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app and reads the three tables back, retrying until their records arrive. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+## Logs and metrics
+
+The web app and its App Service plan each have a [diagnostic setting](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) named `default` that sends their resource logs and their platform metrics (`AllMetrics`) to the same workspace:
+
+| Resource         | Log categories                                                                                                                                                                  | Tables in the workspace                | What the web app leaves there                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web App          | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AppServiceAppLogs`, `AppServiceAuditLogs`, `AppServiceIPSecAuditLogs`, `AppServiceAuthenticationLogs` | One table per category, named after it | The requests it serves, its console output (a `VacationPlanner.Requests` line per request and the application's log lines) and the start of its container |
+| App Service plan | None: metrics only                                                                                                                                                              | `AzureMetrics`                         | The CPU and memory use of its instances                                                                                                        |
+
+The platform metrics of the web app, such as `Requests`, `Http2xx` and `BytesSent`, land in the `AzureMetrics` table too. A few queries to try:
+
+```kusto
+// The requests per minute, which the Logs page of the portal draws as a chart
+AppServiceHTTPLogs
+| summarize Requests = count() by bin(TimeGenerated, 1m)
+| render columnchart
+
+// The application's log lines in the console output
+AppServiceConsoleLogs
+| where ResultDescription has "container 'activities'"
+| project TimeGenerated, ResultDescription
+
+// The CPU and memory use of the App Service plan, minute by minute
+AzureMetrics
+| where MetricName in ("CpuPercentage", "MemoryPercentage")
+| project TimeGenerated, MetricName, Average
+```
+
+The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly.
+
+```bash
+WEB_APP_ID=$(az webapp show \
+  --name local-webapp-test \
+  --resource-group local-rg \
+  --query id \
+  --output tsv)
+
+az monitor metrics list \
+  --resource "$WEB_APP_ID" \
+  --metrics Requests Http2xx BytesSent \
+  --interval PT1M \
+  --aggregation Total \
+  --query "value[].{Metric:name.value,Total:sum(timeseries[].data[].total)}" \
+  --output table
+```
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the web app and of the plan, calls the web app, reads the HTTP requests, the console output and the platform events of the web app and the exported platform metrics of both resources until their records arrive, and prints the metrics of the web app. It exits with a non-zero code in the same cases as `query-telemetry.sh`.
+
+### Delivery times
+
+On the emulator the records are queryable within seconds, and the platform metrics (`AzureMetrics`) once their one-minute window is over. On Azure the telemetry of Application Insights takes a few minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the scripts. On Azure the records of what the app did while it started can be missing for good when its diagnostic setting was created shortly before: the scripts read the latest records, which their own calls produced.
+
 ## Storage Contents
 
 You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/storage/storage-explorer/vs-azure-tools-storage-manage-with-storage-explorer) to confirm that your Azure Web App creates the blobs in the `activities` container in the emulated storage account. To do this:
@@ -121,6 +226,10 @@ You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/sto
 - [What is Azure Blob storage?](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-overview)
 - [What is managed identities for Azure resources?](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview)
 - [How managed identities for Azure resources work with Azure virtual machines](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-managed-identities-work-vm)
+- [Application Insights overview](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview)
+- [Diagnostic settings in Azure Monitor](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings)
+- [Log Analytics workspace overview](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview)
+- [Enable Azure Monitor OpenTelemetry](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=aspnetcore)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [lstk GitHub repository](https://github.com/localstack/lstk)

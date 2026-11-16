@@ -17,3 +17,11 @@ output "function_app_name" {
 output "function_app_url" {
   value = "https://${azurerm_linux_function_app.example.name}.azurewebsites.net"
 }
+
+output "log_analytics_name" {
+  value = module.log_analytics.name
+}
+
+output "application_insights_name" {
+  value = module.application_insights.name
+}

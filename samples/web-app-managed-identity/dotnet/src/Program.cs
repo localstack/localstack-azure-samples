@@ -1,7 +1,18 @@
 using System.Diagnostics;
+using Microsoft.OpenTelemetry;
 using VacationPlanner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+// Distro sends to Application Insights the requests the app serves, its calls to Blob Storage, and its log records.
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.UseMicrosoftOpenTelemetry(options =>
+    {
+        options.Exporters = ExportTarget.AzureMonitor;
+    });
+}
 
 // Code deployments built by Oryx export ASPNETCORE_URLS; custom images and local runs only set PORT.
 if (Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is null

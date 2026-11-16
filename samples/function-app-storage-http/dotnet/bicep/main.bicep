@@ -27,7 +27,7 @@ param storageAccountSku string = 'Standard_LRS'
   'WorkflowStandard'
   'FlexConsumption'
 ])
-param skuTier string = 'Standard'
+param skuTier string = 'Basic'
 
 @description('Specifies the SKU name for the hosting plan.')
 @allowed([
@@ -69,7 +69,7 @@ param skuTier string = 'Standard'
   'WS3'
   'FC1'
 ])
-param skuName string = 'S1'
+param skuName string = 'B1'
 
 @description('Specifies the kind of the hosting plan.')
 @allowed([
@@ -130,6 +130,9 @@ param httpsOnly bool = false
 ])
 param minTlsVersion string = '1.2'
 
+@description('Specifies whether Always On is enabled for the Azure Functions App: on an App Service plan, the Functions runtime goes idle after a few minutes of inactivity, and only HTTP requests wake it up.')
+param alwaysOn bool = true
+
 @description('Specifies whether the public network access is enabled or disabled')
 @allowed([
   'Enabled'
@@ -173,10 +176,37 @@ param tags object = {
   iac: 'bicep'
 }
 
+@description('Specifies the name of the diagnostic settings of the function app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the function app send to the Log Analytics workspace.')
+param logCategories array = [
+  'FunctionAppLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the function app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
 var functionAppName = '${prefix}-functionapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
-var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
+var diagnosticLogs = [
+  for category in logCategories: {
+    category: category
+    enabled: true
+  }
+]
+var diagnosticMetrics = [
+  for category in metricCategories: {
+    category: category
+    enabled: true
+  }
+]
+var storageAccountConnectionString ='DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
   name: storageAccountName
@@ -218,6 +248,7 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
     serverFarmId: appServicePlan.id
     virtualNetworkSubnetId: null
     siteConfig: {
+      alwaysOn: alwaysOn
       linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
       minTlsVersion: minTlsVersion
       ftpsState: 'FtpsOnly'
@@ -234,7 +265,6 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
       SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
       AzureWebJobsStorage: storageAccountConnectionString
 	    WEBSITE_STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
-	    WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageAccountConnectionString
       STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
       INPUT_STORAGE_CONTAINER_NAME: inputContainerName
       OUTPUT_STORAGE_CONTAINER_NAME: outputContainerName
@@ -246,7 +276,27 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
       PLAYER_NAMES: playerNames
       TIMER_SCHEDULE: timerSchedule
       FUNCTIONS_WORKER_RUNTIME: runtimeName
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
     }
+  }
+}
+
+module logAnalytics 'modules/log-analytics.bicep' = {
+  name: 'logAnalytics'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: logAnalytics.outputs.id
+    tags: tags
   }
 }
 
@@ -260,6 +310,27 @@ resource functionAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01
   }
 }
 
+resource functionAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionApp
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    logs: diagnosticLogs
+    metrics: diagnosticMetrics
+  }
+}
+
+resource appServicePlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: appServicePlan
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    metrics: diagnosticMetrics
+  }
+}
+
 output functionAppName string = functionAppName
 output storageAccountName string = storageAccountName
 output storageAccountConnectionString string = storageAccountConnectionString
+output logAnalyticsName string = logAnalyticsName
+output applicationInsightsName string = applicationInsightsName

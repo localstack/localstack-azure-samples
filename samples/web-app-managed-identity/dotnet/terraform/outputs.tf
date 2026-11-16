@@ -17,3 +17,11 @@ output "web_app_name" {
 output "web_app_url" {
   value = azurerm_linux_web_app.example.default_hostname
 }
+
+output "log_analytics_name" {
+  value = module.log_analytics.name
+}
+
+output "application_insights_name" {
+  value = module.application_insights.name
+}

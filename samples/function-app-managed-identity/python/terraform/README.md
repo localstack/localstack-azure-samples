@@ -40,6 +40,9 @@ The [main.tf](main.tf) Terraform module creates the following Azure resources:
 3. [Azure Functions App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview): Hosts the serverless application that processes text blobs. The function app uses managed identity to securely access the Azure Storage Account without requiring explicit credentials.
 4. [Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): Provides secure, credential-free authentication between the Azure Functions app and storage account. Supports both system-assigned and user-assigned identity types.
 5. [Role Assignment](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments): Grants the Azure Functions app's managed identity the Storage Blob Data Contributor and Storage Queue Data Contributor roles, enabling read/write access to blob containers and queues for processing text data.
+6. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, and the logs and metrics that the diagnostic settings send to it.
+7. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the invocations of the functions and the log records of the functions and of the Functions host, which the host sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
+8. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs (`FunctionAppLogs`) and the platform metrics of the function app, and the platform metrics of the App Service plan, to the Log Analytics workspace.
 
 For more information on the sample application, see [Azure Functions App with Managed Identity](../README.md).
 
@@ -130,14 +133,16 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 INPUT_STORAGE_CONTAINER_NAME='input'
 OUTPUT_STORAGE_CONTAINER_NAME='output'
 APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
 FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -168,6 +173,52 @@ az storage account show \
 echo -e "\n[$STORAGE_ACCOUNT_NAME] storage containers:\n"
 az storage container list \
 	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--output table \
+	--only-show-errors
+
+# Check Log Analytics workspace
+echo -e "\n[$LOG_ANALYTICS_NAME] Log Analytics workspace:\n"
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,Sku:sku.name,RetentionInDays:retentionInDays}' \
+	--output table \
+	--only-show-errors
+
+# Check Application Insights component
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
+	--output table \
+	--only-show-errors
+
+# Check the diagnostic settings of the function app and of its App Service plan
+FUNCTION_APP_ID=$(az functionapp show \
+	--name "$FUNCTION_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+APP_SERVICE_PLAN_ID=$(az functionapp show \
+	--name "$FUNCTION_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query appServicePlanId \
+	--output tsv \
+	--only-show-errors)
+
+echo -e "\n[$FUNCTION_APP_NAME] function app diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$FUNCTION_APP_ID" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+echo -e "\nApp Service plan diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$APP_SERVICE_PLAN_ID" \
+	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
 	--output table \
 	--only-show-errors
 

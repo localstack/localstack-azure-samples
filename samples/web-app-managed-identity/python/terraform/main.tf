@@ -1,10 +1,31 @@
 # Local Variables
 locals {
-  resource_group_name   = "${var.prefix}-rg"
-  storage_account_name  = "${var.prefix}storage${var.suffix}"
-  app_service_plan_name = "${var.prefix}-app-service-plan-${var.suffix}"
-  web_app_name          = "${var.prefix}-webapp-${var.suffix}"
-  managed_identity_name = "${var.prefix}-identity-${var.suffix}"
+  resource_group_name       = "${var.prefix}-rg"
+  storage_account_name      = "${var.prefix}storage${var.suffix}"
+  app_service_plan_name     = "${var.prefix}-app-service-plan-${var.suffix}"
+  web_app_name              = "${var.prefix}-webapp-${var.suffix}"
+  managed_identity_name     = "${var.prefix}-identity-${var.suffix}"
+  log_analytics_name        = "${var.prefix}-log-analytics-${var.suffix}"
+  application_insights_name = "${var.prefix}-insights-${var.suffix}"
+}
+
+# Create the Log Analytics workspace that the Application Insights component sends its telemetry to
+module "log_analytics" {
+  source              = "./modules/log_analytics"
+  name                = local.log_analytics_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  tags                = var.tags
+}
+
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies and logs
+module "application_insights" {
+  source              = "./modules/application_insights"
+  name                = local.application_insights_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  workspace_id        = module.log_analytics.id
+  tags                = var.tags
 }
 
 # Create a resource group
@@ -103,16 +124,52 @@ resource "azurerm_linux_web_app" "example" {
   }
 
   app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
-    ENABLE_ORYX_BUILD              = "true"
-    AZURE_STORAGE_ACCOUNT_URL      = azurerm_storage_account.example.primary_blob_endpoint
-    CONTAINER_NAME                 = azurerm_storage_container.example.name
-    AZURE_CLIENT_ID                = var.managed_identity_type == "UserAssigned" ? azurerm_user_assigned_identity.identity[0].client_id : ""
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "true"
+    ENABLE_ORYX_BUILD                     = "true"
+    AZURE_STORAGE_ACCOUNT_URL             = azurerm_storage_account.example.primary_blob_endpoint
+    CONTAINER_NAME                        = azurerm_storage_container.example.name
+    AZURE_CLIENT_ID                       = var.managed_identity_type == "UserAssigned" ? azurerm_user_assigned_identity.identity[0].client_id : ""
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
   }
 
   lifecycle {
     ignore_changes = [
       tags
     ]
+  }
+}
+
+# Send the logs and the platform metrics of the web app to the Log Analytics workspace
+resource "azurerm_monitor_diagnostic_setting" "web_app" {
+  name                       = var.diagnostic_settings_name
+  target_resource_id         = azurerm_linux_web_app.example.id
+  log_analytics_workspace_id = module.log_analytics.id
+
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
+  }
+
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
+  }
+}
+
+# Send the platform metrics of the App Service plan to the Log Analytics workspace
+resource "azurerm_monitor_diagnostic_setting" "app_service_plan" {
+  name                       = var.diagnostic_settings_name
+  target_resource_id         = azurerm_service_plan.example.id
+  log_analytics_workspace_id = module.log_analytics.id
+
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
   }
 }

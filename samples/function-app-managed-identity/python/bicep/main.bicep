@@ -24,7 +24,7 @@ param location string = resourceGroup().location
   'WorkflowStandard'
   'FlexConsumption'
 ])
-param skuTier string = 'Standard'
+param skuTier string = 'Basic'
 
 @description('Specifies the SKU name for the hosting plan.')
 @allowed([
@@ -66,7 +66,7 @@ param skuTier string = 'Standard'
   'WS3'
   'FC1'
 ])
-param skuName string = 'S1'
+param skuName string = 'B1'
 
 @description('Specifies the kind of the hosting plan.')
 @allowed([
@@ -162,11 +162,38 @@ param outputContainerName string = 'output'
 ])
 param managedIdentityType string = 'SystemAssigned'
 
+@description('Specifies the name of the diagnostic settings of the function app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the function app send to the Log Analytics workspace.')
+param logCategories array = [
+  'FunctionAppLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the function app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
 var functionAppName = '${prefix}-functionapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
 var managedIdentityName = '${prefix}-identity-${suffix}'
-var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
+var diagnosticLogs = [
+  for category in logCategories: {
+    category: category
+    enabled: true
+  }
+]
+var diagnosticMetrics = [
+  for category in metricCategories: {
+    category: category
+    enabled: true
+  }
+]
+var storageAccountConnectionString ='DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
 
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (managedIdentityType == 'UserAssigned') {
   name: managedIdentityName
@@ -289,10 +316,30 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     INPUT_STORAGE_CONTAINER_NAME: inputContainer.name
 	  OUTPUT_STORAGE_CONTAINER_NAME: outputContainer.name
     AZURE_CLIENT_ID: managedIdentityType == 'SystemAssigned' ? '' : managedIdentity.properties.clientId
+    APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
   }
   dependsOn: [
     storageBlobDataContributorRoleAssignment
   ]
+}
+
+module logAnalytics 'modules/log-analytics.bicep' = {
+  name: 'logAnalytics'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: logAnalytics.outputs.id
+    tags: tags
+  }
 }
 
 resource functionAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
@@ -305,7 +352,28 @@ resource functionAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01
   }
 }
 
+resource functionAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionApp
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    logs: diagnosticLogs
+    metrics: diagnosticMetrics
+  }
+}
+
+resource appServicePlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: appServicePlan
+  properties: {
+    workspaceId: logAnalytics.outputs.id
+    metrics: diagnosticMetrics
+  }
+}
+
 output appServicePlanName string = appServicePlan.name
 output functionAppName string = functionApp.name
 output functionAppUrl string = functionApp.properties.defaultHostName
 output storageAccountName string = storageAccountName
+output logAnalyticsName string = logAnalyticsName
+output applicationInsightsName string = applicationInsightsName

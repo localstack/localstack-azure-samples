@@ -4,3 +4,4 @@ azure-storage-blob==12.29.0
 azure-core==1.41.0
 gunicorn==26.0.0
 python-dotenv==1.2.2
+microsoft-opentelemetry==1.6.0
