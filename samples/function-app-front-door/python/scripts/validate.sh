@@ -8,6 +8,8 @@ PRIMARY_FUNCTION_APP_NAME="${PREFIX}-catalog-primary-${SUFFIX}"
 SECONDARY_FUNCTION_APP_NAME="${PREFIX}-catalog-secondary-${SUFFIX}"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
@@ -385,6 +387,28 @@ else
 	echo "Expected the re-enabled endpoint to serve again"
 	FAILED=1
 fi
+
+# The telemetry: a workspace-based Application Insights resource, and both Function Apps sending to it through
+# OpenTelemetry (the names of their app settings only, never the values)
+WORKSPACE_RESOURCE_ID=$(az monitor log-analytics workspace show --resource-group $RESOURCE_GROUP_NAME --workspace-name $LOG_ANALYTICS_NAME --query id --output tsv)
+INSIGHTS_WORKSPACE_ID=$(az monitor app-insights component show --app $APPLICATION_INSIGHTS_NAME --resource-group $RESOURCE_GROUP_NAME --query workspaceResourceId --output tsv)
+# Resource ids compare case-insensitively; tr keeps the comparison working on the bash 3.2 of macOS
+if [[ -n "$WORKSPACE_RESOURCE_ID" && "$(echo "$INSIGHTS_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]')" == "$(echo "$WORKSPACE_RESOURCE_ID" | tr '[:upper:]' '[:lower:]')" ]]; then
+	echo "The [$APPLICATION_INSIGHTS_NAME] Application Insights resource stores its telemetry in the [$LOG_ANALYTICS_NAME] workspace"
+else
+	echo "Expected the [$APPLICATION_INSIGHTS_NAME] Application Insights resource to be based on the [$LOG_ANALYTICS_NAME] workspace"
+	FAILED=1
+fi
+for FUNCTION_APP_NAME in $PRIMARY_FUNCTION_APP_NAME $SECONDARY_FUNCTION_APP_NAME; do
+	TELEMETRY_SETTINGS=$(az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME \
+		--query "[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING' || name=='PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'].name" --output tsv | sort | tr '\n' ' ')
+	if [[ "$TELEMETRY_SETTINGS" == "APPLICATIONINSIGHTS_CONNECTION_STRING PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY " ]]; then
+		echo "The [$FUNCTION_APP_NAME] function app sends its telemetry to Application Insights"
+	else
+		echo "Expected the [$FUNCTION_APP_NAME] function app to have the APPLICATIONINSIGHTS_CONNECTION_STRING and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY app settings (found: $TELEMETRY_SETTINGS)"
+		FAILED=1
+	fi
+done
 
 if [[ $FAILED == 0 ]]; then
 	echo "All validation checks passed"

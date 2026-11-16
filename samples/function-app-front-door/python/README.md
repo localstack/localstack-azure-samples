@@ -21,6 +21,8 @@ The solution is composed of the following Azure resources:
    - The **catalog route** (`/*`), which sends traffic to the catalog origin group with [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching) switched on and the rule set attached.
    - The **status route** (`/status`), a more specific pattern pointing at the other origin group, with no caching and no rules.
    - The **catalogrules** [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine): `stampHeader` (adds `X-Served-By` to every GET response, which is what its `RequestMethod Equal GET` condition matches), `rewriteShop` (`/shop/*` → `/catalog/*` on the way to the origin) and `redirectLegacy` (`/legacy` → `302` to `/status`, answered at the edge).
+6. [Azure Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) of the Function Apps, of the plan, of the storage accounts and of their services, of the Front Door profile and of the workspace itself send to it.
+7. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that both Function Apps send their telemetry to through OpenTelemetry: their requests, their log records, the exceptions they log, the `CatalogItemServed` custom event and the `catalog_items_served` custom metric.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 70}}}%%
@@ -47,12 +49,19 @@ flowchart LR
         app2["secondary<br/>same code, ORIGIN_NAME=secondary"]
     end
 
+    insights["Application Insights<br/>workspace-based"]
+    workspace[("Log Analytics<br/>workspace")]
+    insights -->|"stores its telemetry in"| workspace
+
     client -->|"1: GET /catalog/1"| routes
     cache -->|"2: on a miss, GET /api/catalog/1<br/>+ X-Forwarded-Host · X-Azure-ClientIP · X-Azure-FDID"| primary
     primary --> app1
     secondary --> app2
     cache -->|"3: 200 + X-Served-By + X-Cache"| client
     client -. "GET /status: the more specific route" .-> secondary
+    apps -->|"requests · traces · errors<br/>custom events · custom metrics"| insights
+    afd -. "diagnostic settings:<br/>resource logs · platform metrics" .-> workspace
+    apps -.-> workspace
 
     style afd fill:#ffffff,stroke:#999999,color:#333333
     style origins fill:#ffffff,stroke:#999999,color:#333333
@@ -60,6 +69,8 @@ flowchart LR
 ```
 
 The life of a request: the client calls `GET /catalog/1` on the endpoint → the `/*` route matches, since no more specific pattern does → the rule set runs → the edge looks in its cache, and on a miss picks the healthy origin with the lowest priority number → the route's origin path puts `/api` back on the front of the path and the request goes to the primary Function App as `GET /api/catalog/1` → the response comes back, is stored because its `Cache-Control` allows it, gets `X-Served-By` from the rule set and `X-Cache`/`X-Azure-Ref` from Front Door, and reaches the client. The second identical request never leaves the edge.
+
+Meanwhile the Function App that answered sends the request, its log records and, for a catalog item, the `CatalogItemServed` custom event and the `catalog_items_served` custom metric to Application Insights, and the diagnostic settings send the resource logs and the platform metrics of the resources to the workspace: the access log of the Front Door profile records the request with the route, the origin and the cache status.
 
 ## Prerequisites
 
@@ -94,7 +105,7 @@ Every command below is the same against real Azure; sign in with `az login` inst
 bash scripts/deploy.sh
 ```
 
-The script provisions the resource group, the App Service plan, the two storage accounts and the two Function Apps, deploys the same zip package to both, then creates the Front Door profile, endpoint, origin groups, origins, rule set, rules and routes. It finishes by printing the endpoint URL and a handful of `curl` commands to try.
+The script provisions the resource group, the App Service plan, the Log Analytics workspace, the Application Insights resource, the two storage accounts and the two Function Apps, deploys the same zip package to both, then creates the Front Door profile, endpoint, origin groups, origins, rule set, rules and routes. Every resource that offers diagnostic settings gets one that sends to the workspace. It finishes by printing the endpoint URL and a handful of `curl` commands to try.
 
 It is safe to re-run: the Azure resources it creates are either checked for first or created with an idempotent `PUT`.
 
@@ -107,19 +118,20 @@ bash scripts/call-front-door.sh
 
 `validate.sh` walks the whole chain and exits non-zero on any failure:
 
-| # | Check | What it proves |
-|---|-------|----------------|
-| 1 | Both Function Apps answer `/api/health`, including on `HEAD` | The origins are up and answer the method the health probe uses |
-| 2 | `GET /catalog/1` through the endpoint | The catch-all route, the priority-1 origin, and the route's origin path |
-| 3 | `X-Served-By` and `X-Azure-Ref` on the response | The rule set ran; the edge stamped its reference id |
-| 4 | `GET /status` | A more specific route wins, and sends the request to a different origin group |
-| 5 | `GET /shop/2` | The `UrlRewrite` rule: the origin is asked for `/api/catalog/2` |
-| 6 | `GET /legacy` | The `UrlRedirect` rule answers `302` at the edge, without calling an origin |
-| 7 | `/catalog/3` twice, then a purge, then a `no-store` path | Caching, `X-Cache`, `Age`, purge, and the origin's power to refuse caching |
-| 8 | `GET /whoami` | `X-Forwarded-Host`, `X-Azure-ClientIP` and `X-Azure-FDID` reach the origin |
-| 9 | Ten requests to an uncached path | Priority is a strict tier: all ten are answered by the priority-1 origin |
-| 10 | `GET /catalog/99` | The origin's own `404` passes through the edge untouched |
-| 11 | The endpoint disabled, then enabled again | `enabledState` takes the endpoint out of service and back |
+| #   | Check                                                                        | What it proves                                                                                                                                          |
+| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Both Function Apps answer `/api/health`, including on `HEAD`                 | The origins are up and answer the method the health probe uses                                                                                          |
+| 2   | `GET /catalog/1` through the endpoint                                        | The catch-all route, the priority-1 origin, and the route's origin path                                                                                 |
+| 3   | `X-Served-By` and `X-Azure-Ref` on the response                              | The rule set ran; the edge stamped its reference id                                                                                                     |
+| 4   | `GET /status`                                                                | A more specific route wins, and sends the request to a different origin group                                                                           |
+| 5   | `GET /shop/2`                                                                | The `UrlRewrite` rule: the origin is asked for `/api/catalog/2`                                                                                         |
+| 6   | `GET /legacy`                                                                | The `UrlRedirect` rule answers `302` at the edge, without calling an origin                                                                             |
+| 7   | `/catalog/3` twice, then a purge, then a `no-store` path                     | Caching, `X-Cache`, `Age`, purge, and the origin's power to refuse caching                                                                              |
+| 8   | `GET /whoami`                                                                | `X-Forwarded-Host`, `X-Azure-ClientIP` and `X-Azure-FDID` reach the origin                                                                              |
+| 9   | Ten requests to an uncached path                                             | Priority is a strict tier: all ten are answered by the priority-1 origin                                                                                |
+| 10  | `GET /catalog/99`                                                            | The origin's own `404` passes through the edge untouched                                                                                                |
+| 11  | The endpoint disabled, then enabled again                                    | `enabledState` takes the endpoint out of service and back                                                                                               |
+| 12  | The Application Insights resource and the app settings of both Function Apps | The resource stores its telemetry in the workspace, and both apps send theirs to it (the check reads the names of the app settings, never their values) |
 
 `call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received.
 
@@ -178,6 +190,103 @@ az afd endpoint purge \
   --resource-group local-rg \
   --content-paths '/catalog/*'
 ```
+
+## Application Insights
+
+Both Function Apps send their telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting of each app holds the connection string of the resource: `deploy.sh` passes `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and sets it again with the other app settings. One resource serves both apps: the `AppRoleName` column of each record names the Function App that sent it. The apps use [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto):
+
+- `host.json` sets `"telemetryMode": "OpenTelemetry"`, so that the Functions host exports its own telemetry through OpenTelemetry.
+- `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` app setting, set to `true`, has the Python worker send the telemetry of the functions itself, instead of the host forwarding their log records.
+- The `PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME` app setting, set to `function_app`, has the worker send the records of the functions' logger only (the worker passes it to `configure_azure_monitor` as `logger_name`, see its [source](https://github.com/Azure/azure-functions-python-worker/blob/dev/workers/azure_functions_worker/dispatcher.py)). Without it the worker sends the records of every logger, its own and the OpenTelemetry exporter's HTTP requests included, and the exporter's startup messages about the optional instrumentations it can't import arrive as exceptions.
+
+The `catalog` function sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each catalog item it serves and counts the items per origin in the `catalog_items_served` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), so the split between the two apps that Front Door's origin selection produces shows up in Application Insights. The worker sends a log record that carries the `microsoft.custom_event.name` attribute as a custom event named after its value, with the other attributes as its custom dimensions:
+
+```python
+catalog_items_served = metrics.get_meter(LOGGER_NAME).create_counter(
+    "catalog_items_served", unit="{item}", description="The number of catalog items the origin served."
+)
+
+logger.info(
+    f"CatalogItemServed: {item['sku']}",
+    extra={
+        "microsoft.custom_event.name": "CatalogItemServed",
+        "catalog.sku": item["sku"],
+        "origin.name": ORIGIN_NAME,
+    },
+)
+catalog_items_served.add(1, {"origin": ORIGIN_NAME})
+```
+
+Front Door caches the catalog responses for five minutes, so the event and the metric count the items the origins served, not the requests of the clients: a request answered from the cache reaches no Function App. The workspace keeps the telemetry in these tables:
+
+| Table           | What the Function Apps send                                                                                                                                                                                                                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`   | The invocations of the functions, with the app that served them in `AppRoleName`. On Azure most are the `health` function's: each Front Door point of presence sends its own health probes, [about 200 a minute to each origin](https://learn.microsoft.com/en-us/azure/frontdoor/origin#origin-group) with 100 of them and a 30-second interval |
+| `AppTraces`     | The log records of the functions and of the Functions host, such as the warning of the `catalog` function for an item that doesn't exist (`/catalog/99`)                                                                                                                                                                                         |
+| `AppEvents`     | The `CatalogItemServed` custom event of each catalog item an origin served, with the SKU and the origin in `catalog.sku` and `origin.name`                                                                                                                                                                                                       |
+| `AppMetrics`    | The `catalog_items_served` custom metric, with the origin in `origin`                                                                                                                                                                                                                                                                            |
+| `AppExceptions` | The exceptions the functions log with their stack trace: none in a healthy run                                                                                                                                                                                                                                                                   |
+
+The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
+
+```bash
+az extension add --name log-analytics
+
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppRequests | summarize Invocations = count() by AppRoleName, Name | order by AppRoleName asc, Name asc" \
+  --output table
+```
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the endpoint to answer, calls its catalog, status and whoami routes `CALLS` times each (3 by default), then reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when the endpoint doesn't answer, or when a query still lacks its records, after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+## Logs and metrics
+
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one named `default` that sends its resource logs and its platform metrics to the same workspace:
+
+| Resource                                               | Log categories                                                                        | Tables in the workspace                                                   | What the sample leaves there                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Function Apps                                          | `FunctionAppLogs`                                                                     | `FunctionAppLogs`                                                         | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function, such as `Function.catalog`                                                                                                                                                                                                                     |
+| App Service plan                                       | None: metrics only                                                                    | `AzureMetrics`                                                            | The CPU and memory use of its instances                                                                                                                                                                                                                                                                                                                                        |
+| Storage accounts                                       | None: metrics only                                                                    | `AzureMetrics`                                                            | The transactions of each account                                                                                                                                                                                                                                                                                                                                               |
+| Blob, queue and table services of each storage account | `StorageRead`, `StorageWrite`, `StorageDelete`                                        | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics` | The requests of the Functions hosts, which keep their locks and keys in blobs and authenticate with the account key (`AccountKey`)                                                                                                                                                                                                                                             |
+| Front Door profile                                     | `FrontDoorAccessLog`, `FrontDoorHealthProbeLog`, `FrontDoorWebApplicationFirewallLog` | `AzureDiagnostics`, `AzureMetrics`                                        | [Every request](https://learn.microsoft.com/en-us/azure/frontdoor/monitor-front-door#access-log) the endpoint served, with the route, the origin that answered and the cache status, and [every failed health probe](https://learn.microsoft.com/en-us/azure/frontdoor/monitor-front-door#health-probe-log); the firewall log stays empty, since the profile has no WAF policy |
+| Log Analytics workspace                                | `Audit`                                                                               | `LAQueryLogs`, `AzureMetrics`                                             | The queries run on the workspace, such as the ones of the scripts below                                                                                                                                                                                                                                                                                                        |
+
+Front Door writes its resource logs to the `AzureDiagnostics` table only, whose columns carry a suffix for their type, such as `requestUri_s` and `httpStatusCode_s`; its platform metrics, such as `RequestCount`, `OriginRequestCount` and `OriginHealthPercentage`, land in `AzureMetrics`. The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export).
+
+The platform metrics of the Function Apps land in the `AzureMetrics` table too. On Azure these are their memory, I/O and HTTP metrics, such as `MemoryWorkingSet`, but not the executions of their functions (`FunctionExecutionCount`), which only the metrics API serves (observed on Azure on 2026-11-16). A few queries to try:
+
+```kusto
+// The requests the endpoint served, with the route, the origin that answered and the cache status
+AzureDiagnostics
+| where Category == "FrontDoorAccessLog"
+| project TimeGenerated, httpMethod_s, requestUri_s, httpStatusCode_s, routingRuleName_s, originName_s, cacheStatus_s
+
+// The catalog items each origin served
+AppEvents
+| where Name == "CatalogItemServed"
+| summarize Events = count() by Origin = tostring(Properties["origin.name"])
+
+// The records of the invocations, per Function App and function
+FunctionAppLogs
+| where Category startswith "Function."
+| summarize Records = count() by AppName, FunctionName
+```
+
+The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly, for example with `az monitor metrics list --resource <profile-id> --metrics RequestCount --aggregation Total`.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the Function Apps, of the plan, of the storage accounts and of their services, of the Front Door profile and of the workspace, and reads until their records arrive the invocation records, the requests the endpoint served, the requests to the blobs, the exported platform metrics and the audit records of the queries run on the workspace. It ends with the executions of the Function Apps and the requests of the endpoint read from the metrics API. Run it after `query-telemetry.sh` or `call-front-door.sh`, which call the endpoint. It exits with a non-zero code when a query still lacks its records after `RETRY_COUNT` attempts. On Azure an execution can be counted in the minute after the one in which it ran.
+
+### Delivery times
+
+On the emulator the records are queryable within seconds, and the platform metrics (`AzureMetrics`) once their one-minute window is over. On Azure the telemetry of Application Insights takes a few minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the scripts. On Azure a new endpoint also takes minutes to reach the edge, which `query-telemetry.sh` waits for.
 
 ## Cleanup
 

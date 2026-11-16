@@ -31,7 +31,7 @@ SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
   "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
-  "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh"
+  "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
   "samples/api-management-function-app/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-api.sh"
   "samples/function-app-managed-identity/python|bash scripts/user-managed-identity.sh|bash scripts/validate.sh && bash scripts/test.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
   "samples/function-app-service-bus/dotnet|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-http-trigger.sh"
