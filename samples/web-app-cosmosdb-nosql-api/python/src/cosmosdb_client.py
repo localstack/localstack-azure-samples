@@ -2,7 +2,8 @@ import os
 import logging
 from azure.cosmos import CosmosClient, PartitionKey, exceptions
 
-logger = logging.getLogger(__name__)
+# A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
+logger = logging.getLogger(f"webapp.{__name__}")
 
 class CosmosDbClient:
     def __init__(self, endpoint, key, database_name, container_name):

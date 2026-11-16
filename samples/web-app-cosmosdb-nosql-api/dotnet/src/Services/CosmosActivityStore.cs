@@ -22,6 +22,9 @@ public sealed class CosmosActivityStore : IActivityStore
         {
             ConnectionMode = ConnectionMode.Gateway,
             LimitToEndpoint = true,
+            // Distributed tracing is off by default in the GA SDK: on, each operation is an activity of an
+            // Azure.Cosmos source, which the Microsoft OpenTelemetry Distro exports as a dependency.
+            CosmosClientTelemetryOptions = new CosmosClientTelemetryOptions { DisableDistributedTracing = false },
         });
     }
 
@@ -72,6 +75,7 @@ public sealed class CosmosActivityStore : IActivityStore
             _options.ContainerName,
             text
         );
+        ActivityTelemetry.Track(_logger, "ActivityAdded", "add", document.Id);
     }
 
     public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
@@ -82,6 +86,7 @@ public sealed class CosmosActivityStore : IActivityStore
             item.Resource.Activity = text;
             await Container.ReplaceItemAsync(item.Resource, id, new PartitionKey(_options.Username), cancellationToken: cancellationToken);
             _logger.LogInformation("Updated item {Id} in container '{Container}'", id, _options.ContainerName);
+            ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -95,6 +100,7 @@ public sealed class CosmosActivityStore : IActivityStore
         {
             _logger.LogInformation("Deleting item {Id} from container '{Container}'", id, _options.ContainerName);
             await Container.DeleteItemAsync<ActivityDocument>(id, new PartitionKey(_options.Username), cancellationToken: cancellationToken);
+            ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {

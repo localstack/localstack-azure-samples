@@ -20,7 +20,16 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        Activities = await store.ListAsync(cancellationToken);
+        try
+        {
+            Activities = await store.ListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The distro sends a log record that carries an exception to Application Insights as an exception
+            logger.LogError(ex, "Failed to read the activities.");
+            TempData["Flash"] = "Failed to load the activities.";
+        }
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
@@ -29,17 +38,25 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
         var id = RowId?.Trim();
         if (!string.IsNullOrEmpty(text))
         {
-            if (!string.IsNullOrEmpty(id))
+            try
             {
-                await store.UpdateAsync(id, text, cancellationToken);
-                logger.LogInformation("Activity updated: {Id}", id);
-                TempData["Flash"] = "Activity updated.";
+                if (!string.IsNullOrEmpty(id))
+                {
+                    await store.UpdateAsync(id, text, cancellationToken);
+                    logger.LogInformation("Activity updated: {Id}", id);
+                    TempData["Flash"] = "Activity updated.";
+                }
+                else
+                {
+                    await store.AddAsync(text, cancellationToken);
+                    logger.LogInformation("Activity added: {Activity}", text);
+                    TempData["Flash"] = "Activity added.";
+                }
             }
-            else
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                await store.AddAsync(text, cancellationToken);
-                logger.LogInformation("Activity added: {Activity}", text);
-                TempData["Flash"] = "Activity added.";
+                logger.LogError(ex, "Error writing activity.");
+                TempData["Flash"] = "Failed to save the activity.";
             }
         }
 
