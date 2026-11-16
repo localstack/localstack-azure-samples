@@ -3,19 +3,19 @@ output "resource_group_name" {
 }
 
 output "storage_account_name" {
-  value = azurerm_storage_account.example.name
+  value = module.storage_account.name
 }
 
 output "app_service_plan_name" {
-  value = azurerm_service_plan.example.name
+  value = module.app_service_plan.name
 }
 
 output "function_app_name" {
-  value = azurerm_linux_function_app.example.name
+  value = module.function_app.name
 }
 
 output "function_app_url" {
-  value = "https://${azurerm_linux_function_app.example.name}.azurewebsites.net"
+  value = "https://${module.function_app.default_hostname}"
 }
 
 output "log_analytics_name" {

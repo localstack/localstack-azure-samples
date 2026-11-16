@@ -1,4 +1,3 @@
-
 //********************************************
 // Parameters
 //********************************************
@@ -9,7 +8,7 @@ param name string
 @description('Specifies the location.')
 param location string = resourceGroup().location
 
-@description('Specifies the type of application being monitored..')
+@description('Specifies the type of application being monitored.')
 @allowed([
   'web'
   'other'
@@ -49,6 +48,8 @@ param tags object
 // Resources
 //********************************************
 
+// The component has no diagnostic settings: its telemetry is already stored in the workspace it's based on, and a
+// diagnostic setting of a workspace-based component can't send to that workspace.
 resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: name
   location: location

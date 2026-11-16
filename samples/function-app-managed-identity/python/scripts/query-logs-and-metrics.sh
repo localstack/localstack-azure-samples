@@ -4,8 +4,11 @@
 #
 # Runs test.sh, which uploads a text file that the function processes, then reads back what the diagnostic settings of
 # the sample sent to its Log Analytics workspace: the records the Functions host writes for each invocation of the
-# function (FunctionAppLogs) and the exported platform metrics of the function app and of its App Service plan
-# (AzureMetrics). It ends with the executions of the function app read from the Azure Monitor metrics API.
+# function (FunctionAppLogs), the exported platform metrics of the function app and of its App Service plan
+# (AzureMetrics), the requests to the blobs and to the queues of the storage account (StorageBlobLogs,
+# StorageQueueLogs) and the transaction metrics of the storage account and of its services, and the audit records of the
+# queries run on the workspace (LAQueryLogs). It ends with the executions of the function app and the transactions of
+# the storage account read from the Azure Monitor metrics API.
 #
 # The records reach the workspace within seconds on the emulator, and the metrics once their one-minute window is
 # over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
@@ -17,6 +20,7 @@ SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"
 FUNCTION_NAME="ProcessTextFunction"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
@@ -191,9 +195,46 @@ else
 	exit 1
 fi
 
-# Show where the diagnostic settings send the logs and metrics of the function app and of its App Service plan
+# Get the resource id of the storage account
+echo "Retrieving the resource id of the [$STORAGE_ACCOUNT_NAME] storage account..."
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $STORAGE_ACCOUNT_ID ]]; then
+	echo "Resource id [$STORAGE_ACCOUNT_ID] of the [$STORAGE_ACCOUNT_NAME] storage account successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$STORAGE_ACCOUNT_NAME] storage account"
+	exit 1
+fi
+
+# Get the resource id of the Log Analytics workspace
+echo "Retrieving the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID ]]; then
+	echo "Resource id [$LOG_ANALYTICS_ID] of the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Show where the diagnostic settings send the logs and metrics of the resources
 show_diagnostic_settings "$FUNCTION_APP_ID" "[$FUNCTION_APP_NAME] function app"
 show_diagnostic_settings "$APP_SERVICE_PLAN_ID" "App Service plan"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID/blobServices/default" "blob service of the [$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID/queueServices/default" "queue service of the [$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$STORAGE_ACCOUNT_ID/tableServices/default" "table service of the [$STORAGE_ACCOUNT_NAME] storage account"
+show_diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace"
 
 # Invoke the function: test.sh uploads a text file to the input container and waits for the processed one
 echo -e "\nInvoking the [$FUNCTION_NAME] function of the [$FUNCTION_APP_NAME] function app with test.sh..."
@@ -229,7 +270,39 @@ query_workspace \
 	"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' and MetricName in ('CpuPercentage', 'MemoryPercentage') | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}"
 
-# The executions of the function app, read from the Azure Monitor metrics API: they need no diagnostic setting
+# The requests to the blobs of the storage account (StorageBlobLogs, from the diagnostic setting of the blob service):
+# the function reads the input files and writes the output files with its managed identity (OAuth), and the Functions
+# host keeps its own data with the account key (AccountKey)
+query_workspace \
+	"Latest requests to the blobs of the [$STORAGE_ACCOUNT_NAME] storage account (StorageBlobLogs)" \
+	"StorageBlobLogs | where AccountName =~ '$STORAGE_ACCOUNT_NAME' | project TimeGenerated, OperationName, StatusCode, AuthenticationType, ObjectKey | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Operation:OperationName,Status:StatusCode,Authentication:AuthenticationType,Object:ObjectKey}"
+
+# The requests to the queues of the storage account (StorageQueueLogs, from the diagnostic setting of the queue
+# service): the blob trigger of the function reads the queue that announces the new blobs
+query_workspace \
+	"Latest requests to the queues of the [$STORAGE_ACCOUNT_NAME] storage account (StorageQueueLogs)" \
+	"StorageQueueLogs | where AccountName =~ '$STORAGE_ACCOUNT_NAME' | project TimeGenerated, OperationName, StatusCode, AuthenticationType, ObjectKey | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Operation:OperationName,Status:StatusCode,Authentication:AuthenticationType,Object:ObjectKey}"
+
+# The transaction metrics that the diagnostic settings of the storage account and of its services export to the
+# workspace (AzureMetrics), one record per metric and minute for each of them
+query_workspace \
+	"Transaction metrics of the [$STORAGE_ACCOUNT_NAME] storage account exported to the workspace (AzureMetrics)" \
+	"AzureMetrics | where _ResourceId startswith '$STORAGE_ACCOUNT_ID' and MetricName == 'Transactions' | extend Scope = case(_ResourceId endswith '/blobServices/default', 'blob service', _ResourceId endswith '/queueServices/default', 'queue service', _ResourceId endswith '/tableServices/default', 'table service', 'storage account') | summarize Minutes = count(), Total = sum(Total) by Scope, MetricName | order by Scope asc" \
+	"[].{Scope:Scope,Metric:MetricName,Minutes:Minutes,Total:Total}" \
+	2
+
+# The audit records of the queries run on the workspace, among them the ones above (LAQueryLogs, from the diagnostic
+# setting of the workspace itself)
+query_workspace \
+	"Latest queries run on the [$LOG_ANALYTICS_NAME] Log Analytics workspace (LAQueryLogs)" \
+	"LAQueryLogs | project TimeGenerated, ResponseCode, Query = substring(QueryText, 0, 80) | order by TimeGenerated desc | take 5" \
+	"[].{Time:TimeGenerated,Response:ResponseCode,Query:Query}"
+
+# The executions of the function app and the transactions of the storage account, read from the Azure Monitor metrics
+# API: they need no diagnostic setting
 show_metrics "$FUNCTION_APP_ID" "[$FUNCTION_APP_NAME] function app" FunctionExecutionCount
+show_metrics "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account" Transactions Ingress Egress
 
 exit $EXIT_CODE

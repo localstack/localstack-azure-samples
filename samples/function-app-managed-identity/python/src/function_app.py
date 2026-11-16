@@ -2,8 +2,22 @@ import logging
 import os
 
 import azure.functions as func
+from opentelemetry import metrics
 
 logging.basicConfig(level=logging.INFO)
+
+# The Azure SDK clients, the OpenTelemetry exporter's among them, log each of their HTTP requests, and urllib3 each of
+# its connections: their warnings are enough, so that the traces hold the records of the function rather than the
+# exporter's own calls to Application Insights
+logging.getLogger("azure").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, telemetryMode set to OpenTelemetry in host.json and
+# PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY set to true, the Python worker sends to Application Insights the log
+# records of the function (traces), the exceptions it logs, the custom event and the custom metric below.
+processed_blobs = metrics.get_meter("function_app").create_counter(
+    "processed_blobs", unit="{blob}", description="The number of blobs the function processed."
+)
 
 app = func.FunctionApp()
 
@@ -42,6 +56,21 @@ def ProcessTextFunction(input_blob: func.InputStream, output_blob: func.Out[str]
         # Write the processed text to the output blob
         output_blob.set(processed_text)
         logging.info("Text processed and saved successfully.")
+
+        # A custom event (customEvents table): the worker sends a log record that carries the
+        # microsoft.custom_event.name attribute as a custom event named after its value, with the other attributes as
+        # its custom dimensions
+        logging.info(
+            "BlobProcessed: %s",
+            input_blob.name,
+            extra={
+                "microsoft.custom_event.name": "BlobProcessed",
+                "blob.name": input_blob.name,
+                "blob.size": input_blob.length or 0,
+            },
+        )
+        # The custom metric (customMetrics table)
+        processed_blobs.add(1, {"container": output_container})
     except Exception:
         logging.exception("Failed to process blob %s", input_blob.name)
         raise

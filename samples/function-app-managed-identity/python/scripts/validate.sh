@@ -90,6 +90,44 @@ az monitor diagnostic-settings list \
 	--output table \
 	--only-show-errors
 
+# Check the diagnostic settings of the storage account, of its blob, queue and table services, and of the Log Analytics
+# workspace
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID" \
+	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+for SERVICE in blob queue table; do
+	echo -e "\n[$STORAGE_ACCOUNT_NAME] $SERVICE service diagnostic settings:\n"
+	az monitor diagnostic-settings list \
+		--resource "$STORAGE_ACCOUNT_ID/${SERVICE}Services/default" \
+		--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+		--output table \
+		--only-show-errors
+done
+
+echo -e "\n[$LOG_ANALYTICS_NAME] Log Analytics workspace diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$LOG_ANALYTICS_ID" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
 # List resources
 echo -e "\n[$RESOURCE_GROUP_NAME] all resources:\n"
 az resource list \

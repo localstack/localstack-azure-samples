@@ -90,10 +90,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	echo "$DEPLOYMENT_OUTPUTS" | jq .
 	FUNCTION_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.functionAppName.value')
 	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value')
-	STORAGE_ACCOUNT_CONNECTION_STRING=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountConnectionString.value')
 	echo "Function App Name: $FUNCTION_APP_NAME"
 	echo "Storage Account Name: $STORAGE_ACCOUNT_NAME"
-	echo "Storage Account Connection String: $STORAGE_ACCOUNT_CONNECTION_STRING"
 else
 	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1
@@ -104,11 +102,14 @@ if [[ -z "$FUNCTION_APP_NAME" || -z "$STORAGE_ACCOUNT_NAME" ]]; then
 	exit 1
 fi
 
-# Print the application settings of the function app
-echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
+# Print the names of the application settings of the function app: their values hold secrets, such as the connection
+# string of the storage account
+echo "Retrieving the names of the application settings of the function app [$FUNCTION_APP_NAME]..."
 az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME"
+	--name "$FUNCTION_APP_NAME" \
+	--query "[].name" \
+	--output tsv
 
 # CD into the function app directory
 cd ../src/sample || exit

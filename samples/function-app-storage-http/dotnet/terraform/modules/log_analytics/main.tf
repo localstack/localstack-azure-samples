@@ -12,3 +12,24 @@ resource "azurerm_log_analytics_workspace" "example" {
     ]
   }
 }
+
+# Query auditing: the diagnostic setting of a workspace can send its audit records to the workspace itself.
+resource "azurerm_monitor_diagnostic_setting" "example" {
+  name                       = var.diagnostic_setting_name
+  target_resource_id         = azurerm_log_analytics_workspace.example.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.example.id
+
+  dynamic "enabled_log" {
+    for_each = toset(var.log_categories)
+    content {
+      category = enabled_log.value
+    }
+  }
+
+  dynamic "enabled_metric" {
+    for_each = toset(var.metric_categories)
+    content {
+      category = enabled_metric.value
+    }
+  }
+}

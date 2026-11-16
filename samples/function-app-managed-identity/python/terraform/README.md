@@ -33,16 +33,16 @@ Alternatively, download a pre-built binary from the [lstk releases page](https:/
 
 ## Architecture Overview
 
-The [main.tf](main.tf) Terraform module creates the following Azure resources:
+The [main.tf](main.tf) Terraform configuration creates the following Azure resources, each through a module in the [modules](modules) folder:
 
 1. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob storage with `input` and `output` containers for storing text blobs processed by the function app.
 2. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Defines the compute resources (CPU, memory, and scaling options) that host the Azure Functions app.
 3. [Azure Functions App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview): Hosts the serverless application that processes text blobs. The function app uses managed identity to securely access the Azure Storage Account without requiring explicit credentials.
 4. [Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): Provides secure, credential-free authentication between the Azure Functions app and storage account. Supports both system-assigned and user-assigned identity types.
 5. [Role Assignment](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments): Grants the Azure Functions app's managed identity the Storage Blob Data Contributor and Storage Queue Data Contributor roles, enabling read/write access to blob containers and queues for processing text data.
-6. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, and the logs and metrics that the diagnostic settings send to it.
-7. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the invocations of the functions and the log records of the functions and of the Functions host, which the host sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
-8. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs (`FunctionAppLogs`) and the platform metrics of the function app, and the platform metrics of the App Service plan, to the Log Analytics workspace.
+6. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, the logs and metrics that the diagnostic settings send to it, and the audit records of the queries run on it.
+7. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the invocations, the log records, the exceptions, the custom events and the custom metric of the function, and the log records of the Functions host, which the Functions host and the Python worker send through OpenTelemetry to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
+8. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs (`FunctionAppLogs`) and the platform metrics of the function app, the platform metrics of the App Service plan and of the storage account, the logs and the metrics of the blob, queue and table services, and the query audit of the workspace itself to the Log Analytics workspace. The Application Insights resource has none: a workspace-based resource can't send to the workspace it's based on.
 
 For more information on the sample application, see [Azure Functions App with Managed Identity](../README.md).
 
@@ -219,6 +219,44 @@ echo -e "\nApp Service plan diagnostic settings:\n"
 az monitor diagnostic-settings list \
 	--resource "$APP_SERVICE_PLAN_ID" \
 	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+# Check the diagnostic settings of the storage account, of its blob, queue and table services, and of the Log Analytics
+# workspace
+STORAGE_ACCOUNT_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+echo -e "\n[$STORAGE_ACCOUNT_NAME] storage account diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$STORAGE_ACCOUNT_ID" \
+	--query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+	--output table \
+	--only-show-errors
+
+for SERVICE in blob queue table; do
+	echo -e "\n[$STORAGE_ACCOUNT_NAME] $SERVICE service diagnostic settings:\n"
+	az monitor diagnostic-settings list \
+		--resource "$STORAGE_ACCOUNT_ID/${SERVICE}Services/default" \
+		--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+		--output table \
+		--only-show-errors
+done
+
+echo -e "\n[$LOG_ANALYTICS_NAME] Log Analytics workspace diagnostic settings:\n"
+az monitor diagnostic-settings list \
+	--resource "$LOG_ANALYTICS_ID" \
+	--query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
 	--output table \
 	--only-show-errors
 

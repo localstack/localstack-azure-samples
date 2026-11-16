@@ -22,8 +22,8 @@ The following diagram illustrates the architecture of the solution:
 - **Azure Blob Storage**: Contains `input` and `output` containers for storing text blobs
 - **Managed Identity**: Enables secure access to Azure Storage without storing credentials
 - **Azure Entra ID**: Issues security tokens for the managed identity to authenticate with Azure Storage
-- **Azure Application Insights**: Collects the invocations and the log records of the functions and of the Functions host
-- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the logs and metrics that the diagnostic settings of the function app and of the App Service plan send to it
+- **Azure Application Insights**: Collects the invocations, the log records, the exceptions, the custom events and the custom metric of the function, and the log records of the Functions host
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, the logs and metrics that the diagnostic settings of the function app, of the App Service plan, of the storage account and of its blob, queue and table services send to it, and the audit records of the queries run on it
 
 ## Security
 
@@ -269,12 +269,39 @@ HI MATE, HOW ARE YOU?
 
 ## Application Insights
 
-The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The Functions host sends the telemetry itself, without any change to the code of the function, once the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting holds the connection string of the resource ([Monitor executions in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-monitoring)): the Azure CLI scripts pass `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and the Bicep and Terraform modules set it themselves. The workspace keeps the telemetry in these tables:
+The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting holds the connection string of the resource: the Azure CLI scripts pass `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and the Bicep and Terraform modules set it themselves. The app uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto):
 
-| Table         | What the function app sends                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `AppRequests` | The invocations of the `ProcessTextFunction` function, one per processed blob                                 |
-| `AppTraces`   | The log records of the function and of the Functions host, such as `Executed 'Functions.ProcessTextFunction'` |
+- `host.json` sets `"telemetryMode": "OpenTelemetry"`, so that the Functions host exports its own telemetry through OpenTelemetry.
+- `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` app setting, set to `true`, has the Python worker send the telemetry of the function itself, instead of the host forwarding its log records.
+
+The function sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each file it processes and counts the files in the `processed_blobs` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics). The worker sends a log record that carries the `microsoft.custom_event.name` attribute as a custom event named after its value, with the other attributes as its custom dimensions:
+
+```python
+processed_blobs = metrics.get_meter("function_app").create_counter(
+    "processed_blobs", unit="{blob}", description="The number of blobs the function processed."
+)
+
+logging.info(
+    "BlobProcessed: %s",
+    input_blob.name,
+    extra={
+        "microsoft.custom_event.name": "BlobProcessed",
+        "blob.name": input_blob.name,
+        "blob.size": input_blob.length or 0,
+    },
+)
+processed_blobs.add(1, {"container": output_container})
+```
+
+The Azure SDK clients, among them the OpenTelemetry exporter, log each of their HTTP requests: the app keeps only their warnings (`logging.getLogger("azure").setLevel(logging.WARNING)`, and the same for `urllib3`), so that the traces hold the records of the function rather than the exporter's own calls to Application Insights. The workspace keeps the telemetry in these tables:
+
+| Table           | What the function app sends                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`   | The invocations of the `ProcessTextFunction` function, one per processed blob                                                  |
+| `AppTraces`     | The log records of the function and of the Functions host, such as `Executed 'Functions.ProcessTextFunction'`                  |
+| `AppEvents`     | The `BlobProcessed` custom event of each processed file, with the name and the size of the blob in `blob.name` and `blob.size` |
+| `AppMetrics`    | The `processed_blobs` custom metric, with the output container in `container`                                                  |
+| `AppExceptions` | The exceptions the function logs with their stack trace, such as a file that isn't UTF-8 text                                  |
 
 The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
 
@@ -293,16 +320,21 @@ az monitor log-analytics query \
   --output table
 ```
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) runs `test.sh`, which uploads a text file that the function processes, then reads both tables back, retrying until their records arrive. It exits with a non-zero code when `test.sh` fails, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) runs `test.sh`, which uploads a text file that the function processes, then reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when `test.sh` fails, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
 
 ## Logs and metrics
 
-The function app and its App Service plan each have a [diagnostic setting](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) named `default` that sends their resource logs and their platform metrics (`AllMetrics`) to the same workspace:
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one named `default` that sends its resource logs and its platform metrics to the same workspace:
 
-| Resource         | Log categories     | Tables in the workspace | What the function app leaves there                                                                                                                  |
-| ---------------- | ------------------ | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Function App     | `FunctionAppLogs`  | `FunctionAppLogs`       | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function (`Function.ProcessTextFunction`) |
-| App Service plan | None: metrics only | `AzureMetrics`          | The CPU and memory use of its instances                                                                                                               |
+| Resource                       | Log categories                                 | Tables in the workspace                                                   | What the function app leaves there                                                                                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function App                   | `FunctionAppLogs`                              | `FunctionAppLogs`                                                         | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function (`Function.ProcessTextFunction`)                                                                         |
+| App Service plan               | None: metrics only                             | `AzureMetrics`                                                            | The CPU and memory use of its instances                                                                                                                                                                                                 |
+| Storage account                | None: metrics only                             | `AzureMetrics`                                                            | The transactions of the account                                                                                                                                                                                                         |
+| Blob, queue and table services | `StorageRead`, `StorageWrite`, `StorageDelete` | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics` | Each request to the blobs, the queues and the tables: the function reads the input files and writes the output files with its managed identity (`OAuth`), and the Functions host keeps its own data with the account key (`AccountKey`) |
+| Log Analytics workspace        | `Audit`                                        | `LAQueryLogs`, `AzureMetrics`                                             | The queries run on the workspace, such as the ones of the scripts below                                                                                                                                                                 |
+
+The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The user-assigned managed identity offers no diagnostic settings.
 
 The platform metrics of the function app, such as the executions of its functions (`FunctionExecutionCount`), land in the `AzureMetrics` table too. A few queries to try:
 
@@ -316,11 +348,15 @@ FunctionAppLogs
 AzureMetrics
 | where MetricName == "FunctionExecutionCount"
 | project TimeGenerated, Total
+
+// The requests to the blobs: the function's, authenticated with its managed identity (OAuth), and the Functions host's (AccountKey)
+StorageBlobLogs
+| summarize Requests = count() by OperationName, AuthenticationType
 ```
 
 The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly, for example with `az monitor metrics list --resource <function-app-id> --metrics FunctionExecutionCount --aggregation Total`.
 
-[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the function app and of the plan, runs `test.sh`, reads the invocation records and the exported platform metrics of both resources until their records arrive, and prints the executions of the function app from the metrics API. It exits with a non-zero code in the same cases as `query-telemetry.sh`. On Azure an execution can be counted in the minute after the one in which it ran.
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the function app, of the plan, of the storage account, of its services and of the workspace, runs `test.sh`, and reads until their records arrive the invocation records, the exported platform metrics of the function app and of the plan, the requests to the blobs and to the queues, the transaction metrics of the storage account and of its services, and the audit records of the queries run on the workspace. It ends with the executions of the function app and the transactions of the storage account read from the metrics API. It exits with a non-zero code in the same cases as `query-telemetry.sh`. On Azure an execution can be counted in the minute after the one in which it ran.
 
 ### Delivery times
 

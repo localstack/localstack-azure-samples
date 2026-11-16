@@ -2,10 +2,12 @@
 
 # Usage: query-telemetry.sh
 #
-# Reads back what the Functions host sent through the connection string of the Application Insights resource to its
-# Log Analytics workspace: the invocations of the functions (AppRequests), first those of the CreateGame timer
-# function, which runs when the host starts and then every minute, and the log records of the functions and of the
-# host (AppTraces). The timer keeps the function app busy by itself, so the script calls nothing.
+# Reads back what the Functions host and the .NET worker sent through the connection string of the Application Insights
+# resource to its Log Analytics workspace: the invocations of the functions (AppRequests), first those of the
+# CreateGame timer function, which runs when the host starts and then every minute, the log records of the functions
+# and of the host (AppTraces), the GameCreated and GameWinnerDetermined custom events (AppEvents), the custom metric
+# that counts the completed games (AppMetrics), and the exceptions the functions logged, if any (AppExceptions). The
+# timer keeps the function app busy by itself, so the script calls nothing.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
 # retried: raise RETRY_COUNT there.
@@ -71,6 +73,42 @@ query_workspace() {
 	EXIT_CODE=1
 }
 
+# Run a KQL query on the Log Analytics workspace once and print the records it returns as a table, or say that there
+# are none: for records that only an unexpected event produces
+# $1: what the query reads
+# $2: the KQL query
+# $3: the JMESPath projection that names and orders the columns of the table
+# $4: what it means when there are no records
+show_workspace_records() {
+	local description=$1
+	local query=$2
+	local columns=$3
+	local when_empty=$4
+	local records
+
+	echo -e "\n$description:\n"
+	records=$(az monitor log-analytics query \
+		--workspace "$WORKSPACE_ID" \
+		--analytics-query "$query" \
+		--query "length(@)" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query"
+		EXIT_CODE=1
+	elif [[ $records == 0 ]]; then
+		echo "$when_empty"
+	else
+		az monitor log-analytics query \
+			--workspace "$WORKSPACE_ID" \
+			--analytics-query "$query" \
+			--query "$columns" \
+			--output table \
+			--only-show-errors
+	fi
+}
+
 # Check whether the log-analytics extension of the Azure CLI, which provides the az monitor log-analytics query
 # command, is installed
 echo "Checking if the [log-analytics] extension of the Azure CLI is installed..."
@@ -128,5 +166,27 @@ query_workspace \
 	"Latest log records of the [$FUNCTION_APP_NAME] function app (AppTraces)" \
 	"AppTraces | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
+# The custom events of the games: GameCreated for each game the timer function creates, GameWinnerDetermined for each
+# winner a function determines, with the source of the request (AppEvents)
+query_workspace \
+	"Custom events of the games, per event and source (AppEvents)" \
+	"AppEvents | where Name in ('GameCreated', 'GameWinnerDetermined') | summarize Events = count() by Name, Source = tostring(Properties['game.source']) | order by Name asc" \
+	"[].{Event:Name,Source:Source,Events:Events}" \
+	2
+
+# The custom metric that counts the completed games by the source of the request, exported once a minute (AppMetrics)
+query_workspace \
+	"Custom metric of the completed games (AppMetrics)" \
+	"AppMetrics | where Name == 'games_completed' | summarize Total = sum(Sum) by Name, Source = tostring(Properties['source']) | order by Source asc" \
+	"[].{Metric:Name,Source:Source,Total:Total}"
+
+# The exceptions the functions logged with their stack trace (AppExceptions): a failed upload to the storage account,
+# for example, produces one
+show_workspace_records \
+	"Latest exceptions of the [$FUNCTION_APP_NAME] function app (AppExceptions)" \
+	"AppExceptions | project TimeGenerated, ExceptionType, OuterMessage | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Exception:ExceptionType,Message:OuterMessage}" \
+	"No exceptions: the [$FUNCTION_APP_NAME] function app logged none."
 
 exit $EXIT_CODE

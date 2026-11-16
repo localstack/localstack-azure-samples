@@ -84,7 +84,7 @@ STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--output tsv)
 
 if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-	echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
+	echo "Storage account key retrieved successfully."
 else
 	echo "Failed to retrieve storage account key."
 	exit 1
@@ -92,7 +92,7 @@ fi
 
 # Construct the storage connection string for LocalStack
 STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
-echo "Storage connection string constructed: [$STORAGE_CONNECTION_STRING]"
+echo "Storage connection string constructed."
 
 # Get the storage account resource ID
 STORAGE_ACCOUNT_RESOURCE_ID=$(az storage account show \
@@ -312,14 +312,17 @@ else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 	echo "Creating role assignment: assigning [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]..."
 	ATTEMPT=1
+	ASSIGNED=0
 	while [ $ATTEMPT -le $RETRY_COUNT ]; do
 		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
 		az role assignment create \
-			--assignee "$MANAGED_IDENTITY_PRINCIPAL_ID" \
+			--assignee-object-id "$MANAGED_IDENTITY_PRINCIPAL_ID" \
+			--assignee-principal-type ServicePrincipal \
 			--role "$ROLE" \
 			--scope "$STORAGE_ACCOUNT_RESOURCE_ID" 1>/dev/null
 
 		if [[ $? == 0 ]]; then
+			ASSIGNED=1
 			break
 		else
 			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
@@ -330,7 +333,7 @@ else
 		fi
 	done
 
-	if [[ $? == 0 ]]; then
+	if [[ $ASSIGNED == 1 ]]; then
 		echo "Successfully assigned [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -353,14 +356,17 @@ else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 	echo "Creating role assignment: assigning [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]..."
 	ATTEMPT=1
+	ASSIGNED=0
 	while [ $ATTEMPT -le $RETRY_COUNT ]; do
 		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
 		az role assignment create \
-			--assignee "$MANAGED_IDENTITY_PRINCIPAL_ID" \
+			--assignee-object-id "$MANAGED_IDENTITY_PRINCIPAL_ID" \
+			--assignee-principal-type ServicePrincipal \
 			--role "$ROLE" \
 			--scope "$STORAGE_ACCOUNT_RESOURCE_ID" 1>/dev/null
 
 		if [[ $? == 0 ]]; then
+			ASSIGNED=1
 			break
 		else
 			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
@@ -371,7 +377,7 @@ else
 		fi
 	done
 
-	if [[ $? == 0 ]]; then
+	if [[ $ASSIGNED == 1 ]]; then
 		echo "Successfully assigned [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -382,11 +388,22 @@ fi
 # Set function app settings
 echo "Setting function app settings for [$FUNCTION_APP_NAME]..."
 
-# Set storage URIs based on environment
-BLOB_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-QUEUE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.queue.core.windows.net"
-TABLE_SERVICE_URI="https://${STORAGE_ACCOUNT_NAME}.table.core.windows.net"
-	
+# Get the blob, queue and table endpoints of the storage account, which the identity-based connection of the function
+# uses
+read -r BLOB_SERVICE_URI QUEUE_SERVICE_URI TABLE_SERVICE_URI < <(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "[primaryEndpoints.blob, primaryEndpoints.queue, primaryEndpoints.table]" \
+	--output tsv \
+	--only-show-errors | tr '\n' ' ')
+
+if [[ -n $BLOB_SERVICE_URI && -n $QUEUE_SERVICE_URI && -n $TABLE_SERVICE_URI ]]; then
+	echo "Blob, queue and table endpoints of the [$STORAGE_ACCOUNT_NAME] storage account successfully retrieved"
+else
+	echo "Failed to retrieve the blob, queue and table endpoints of the [$STORAGE_ACCOUNT_NAME] storage account"
+	exit 1
+fi
+
 
 az functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
@@ -402,6 +419,7 @@ az functionapp config appsettings set \
 	OUTPUT_STORAGE_CONTAINER_NAME="$OUTPUT_STORAGE_CONTAINER_NAME" \
 	FUNCTIONS_WORKER_RUNTIME="$RUNTIME" \
 	FUNCTIONS_EXTENSION_VERSION="~4" \
+	PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY='true' \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -508,6 +526,129 @@ if [[ $? != 0 ]]; then
 else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist"
 fi
+
+# Get the resource id of the Log Analytics workspace
+echo "Retrieving the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID ]]; then
+	echo "Resource id [$LOG_ANALYTICS_ID] of the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Check whether the diagnostic settings of the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
+fi
+
+# Check whether the diagnostic settings of the storage account already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+	# Create the diagnostic settings that send the capacity and transaction metrics of the storage account to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "Capacity", "enabled": true},
+			{"category": "Transaction", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+fi
+
+# The Functions host keeps its own data in the blobs, queues and tables of the storage account (AzureWebJobsStorage):
+# each of the three services gets diagnostic settings that send the logs of its requests (StorageBlobLogs,
+# StorageQueueLogs, StorageTableLogs) and its capacity and transaction metrics to the Log Analytics workspace
+for SERVICE in blob queue table; do
+	SERVICE_RESOURCE_ID="$STORAGE_ACCOUNT_RESOURCE_ID/${SERVICE}Services/default"
+	echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+	az monitor diagnostic-settings show \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$SERVICE_RESOURCE_ID" \
+		--only-show-errors &>/dev/null
+
+	if [[ $? != 0 ]]; then
+		echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+		echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+		az monitor diagnostic-settings create \
+			--name "$DIAGNOSTIC_SETTINGS_NAME" \
+			--resource "$SERVICE_RESOURCE_ID" \
+			--workspace "$LOG_ANALYTICS_NAME" \
+			--logs '[
+				{"category": "StorageRead", "enabled": true},
+				{"category": "StorageWrite", "enabled": true},
+				{"category": "StorageDelete", "enabled": true}
+			]' \
+			--metrics '[
+				{"category": "Capacity", "enabled": true},
+				{"category": "Transaction", "enabled": true}
+			]' \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+		else
+			echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account"
+			exit 1
+		fi
+	else
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+	fi
+done
 
 # CD into the function app directory
 cd ../src || exit
