@@ -255,12 +255,13 @@ query_workspace \
 	"[].{Time:TimeGenerated,Function:FunctionName,Event:EventName,Level:Level,Message:Message}" \
 	2
 
-# The executions of the function app that the AllMetrics category of its diagnostic setting exports to the workspace
-# (AzureMetrics), one record per minute, exported once the minute is over. On Azure an execution can be counted in a
-# minute after the one in which it ran.
+# The platform metrics of the function app that the AllMetrics category of its diagnostic setting exports to the workspace
+# (AzureMetrics), one record per metric and minute, exported once the minute is over. Azure exports the memory, I/O and
+# HTTP metrics of the function app, such as MemoryWorkingSet, but not its executions (FunctionExecutionCount), which only
+# the metrics API serves (see the end of the script).
 query_workspace \
-	"Executions of the [$FUNCTION_APP_NAME] function app exported to the workspace (AzureMetrics)" \
-	"AzureMetrics | where _ResourceId =~ '$FUNCTION_APP_ID' and MetricName == 'FunctionExecutionCount' | summarize Minutes = count(), Total = sum(Total) by Resource, MetricName" \
+	"Platform metrics of the [$FUNCTION_APP_NAME] function app exported to the workspace (AzureMetrics)" \
+	"AzureMetrics | where _ResourceId =~ '$FUNCTION_APP_ID' | summarize Minutes = count(), Total = sum(Total) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Total:Total}"
 
 # The platform metrics of the App Service plan that the AllMetrics category of its diagnostic setting exports to the

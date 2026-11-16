@@ -224,7 +224,7 @@ The function app and its App Service plan each have a [diagnostic setting](https
 | Function App     | `FunctionAppLogs`  | `FunctionAppLogs`       | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function (`Function.CreateGame`) |
 | App Service plan | None: metrics only | `AzureMetrics`          | The CPU and memory use of its instances                                                                                                              |
 
-The platform metrics of the function app, such as the executions of its functions (`FunctionExecutionCount`), land in the `AzureMetrics` table too. A few queries to try:
+The platform metrics of the function app land in the `AzureMetrics` table too. On Azure these are its memory, I/O and HTTP metrics, such as `MemoryWorkingSet`, but not the executions of its functions (`FunctionExecutionCount`), which only the metrics API serves (observed on Azure on 2026-11-16). A few queries to try:
 
 ```kusto
 // The records of the invocations of the timer function
@@ -237,10 +237,10 @@ FunctionAppLogs
 | where Category startswith "Function."
 | summarize Records = count() by FunctionName
 
-// The executions of the functions per minute
+// The memory the function app uses, minute by minute
 AzureMetrics
-| where MetricName == "FunctionExecutionCount"
-| project TimeGenerated, Total
+| where MetricName == "MemoryWorkingSet"
+| project TimeGenerated, Average
 ```
 
 The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly, for example with `az monitor metrics list --resource <function-app-id> --metrics FunctionExecutionCount --aggregation Total`.

@@ -273,6 +273,7 @@ The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspac
 
 - `host.json` sets `"telemetryMode": "OpenTelemetry"`, so that the Functions host exports its own telemetry through OpenTelemetry.
 - `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` app setting, set to `true`, has the Python worker send the telemetry of the function itself, instead of the host forwarding its log records.
+- The `PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME` app setting, set to `function_app`, has the worker send the records of the function's logger only (the worker passes it to `configure_azure_monitor` as `logger_name`, see its [source](https://github.com/Azure/azure-functions-python-worker/blob/dev/workers/azure_functions_worker/dispatcher.py)). Without it the worker sends the records of every logger, its own and the OpenTelemetry exporter's HTTP requests included, and the exporter's startup messages about the optional instrumentations it can't import arrive as exceptions.
 
 The function sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each file it processes and counts the files in the `processed_blobs` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics). The worker sends a log record that carries the `microsoft.custom_event.name` attribute as a custom event named after its value, with the other attributes as its custom dimensions:
 
@@ -281,7 +282,7 @@ processed_blobs = metrics.get_meter("function_app").create_counter(
     "processed_blobs", unit="{blob}", description="The number of blobs the function processed."
 )
 
-logging.info(
+logger.info(
     "BlobProcessed: %s",
     input_blob.name,
     extra={
@@ -293,7 +294,7 @@ logging.info(
 processed_blobs.add(1, {"container": output_container})
 ```
 
-The Azure SDK clients, among them the OpenTelemetry exporter, log each of their HTTP requests: the app keeps only their warnings (`logging.getLogger("azure").setLevel(logging.WARNING)`, and the same for `urllib3`), so that the traces hold the records of the function rather than the exporter's own calls to Application Insights. The workspace keeps the telemetry in these tables:
+The workspace keeps the telemetry in these tables:
 
 | Table           | What the function app sends                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -336,7 +337,7 @@ Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-u
 
 The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The user-assigned managed identity offers no diagnostic settings.
 
-The platform metrics of the function app, such as the executions of its functions (`FunctionExecutionCount`), land in the `AzureMetrics` table too. A few queries to try:
+The platform metrics of the function app land in the `AzureMetrics` table too. On Azure these are its memory, I/O and HTTP metrics, such as `MemoryWorkingSet`, but not the executions of its functions (`FunctionExecutionCount`), which only the metrics API serves (observed on Azure on 2026-11-16). A few queries to try:
 
 ```kusto
 // The records of the invocations of the function
@@ -344,10 +345,10 @@ FunctionAppLogs
 | where Category == "Function.ProcessTextFunction"
 | project TimeGenerated, EventName, Level, Message
 
-// The executions of the functions per minute
+// The memory the function app uses, minute by minute
 AzureMetrics
-| where MetricName == "FunctionExecutionCount"
-| project TimeGenerated, Total
+| where MetricName == "MemoryWorkingSet"
+| project TimeGenerated, Average
 
 // The requests to the blobs: the function's, authenticated with its managed identity (OAuth), and the Functions host's (AccountKey)
 StorageBlobLogs

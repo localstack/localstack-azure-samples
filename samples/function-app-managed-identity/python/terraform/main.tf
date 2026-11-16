@@ -115,8 +115,9 @@ module "function_app" {
     FUNCTIONS_WORKER_RUNTIME                           = var.runtime_name
     FUNCTIONS_EXTENSION_VERSION                        = "~4"
     # The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
-    # forwarding its log records
+    # forwarding its log records, and only the records of the function's logger
     PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY = "true"
+    PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME      = "function_app"
   }
 }
 

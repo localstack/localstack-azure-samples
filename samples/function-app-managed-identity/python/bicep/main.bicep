@@ -281,8 +281,9 @@ module functionApp 'modules/function-app.bicep' = {
       AZURE_CLIENT_ID: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
       APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
       // The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
-      // forwarding its log records
+      // forwarding its log records, and only the records of the function's logger
       PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY: 'true'
+      PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME: 'function_app'
     }
     repoUrl: repoUrl
     diagnosticSettingsName: diagnosticSettingsName

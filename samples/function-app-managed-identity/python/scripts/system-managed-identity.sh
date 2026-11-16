@@ -420,6 +420,7 @@ az functionapp config appsettings set \
 	FUNCTIONS_WORKER_RUNTIME="$RUNTIME" \
 	FUNCTIONS_EXTENSION_VERSION="~4" \
 	PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY='true' \
+	PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME='function_app' \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
