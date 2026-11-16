@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# Variables
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
+FILE_PATH="input.txt"
+INPUT_CONTAINER_NAME="input"
+OUTPUT_CONTAINER_NAME="output"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMP_OUTPUT_FILE=""
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+cleanup() {
+	if [ -n "$TEMP_OUTPUT_FILE" ] && [ -f "$TEMP_OUTPUT_FILE" ]; then
+		rm -f "$TEMP_OUTPUT_FILE"
+	fi
+}
+
+trap cleanup EXIT
+
+# Change the current directory to the script's directory
+cd "$CURRENT_DIR" || exit
+# Generate a timestamp in the format YYYY-MM-DD-HH-MM-SS
+TIMESTAMP=$(date +"%Y-%m-%d-%H-%M-%S")
+
+# Extract the file name and extension
+FILE_NAME=$(basename -- "$FILE_PATH")
+FILE_BASE_NAME="${FILE_NAME%.*}"  # File name without extension
+FILE_EXTENSION="${FILE_NAME##*.}" # File extension
+
+# Construct the blob name with the timestamp
+BLOB_NAME="${FILE_BASE_NAME}-${TIMESTAMP}.${FILE_EXTENSION}"
+
+# Check whether the input container already exists
+CONTAINER_EXISTS=$(az storage container exists \
+	--name "$INPUT_CONTAINER_NAME" \
+	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--auth-mode login | jq .exists)
+
+if [ "$CONTAINER_EXISTS" == "true" ]; then
+	echo "Container [$INPUT_CONTAINER_NAME] already exists."
+else
+	echo "Container [$INPUT_CONTAINER_NAME] does not exist."
+
+	# Create the input container if it doesn't exist
+	az storage container create \
+		--name $INPUT_CONTAINER_NAME \
+		--account-name $STORAGE_ACCOUNT_NAME \
+		--auth-mode login
+fi
+
+# Check whether the output container already exists
+CONTAINER_EXISTS=$(az storage container exists \
+	--name "$OUTPUT_CONTAINER_NAME" \
+	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--auth-mode login | jq .exists)
+
+if [ "$CONTAINER_EXISTS" == "true" ]; then
+	echo "Container [$OUTPUT_CONTAINER_NAME] already exists."
+else
+	echo "Container [$OUTPUT_CONTAINER_NAME] does not exist."
+
+	# Create the output container if it doesn't exist
+	az storage container create \
+		--name $OUTPUT_CONTAINER_NAME \
+		--account-name $STORAGE_ACCOUNT_NAME \
+		--auth-mode login
+fi
+
+# Upload the file to the container
+az storage blob upload \
+	--container-name $INPUT_CONTAINER_NAME \
+	--file "$FILE_PATH" \
+	--name "$BLOB_NAME" \
+	--account-name $STORAGE_ACCOUNT_NAME \
+	--auth-mode login 1>/dev/null
+
+echo "[$BLOB_NAME] file uploaded successfully to the [$INPUT_CONTAINER_NAME] container."
+
+# Verify the upload by checking if the blob exists in the input container
+BLOB_EXISTS=$(az storage blob exists \
+	--container-name "$INPUT_CONTAINER_NAME" \
+	--name "$BLOB_NAME" \
+	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--auth-mode login \
+	--query "exists" \
+	--output tsv)
+
+if [ "$BLOB_EXISTS" == "true" ]; then
+	echo "Blob [$BLOB_NAME] exists in container [$INPUT_CONTAINER_NAME]. Upload verified."
+else
+	echo "Blob [$BLOB_NAME] does not exist in container [$INPUT_CONTAINER_NAME]. Upload failed."
+	exit 1
+fi
+
+# Loop n times to check whether the function app processed the input file and generated the result file in the output container.
+# On Azure the blob trigger can take a minute or more to pick up a new blob: raise RETRY_COUNT there.
+n="${RETRY_COUNT:-36}"
+seconds="${SLEEP:-5}"
+
+for ((i=1; i<=n; i++)); do
+	echo "Checking for [$BLOB_NAME] file in the [$OUTPUT_CONTAINER_NAME] container (Attempt $i of $n)..."
+	
+	BLOB_EXISTS=$(az storage blob exists \
+		--container-name "$OUTPUT_CONTAINER_NAME" \
+		--name "$BLOB_NAME" \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--auth-mode login \
+		--query "exists" \
+		--output tsv)
+
+	if [ "$BLOB_EXISTS" == "true" ]; then
+		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
+		TEMP_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/processed-output.XXXXXX")" || { echo "Failed to create temporary file." >&2; exit 1; }
+		TEMP_OUTPUT_FILE="$(native_path "$TEMP_OUTPUT_FILE")"
+
+		az storage blob download \
+			--container-name "$OUTPUT_CONTAINER_NAME" \
+			--name "$BLOB_NAME" \
+			--file "$TEMP_OUTPUT_FILE" \
+			--account-name "$STORAGE_ACCOUNT_NAME" \
+			--auth-mode login 1>/dev/null || { echo "Failed to download processed blob [$BLOB_NAME] from container [$OUTPUT_CONTAINER_NAME]." >&2; exit 1; }
+
+		echo "Input file [$FILE_PATH]:"
+		cat "$FILE_PATH"
+
+		echo ""
+		echo "Processed output file [$BLOB_NAME]:"
+		cat "$TEMP_OUTPUT_FILE"
+		echo ""
+
+		exit 0
+	fi
+
+	echo "Processed file not found yet. Waiting for $seconds seconds before retrying..."
+	sleep $seconds
+done
+
+echo "Processed file was not found in the [$OUTPUT_CONTAINER_NAME] container after $n attempts. Exiting with failure."
+exit 1
