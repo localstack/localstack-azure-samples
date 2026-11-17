@@ -70,9 +70,29 @@ var captureConsumerGroup = 'capture-processor'
 //********************************************
 // Modules
 //********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: '${prefix}-ehgrid-log-analytics'
+    location: location
+    tags: tags
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: '${prefix}-ehgrid-insights'
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
+  }
+}
+
 module storage 'modules/storage.bicep' = {
   name: 'storage-deployment'
   params: {
+    workspaceId: workspace.outputs.id
     storageAccountName: storageAccountName
     location: location
     captureContainerName: captureContainerName
@@ -83,6 +103,7 @@ module storage 'modules/storage.bicep' = {
 module eventHubs 'modules/event-hubs.bicep' = {
   name: 'eventhubs-deployment'
   params: {
+    workspaceId: workspace.outputs.id
     namespaceName: namespaceName
     location: location
     skuName: eventHubSkuName
@@ -104,6 +125,7 @@ module eventHubs 'modules/event-hubs.bicep' = {
 module eventGrid 'modules/event-grid.bicep' = {
   name: 'eventgrid-deployment'
   params: {
+    workspaceId: workspace.outputs.id
     systemTopicName: systemTopicName
     subscriptionName: subscriptionName
     location: location
@@ -116,6 +138,8 @@ module eventGrid 'modules/event-grid.bicep' = {
 module workloads 'modules/workloads.bicep' = {
   name: 'workloads-deployment'
   params: {
+    workspaceId: workspace.outputs.id
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     functionAppName: functionAppName
     functionPlanName: functionPlanName
     location: location
@@ -142,3 +166,5 @@ output systemTopicName string = eventGrid.outputs.systemTopicName
 output eventSubscriptionName string = eventGrid.outputs.eventSubscriptionName
 output functionAppName string = workloads.outputs.functionAppName
 output temperatureLimit int = temperatureLimit
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

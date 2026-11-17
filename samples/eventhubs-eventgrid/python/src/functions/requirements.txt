@@ -1,3 +1,4 @@
 azure-functions
 azure-storage-blob==12.24.0
 fastavro==1.10.0
+azure-monitor-opentelemetry>=1.8.0
