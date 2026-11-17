@@ -18,6 +18,19 @@ bash deploy.sh
 
 The script creates the resource group, generates the shared secret (read by `main.bicepparam` from the environment), validates and deploys `main.bicep`, and then deploys the function from a zip package with the Azure CLI. The template imports the API from `../apim/openapi.json` and reads the policy from `../apim/inventory-api-policy.xml` through `loadTextContent`, so all three deployment variants publish the same API with the same policy.
 
+`main.bicep` creates every resource through a module of the [modules](modules) folder: the Log Analytics workspace and the Application Insights resource, the storage account, the App Service plan and the Function App, and the API Management service with its named value, API, policy, product and subscription. Every resource that offers diagnostic settings gets one that sends to the workspace, and the Function App receives the connection string of the Application Insights resource in its `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
+
+## Telemetry, logs and metrics
+
+Once the function is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
+
 ## Cleanup
 
 ```bash

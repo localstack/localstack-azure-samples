@@ -14,6 +14,8 @@ API_ID='inventory-api'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
 RATE_LIMIT_CALLS=10
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
@@ -287,6 +289,26 @@ if [[ $LIMITED == 1 ]]; then
 	fi
 else
 	echo "The rate limit did not trip after $((RATE_LIMIT_CALLS + 2)) calls"
+	FAILED=1
+fi
+
+# 12. The telemetry: a workspace-based Application Insights resource, and the Function App sending to it through
+# OpenTelemetry (the names of its app settings only, never the values)
+WORKSPACE_RESOURCE_ID=$(az monitor log-analytics workspace show --resource-group $RESOURCE_GROUP_NAME --workspace-name $LOG_ANALYTICS_NAME --query id --output tsv)
+INSIGHTS_WORKSPACE_ID=$(az monitor app-insights component show --app $APPLICATION_INSIGHTS_NAME --resource-group $RESOURCE_GROUP_NAME --query workspaceResourceId --output tsv)
+# Resource ids compare case-insensitively; tr keeps the comparison working on the bash 3.2 of macOS
+if [[ -n "$WORKSPACE_RESOURCE_ID" && "$(echo "$INSIGHTS_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]')" == "$(echo "$WORKSPACE_RESOURCE_ID" | tr '[:upper:]' '[:lower:]')" ]]; then
+	echo "The [$APPLICATION_INSIGHTS_NAME] Application Insights resource stores its telemetry in the [$LOG_ANALYTICS_NAME] workspace"
+else
+	echo "Expected the [$APPLICATION_INSIGHTS_NAME] Application Insights resource to be based on the [$LOG_ANALYTICS_NAME] workspace"
+	FAILED=1
+fi
+TELEMETRY_SETTINGS=$(az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME \
+	--query "[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING' || name=='PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'].name" --output tsv | sort | tr '\n' ' ')
+if [[ "$TELEMETRY_SETTINGS" == "APPLICATIONINSIGHTS_CONNECTION_STRING PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY " ]]; then
+	echo "The [$FUNCTION_APP_NAME] function app sends its telemetry to Application Insights"
+else
+	echo "Expected the [$FUNCTION_APP_NAME] function app to have the APPLICATIONINSIGHTS_CONNECTION_STRING and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY app settings (found: $TELEMETRY_SETTINGS)"
 	FAILED=1
 fi
 

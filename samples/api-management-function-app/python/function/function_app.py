@@ -1,8 +1,23 @@
 import hmac
 import json
+import logging
 import os
 
 import azure.functions as func
+from opentelemetry import metrics
+
+# The logger of the functions. With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, telemetryMode set to
+# OpenTelemetry in host.json and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY set to true, the Python worker sends to
+# Application Insights the records of the logger that PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME names (traces), the
+# exceptions it logs, the custom event and the custom metric below.
+LOGGER_NAME = "function_app"
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+
+# The custom metric: the number of inventory items the backend served, by SKU (customMetrics table)
+inventory_items_served = metrics.get_meter(LOGGER_NAME).create_counter(
+    "inventory_items_served", unit="{item}", description="The number of inventory items the backend served."
+)
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -32,6 +47,8 @@ def reject_without_secret(req):
     # unhandled 500.
     if expected and hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         return None
+    # A warning (traces table): a call that didn't come through the gateway
+    logger.warning("Refused a call to %s without the backend secret", req.url)
     return json_response(
         {
             "error": f"Missing or invalid {SECRET_HEADER} header. "
@@ -46,6 +63,7 @@ def list_items(req: func.HttpRequest) -> func.HttpResponse:
     rejected = reject_without_secret(req)
     if rejected is not None:
         return rejected
+    logger.info("Listed %d inventory items", len(ITEMS))
     return json_response({"items": ITEMS, "count": len(ITEMS)})
 
 
@@ -57,7 +75,20 @@ def get_item(req: func.HttpRequest) -> func.HttpResponse:
     wanted = req.route_params.get("id")
     for item in ITEMS:
         if str(item["id"]) == wanted:
+            # A custom event (customEvents table): the worker sends a log record that carries the
+            # microsoft.custom_event.name attribute as a custom event named after its value, with the other attributes as
+            # its custom dimensions
+            logger.info(
+                f"InventoryItemServed: {item['sku']}",
+                extra={
+                    "microsoft.custom_event.name": "InventoryItemServed",
+                    "inventory.sku": item["sku"],
+                    "inventory.quantity": item["quantity"],
+                },
+            )
+            inventory_items_served.add(1, {"sku": item["sku"]})
             return json_response(item)
+    logger.warning("No inventory item with id %s", wanted)
     return json_response({"error": f"No item with id {wanted}"}, status_code=404)
 
 
