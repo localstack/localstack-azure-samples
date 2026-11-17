@@ -281,7 +281,7 @@ Http2xx    8.0
 BytesSent  171720.0
 ```
 
-[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it calls the web app, lists the diagnostic settings of the four resources, runs queries like these (plus the platform events of the web app and the exported `AzureMetrics`) until their records arrive, and prints the metrics of the web app, the store, the vault and the server. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it calls the web app, lists the diagnostic settings of the four resources, runs queries like these (plus the platform events of the web app and the exported `AzureMetrics`) until their records arrive, and prints the metrics of the web app, the store, the vault and the server. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default), except for the exported platform metrics on Azure (see below).
 
 ### Azure Portal Emulator
 
@@ -294,7 +294,7 @@ The emulator serves an emulated Azure portal at `http://localhost:4566/_localsta
 
 ### Delivery times
 
-On the emulator the records are queryable within seconds, and the aggregated ones (`AACHttpRequest` and `AzureMetrics`) once their one-minute window is over. On Azure the records take minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the script. A new setting can also take a while before it delivers anything, and on Azure the records of what the application did while it started, such as its start-up console lines or its secret reads in the key vault, can then be missing for good: once the workspace receives records, `az webapp restart --name local-webapp-test --resource-group local-rg` starts the application again, and the records of the new start arrive.
+On the emulator the records are queryable within seconds, and the aggregated ones (`AACHttpRequest` and `AzureMetrics`) once their one-minute window is over. On Azure the records take minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the script. The exported platform metrics (`AzureMetrics`) are the exception: Azure exports them late and irregularly, so on Azure `query-logs-and-metrics.sh` reads them once, shows those that arrived and notes how many are still missing, without failing. A new setting can also take a while before it delivers anything, and on Azure the records of what the application did while it started, such as its start-up console lines or its secret reads in the key vault, can then be missing for good: once the workspace receives records, `az webapp restart --name local-webapp-test --resource-group local-rg` starts the application again, and the records of the new start arrive.
 
 ## Troubleshooting
 

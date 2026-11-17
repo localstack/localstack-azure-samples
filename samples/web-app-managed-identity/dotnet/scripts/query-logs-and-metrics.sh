@@ -11,6 +11,8 @@
 # The records reach the workspace within seconds on the emulator, and the metrics once their one-minute window is
 # over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
 # every query is retried: raise RETRY_COUNT there.
+# The platform metrics are the exception on Azure, which exports them late and irregularly: there the script reads
+# them once, shows those that arrived and notes how many are still missing, without failing.
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -23,6 +25,8 @@ WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
+# The active az cloud: LocalStack when az talks to the emulator (lstk az start-interception), AzureCloud on Azure
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
 
 # Run a KQL query on the Log Analytics workspace and print the records it returns as a table, retrying while the
 # records are still on their way to the workspace
@@ -72,6 +76,60 @@ query_workspace() {
 	echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace returned [${records:-0}] of the [$minimum_records] records expected after $RETRY_COUNT attempts."
 	echo "On Azure the first records of a new diagnostic setting can take up to 90 minutes: run the script again later or raise RETRY_COUNT."
 	EXIT_CODE=1
+}
+
+# Run a KQL query on the platform metrics that the diagnostic settings export to the workspace (AzureMetrics). The
+# emulator exports them once their one-minute window is over, so there the query waits for every record it expects, as
+# query_workspace does. Azure exports each resource's metrics late and irregularly, sometimes long after the diagnostic
+# setting was created, so on Azure the query runs once, prints the records that arrived and notes how many are still
+# missing, without failing the script.
+# $1: what the query reads
+# $2: the KQL query
+# $3: the JMESPath projection that names and orders the columns of the table
+# $4: the number of records the query expects (1 when not given)
+query_metrics() {
+	local description=$1
+	local query=$2
+	local columns=$3
+	local expected_records=${4:-1}
+	local records
+
+	if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+		query_workspace "$description" "$query" "$columns" "$expected_records"
+		return
+	fi
+
+	echo -e "\n$description:\n"
+	records=$(az monitor log-analytics query \
+		--workspace "$WORKSPACE_ID" \
+		--analytics-query "$query" \
+		--query "length(@)" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query"
+		EXIT_CODE=1
+		return
+	fi
+
+	if [[ $records -gt 0 ]]; then
+		az monitor log-analytics query \
+			--workspace "$WORKSPACE_ID" \
+			--analytics-query "$query" \
+			--query "$columns" \
+			--output table \
+			--only-show-errors
+
+		if [[ $? != 0 ]]; then
+			echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query that shows the records"
+			EXIT_CODE=1
+		fi
+	fi
+
+	if [[ $records -lt $expected_records ]]; then
+		echo "NOTE: [$records] of the [$expected_records] records expected have arrived so far. Azure exports platform metrics late, sometimes long after a diagnostic setting is created: run the script again later to see the others."
+	fi
 }
 
 # Show the diagnostic settings of a resource with the log and metric categories they send to the workspace
@@ -299,14 +357,14 @@ query_workspace \
 
 # The platform metrics of the web app that the AllMetrics category of its diagnostic setting exports to the workspace
 # (AzureMetrics), one record per metric and minute, exported once the minute is over
-query_workspace \
+query_metrics \
 	"Platform metrics of the [$WEB_APP_NAME] web app exported to the workspace (AzureMetrics)" \
 	"AzureMetrics | where _ResourceId =~ '$WEB_APP_ID' and MetricName in ('Requests', 'Http2xx', 'BytesSent') | summarize Minutes = count(), Total = sum(Total) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Total:Total}"
 
 # The platform metrics of the App Service plan that the AllMetrics category of its diagnostic setting exports to the
 # workspace (AzureMetrics): the average use of the CPU and of the memory of its instances in each minute
-query_workspace \
+query_metrics \
 	"Platform metrics of the App Service plan exported to the workspace (AzureMetrics)" \
 	"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' and MetricName in ('CpuPercentage', 'MemoryPercentage') | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}"
@@ -320,7 +378,7 @@ query_workspace \
 
 # The transaction metrics that the diagnostic settings of the storage account and of its blob service export to the
 # workspace (AzureMetrics), one record per metric and minute for each of the two
-query_workspace \
+query_metrics \
 	"Transaction metrics of the [$STORAGE_ACCOUNT_NAME] storage account exported to the workspace (AzureMetrics)" \
 	"AzureMetrics | where _ResourceId startswith '$STORAGE_ACCOUNT_ID' and MetricName == 'Transactions' | extend Scope = iff(_ResourceId endswith '/blobServices/default', 'blob service', 'storage account') | summarize Minutes = count(), Total = sum(Total) by Scope, MetricName | order by Scope asc" \
 	"[].{Scope:Scope,Metric:MetricName,Minutes:Minutes,Total:Total}" \

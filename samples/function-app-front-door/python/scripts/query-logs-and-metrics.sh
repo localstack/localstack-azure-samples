@@ -13,6 +13,8 @@
 # The records reach the workspace within seconds on the emulator, and the metrics once their one-minute window is
 # over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
 # every query is retried: raise RETRY_COUNT there.
+# The platform metrics are the exception on Azure, which exports them late and irregularly: there the script reads
+# them once, shows those that arrived and notes how many are still missing, without failing.
 
 # Variables (the same defaults and environment overrides as deploy.sh)
 PREFIX="${PREFIX:-local}"
@@ -28,6 +30,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
+# The active az cloud: LocalStack when az talks to the emulator (lstk az start-interception), AzureCloud on Azure
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
 
 # Run a KQL query on the Log Analytics workspace and print the records it returns as a table, retrying while the
 # records are still on their way to the workspace
@@ -77,6 +81,60 @@ query_workspace() {
 	echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace returned [${records:-0}] of the [$minimum_records] records expected after $RETRY_COUNT attempts."
 	echo "On Azure the first records of a new diagnostic setting can take up to 90 minutes: run the script again later or raise RETRY_COUNT."
 	EXIT_CODE=1
+}
+
+# Run a KQL query on the platform metrics that the diagnostic settings export to the workspace (AzureMetrics). The
+# emulator exports them once their one-minute window is over, so there the query waits for every record it expects, as
+# query_workspace does. Azure exports each resource's metrics late and irregularly, sometimes long after the diagnostic
+# setting was created, so on Azure the query runs once, prints the records that arrived and notes how many are still
+# missing, without failing the script.
+# $1: what the query reads
+# $2: the KQL query
+# $3: the JMESPath projection that names and orders the columns of the table
+# $4: the number of records the query expects (1 when not given)
+query_metrics() {
+	local description=$1
+	local query=$2
+	local columns=$3
+	local expected_records=${4:-1}
+	local records
+
+	if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+		query_workspace "$description" "$query" "$columns" "$expected_records"
+		return
+	fi
+
+	echo -e "\n$description:\n"
+	records=$(az monitor log-analytics query \
+		--workspace "$WORKSPACE_ID" \
+		--analytics-query "$query" \
+		--query "length(@)" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query"
+		EXIT_CODE=1
+		return
+	fi
+
+	if [[ $records -gt 0 ]]; then
+		az monitor log-analytics query \
+			--workspace "$WORKSPACE_ID" \
+			--analytics-query "$query" \
+			--query "$columns" \
+			--output table \
+			--only-show-errors
+
+		if [[ $? != 0 ]]; then
+			echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query that shows the records"
+			EXIT_CODE=1
+		fi
+	fi
+
+	if [[ $records -lt $expected_records ]]; then
+		echo "NOTE: [$records] of the [$expected_records] records expected have arrived so far. Azure exports platform metrics late, sometimes long after a diagnostic setting is created: run the script again later to see the others."
+	fi
 }
 
 # Show the diagnostic settings of a resource with the log and metric categories they send to the workspace
@@ -219,9 +277,9 @@ query_workspace \
 	"[].{Time:TimeGenerated,Account:AccountName,Operation:OperationName,Status:StatusCode,Authentication:AuthenticationType}"
 
 # The platform metrics the AllMetrics category of the diagnostic settings exports to the workspace (AzureMetrics), one
-# record per metric and minute. On Azure each resource's metrics start arriving at their own pace, so the query waits for
-# the first of them and shows those that arrived.
-query_workspace \
+# record per metric and minute. On Azure each resource's metrics start arriving at their own pace:
+# query_metrics shows those that arrived.
+query_metrics \
 	"Platform metrics exported to the [$LOG_ANALYTICS_NAME] Log Analytics workspace (AzureMetrics)" \
 	"AzureMetrics | summarize Total = sum(Total) by ResourceProvider, Resource, MetricName | order by ResourceProvider asc, Resource asc, MetricName asc | take 20" \
 	"[].{Provider:ResourceProvider,Resource:Resource,Metric:MetricName,Total:Total}"

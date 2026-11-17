@@ -68,7 +68,7 @@ than a description of what it should have done. It fails if:
   must already be assigned.
 - The query scripts retry until the records arrive. On Azure the telemetry takes a few
   minutes and the first records of a new diagnostic setting up to 90 minutes: raise
-  `RETRY_COUNT` there.
+  `RETRY_COUNT` there. On Azure `query-logs-and-metrics.sh` reads the exported platform metrics (`AzureMetrics`) only once and notes the missing ones instead of failing: Azure exports them late and irregularly.
 - These scripts need `src/producers/requirements.txt` installed (`azure-eventhub`,
   `azure-identity`, `azure-storage-blob`, `confluent-kafka`, `fastavro`, `requests`). The
   last two are for `read_capture.py`, which decodes a Capture archive in the final step of
