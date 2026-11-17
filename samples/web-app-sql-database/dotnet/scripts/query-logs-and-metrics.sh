@@ -8,6 +8,9 @@
 # records of the queries run on the workspace. It ends with the same platform metrics read from the Azure Monitor
 # metrics API.
 #
+# Before it reads the records of the key vault, it restarts the web app: on Azure the records of a new diagnostic
+# setting's first minutes, the secret reads of the app's start among them, can be lost.
+#
 # The records reach the workspace within seconds on the emulator, and the platform metrics once their one-minute window
 # is over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
 # every query is retried: raise RETRY_COUNT there.
@@ -126,6 +129,31 @@ show_metrics() {
 	fi
 }
 
+# Wait until the web app answers at a URL: on Azure the asynchronous zip deployment can still be building the app, and a
+# web app that was just restarted can still be starting
+# $1: the URL to call
+wait_for_web_app() {
+	local url=$1
+	local status_code
+	local attempt=1
+	echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [$url]..."
+	while [ $attempt -le $RETRY_COUNT ]; do
+		status_code=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "$url")
+
+		if [[ $status_code == 200 ]]; then
+			echo "The [$WEB_APP_NAME] web app answered with status code [$status_code]"
+			return 0
+		fi
+		if [ $attempt -lt $RETRY_COUNT ]; then
+			echo "Attempt $attempt of $RETRY_COUNT: the [$WEB_APP_NAME] web app answered with status code [$status_code]. Waiting [$SLEEP] seconds before retry..."
+			sleep $SLEEP
+		fi
+		attempt=$((attempt + 1))
+	done
+	echo "ERROR: the [$WEB_APP_NAME] web app did not answer with status code [200] after $RETRY_COUNT attempts"
+	EXIT_CODE=1
+}
+
 # Check whether the log-analytics extension of the Azure CLI, which provides the az monitor log-analytics query
 # command, is installed
 echo "Checking if the [log-analytics] extension of the Azure CLI is installed..."
@@ -242,27 +270,7 @@ show_diagnostic_settings "$SQL_DATABASE_ID" "[$SQL_DATABASE_NAME] database"
 show_diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace"
 
 # Wait until the web app answers: on Azure the asynchronous zip deployment can still be building the app
-echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [https://$WEB_APP_HOST_NAME/]..."
-ATTEMPT=1
-while [ $ATTEMPT -le $RETRY_COUNT ]; do
-	STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "https://$WEB_APP_HOST_NAME/")
-
-	if [[ $STATUS_CODE == 200 ]]; then
-		echo "The [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]"
-		break
-	else
-		if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-			echo "Attempt $ATTEMPT of $RETRY_COUNT: the [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]. Waiting [$SLEEP] seconds before retry..."
-			sleep $SLEEP
-		fi
-		ATTEMPT=$((ATTEMPT + 1))
-	fi
-done
-
-if [[ $STATUS_CODE != 200 ]]; then
-	echo "ERROR: the [$WEB_APP_NAME] web app did not answer with status code [200] after $RETRY_COUNT attempts"
-	EXIT_CODE=1
-fi
+wait_for_web_app "https://$WEB_APP_HOST_NAME/"
 
 # Call the web app, so that the request logs and metrics hold the requests of this run
 echo "Calling the [$WEB_APP_NAME] web app [$WEB_APP_CALLS] times..."
@@ -290,6 +298,22 @@ query_workspace \
 	"Latest platform events of the [$WEB_APP_NAME] web app (AppServicePlatformLogs)" \
 	"AppServicePlatformLogs | project TimeGenerated, Level, Message | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Level:Level,Message:Message}"
+
+# Azure can drop for good the records of a new diagnostic setting's first minutes, among them the secret reads of
+# the web app's start, so the web app is restarted and called again: it reads its secrets anew
+echo -e "\nRestarting the [$WEB_APP_NAME] web app, so that it reads its connection string secret again..."
+az webapp restart \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors
+
+if [[ $? == 0 ]]; then
+	echo "[$WEB_APP_NAME] web app successfully restarted"
+else
+	echo "Failed to restart the [$WEB_APP_NAME] web app"
+	EXIT_CODE=1
+fi
+wait_for_web_app "https://$WEB_APP_HOST_NAME/"
 
 # The reads of the connection string secret: the app reads it once when it starts, so the query waits for the first
 # one (AZKVAuditLogs)

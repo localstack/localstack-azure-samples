@@ -9,6 +9,9 @@
 # workspace. It ends with platform metrics read from the Azure Monitor metrics API. Run it after validate.sh, which reads
 # the secrets, and run-pipeline.sh, which sends the payments.
 #
+# Before it reads the records of the key vault, it reads the secrets again: on Azure the records of a new diagnostic
+# setting's first minutes, validate.sh's reads among them, can be lost.
+#
 # The records reach the workspace within seconds on the emulator, and the platform metrics once their one-minute window
 # is over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
 # every query is retried: raise RETRY_COUNT there.
@@ -327,7 +330,26 @@ query_workspace \
 	"StorageBlobLogs | summarize Requests = count() by OperationName, AuthenticationType | order by Requests desc | take 10" \
 	"[].{Operation:OperationName,Authentication:AuthenticationType,Requests:Requests}"
 
-# The reads of the Key Vault secrets that hold the connection strings: validate.sh reads each of them (AZKVAuditLogs)
+# Azure can drop for good the records of a new diagnostic setting's first minutes, and validate.sh reads the secrets
+# right after the deployment, so they are read again here (their values are never printed)
+for SECRET_NAME in eventhub-send-connection eventhub-listen-connection storage-connection; do
+	echo "Reading the [$SECRET_NAME] secret of the [$KEY_VAULT_NAME] key vault..."
+	az keyvault secret show \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$SECRET_NAME" \
+		--query id \
+		--output tsv \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$SECRET_NAME] secret successfully read"
+	else
+		echo "Failed to read the [$SECRET_NAME] secret"
+		EXIT_CODE=1
+	fi
+done
+
+# The reads of the Key Vault secrets that hold the connection strings, those just above among them (AZKVAuditLogs)
 query_workspace \
 	"Secret reads in the [$KEY_VAULT_NAME] key vault (AZKVAuditLogs)" \
 	"AZKVAuditLogs | where OperationName == 'SecretGet' | project TimeGenerated, OperationName, ResultSignature, RequestUri | order by TimeGenerated desc | take 10" \
