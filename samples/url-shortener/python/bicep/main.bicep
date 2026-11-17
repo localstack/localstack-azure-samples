@@ -35,6 +35,25 @@ param signKey string
 @secure()
 param internalToken string
 
+@description('Specifies the tags to be applied to the resources.')
+param tags object = {
+  environment: 'test'
+  iac: 'bicep'
+}
+
+//
+// Observability
+//
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
+@description('Specifies the service tier of the workspace.')
+@allowed(['Free','Standalone','PerNode','PerGB2018'])
+param logAnalyticsSku string = 'PerGB2018'
+
+@description('Specifies the workspace data retention in days.')
+param logAnalyticsRetentionInDays int = 30
+
 //********************************************
 // Variables
 //********************************************
@@ -55,162 +74,58 @@ var servicebusQueueName = 'link-events'
 var postgresDatabaseName = 'clicks'
 
 //********************************************
-// Built-in role definitions
+// Observability: the workspace and Application Insights
 //********************************************
 
-resource storageTableDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-  scope: subscription()
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
+    sku: logAnalyticsSku
+    retentionInDays: logAnalyticsRetentionInDays
+  }
 }
 
-resource storageQueueDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-  scope: subscription()
-}
-
-resource storageBlobDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-  scope: subscription()
-}
-
-resource keyVaultSecretsUserRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '4633458b-17de-408a-b874-0445c86b69e6'
-  scope: subscription()
-}
-
-resource serviceBusDataSenderRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
-  scope: subscription()
-}
-
-resource serviceBusDataReceiverRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
-  scope: subscription()
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-urlshort-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
+  }
 }
 
 //********************************************
-// Identity
+// Identity: shared by the web app and the worker
 //********************************************
 
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: managedIdentityName
-  location: location
+module managedIdentity 'modules/managed-identity.bicep' = {
+  name: 'managedIdentity'
+  params: {
+    name: managedIdentityName
+    location: location
+    tags: tags
+  }
 }
 
 //********************************************
 // Storage: table (links store), queue (QR render jobs), blob (QR images)
 //********************************************
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
-  name: storageAccountName
-  location: location
-  sku: {
-    name: 'Standard_LRS'
-  }
-  kind: 'StorageV2'
-  properties: {
-    // The qrcodes container uses publicAccess 'Blob'; new storage accounts
-    // disallow anonymous access unless the account explicitly allows it.
-    allowBlobPublicAccess: true
-  }
-}
-
-resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2025-01-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
-resource linksTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2025-01-01' = {
-  parent: tableService
-  name: linksTableName
-}
-
-resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2025-01-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
-resource qrJobsQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2025-01-01' = {
-  parent: queueService
-  name: qrJobsQueueName
-}
-
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
-resource qrContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
-  parent: blobService
-  name: qrContainerName
-  properties: {
-    publicAccess: 'Blob'
-  }
-}
-
-resource storageTableRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, managedIdentity.id, storageTableDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageTableDataContributorRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource storageQueueRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, managedIdentity.id, storageQueueDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageQueueDataContributorRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource storageBlobRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, managedIdentity.id, storageBlobDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageBlobDataContributorRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-//********************************************
-// Key Vault: link-signing key + PostgreSQL connection string
-//********************************************
-
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: keyVaultName
-  location: location
-  properties: {
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    tenantId: subscription().tenantId
-    enableRbacAuthorization: true
-    accessPolicies: []
-  }
-}
-
-resource keyVaultSecretsUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, managedIdentity.id, keyVaultSecretsUserRoleDefinition.id)
-  scope: keyVault
-  properties: {
-    roleDefinitionId: keyVaultSecretsUserRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource signKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'link-sign-key'
-  properties: {
-    value: signKey
+module storageAccount 'modules/storage-account.bicep' = {
+  name: 'storageAccount'
+  params: {
+    name: storageAccountName
+    location: location
+    linksTableName: linksTableName
+    qrJobsQueueName: qrJobsQueueName
+    qrContainerName: qrContainerName
+    dataPrincipalId: managedIdentity.outputs.principalId
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -218,212 +133,169 @@ resource signKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 // PostgreSQL flexible server: click-event log
 //********************************************
 
-resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
-  name: toLower(postgresServerName)
-  location: location
-  sku: {
-    name: 'Standard_B1ms'
-    tier: 'Burstable'
-  }
-  properties: {
+module postgresServer 'modules/postgresql-flexible-server.bicep' = {
+  name: 'postgresServer'
+  params: {
+    name: toLower(postgresServerName)
+    location: location
     administratorLogin: postgresAdminLogin
     administratorLoginPassword: postgresAdminPassword
     version: '16'
-    createMode: 'Default'
-    storage: {
-      storageSizeGB: 32
-    }
-  }
-}
-
-resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
-  parent: postgresServer
-  name: postgresDatabaseName
-}
-
-resource postgresFirewallRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
-  parent: postgresServer
-  name: 'AllowAllIPs'
-  properties: {
-    startIpAddress: '0.0.0.0'
-    endIpAddress: '255.255.255.255'
+    skuTier: 'Burstable'
+    skuName: 'Standard_B1ms'
+    storageSizeGB: 32
+    databaseName: postgresDatabaseName
+    firewallRuleName: 'AllowAllIPs'
+    firewallStartIp: '0.0.0.0'
+    firewallEndIp: '255.255.255.255'
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
 // The PostgreSQL flexible-server emulator embeds the LS-side TCP-proxy port directly in
 // fullyQualifiedDomainName; real Azure returns just the bare host on 5432.
-var postgresFqdnParts = split(postgresServer.properties.fullyQualifiedDomainName, ':')
+var postgresFqdnParts = split(postgresServer.outputs.fqdn, ':')
 var postgresHost = postgresFqdnParts[0]
 var postgresPort = length(postgresFqdnParts) > 1 ? postgresFqdnParts[1] : '5432'
 
-resource postgresConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'pg-conn'
-  properties: {
-    value: 'host=${postgresHost} port=${postgresPort} dbname=${postgresDatabaseName} user=${postgresAdminLogin} password=${postgresAdminPassword}'
+//********************************************
+// Key Vault: link-signing key + PostgreSQL connection string
+//********************************************
+
+module keyVault 'modules/key-vault.bicep' = {
+  name: 'keyVault'
+  params: {
+    name: keyVaultName
+    location: location
+    signKey: signKey
+    postgresConnectionString: 'host=${postgresHost} port=${postgresPort} dbname=${postgresServer.outputs.databaseName} user=${postgresAdminLogin} password=${postgresAdminPassword}'
+    vaultReaderPrincipalId: managedIdentity.outputs.principalId
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  dependsOn: [
-    postgresDatabase
-  ]
 }
 
 //********************************************
 // Service Bus: link-created events consumed by the abuse-scan worker
 //********************************************
 
-resource servicebusNamespace 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
-  name: servicebusNamespaceName
-  location: location
-  sku: {
-    name: 'Standard'
-  }
-}
-
-resource linkEventsQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
-  parent: servicebusNamespace
-  name: servicebusQueueName
-}
-
-resource serviceBusSenderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(servicebusNamespace.id, managedIdentity.id, serviceBusDataSenderRoleDefinition.id)
-  scope: servicebusNamespace
-  properties: {
-    roleDefinitionId: serviceBusDataSenderRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource serviceBusReceiverRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(servicebusNamespace.id, managedIdentity.id, serviceBusDataReceiverRoleDefinition.id)
-  scope: servicebusNamespace
-  properties: {
-    roleDefinitionId: serviceBusDataReceiverRoleDefinition.id
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-//********************************************
-// Observability: Log Analytics workspace
-//********************************************
-
-resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: logAnalyticsName
-  location: location
-  properties: {
-    sku: {
-      name: 'PerGB2018'
-    }
-    retentionInDays: 30
-  }
-}
-
-resource storageDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
-  name: 'default'
-  scope: storageAccount
-  properties: {
-    workspaceId: logAnalyticsWorkspace.id
-    metrics: [
-      {
-        category: 'Transaction'
-        enabled: true
-      }
+module servicebusNamespace 'modules/service-bus.bicep' = {
+  name: 'servicebusNamespace'
+  params: {
+    name: servicebusNamespaceName
+    location: location
+    skuName: 'Standard'
+    capacity: 1
+    zoneRedundant: false
+    queueNames: [
+      servicebusQueueName
     ]
+    dataPrincipalId: managedIdentity.outputs.principalId
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
+
+// The keys are read when the modules that use them deploy: the web app module waits for the Service Bus module, and the
+// function app module for the storage module, whose outputs it uses
+resource servicebusRootAuthorizationRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' existing = {
+  name: '${servicebusNamespaceName}/RootManageSharedAccessKey'
+}
+
+resource storageAccountResource 'Microsoft.Storage/storageAccounts@2025-01-01' existing = {
+  name: storageAccountName
+}
+
+var servicebusConnectionString = servicebusRootAuthorizationRule.listKeys().primaryConnectionString
+var storageAccountKey = storageAccountResource.listKeys().keys[0].value
+// Explicit endpoints rather than an EndpointSuffix: the Functions host's storage clients cannot parse a suffix that
+// carries the emulator's port.
+var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};BlobEndpoint=${storageAccount.outputs.blobEndpoint};QueueEndpoint=${storageAccount.outputs.queueEndpoint};TableEndpoint=${storageAccount.outputs.tableEndpoint}'
 
 //********************************************
 // Compute: one Linux plan hosting both the web app and the worker
 //********************************************
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  kind: 'linux'
-  sku: {
-    name: 'B1'
-  }
-  properties: {
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuTier: 'Basic'
+    skuName: 'B1'
+    kind: 'linux'
     reserved: true
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource servicebusRootAuthorizationRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' existing = {
-  parent: servicebusNamespace
-  name: 'RootManageSharedAccessKey'
+module webApp 'modules/web-app.bicep' = {
+  name: 'webApp'
+  params: {
+    name: webAppName
+    location: location
+    runtimeName: runtimeName
+    runtimeVersion: webRuntimeVersion
+    hostingPlanName: appServicePlan.outputs.name
+    managedIdentityId: managedIdentity.outputs.id
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      AZURE_CLIENT_ID: managedIdentity.outputs.clientId
+      AZURE_TABLES_ENDPOINT: storageAccount.outputs.tableEndpoint
+      LINKS_TABLE: linksTableName
+      KEYVAULT_URL: keyVault.outputs.vaultUri
+      QUEUE_ENDPOINT: storageAccount.outputs.queueEndpoint
+      QR_JOBS_QUEUE: qrJobsQueueName
+      BLOB_ENDPOINT: storageAccount.outputs.blobEndpoint
+      QR_CONTAINER: qrContainerName
+      SB_CONN: servicebusConnectionString
+      SB_QUEUE: servicebusQueueName
+      PG_SECRET_NAME: keyVault.outputs.postgresConnectionSecretName
+      INTERNAL_TOKEN: internalToken
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
+    }
+    workspaceId: workspace.outputs.id
+    tags: tags
+  }
+  dependsOn: [
+    servicebusNamespace
+  ]
 }
 
-var servicebusConnectionString = servicebusRootAuthorizationRule.listKeys().primaryConnectionString
-var storageAccountKey = storageAccount.listKeys().keys[0].value
-var storageEndpoints = storageAccount.properties.primaryEndpoints
-
-resource webApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: webAppName
-  location: location
-  kind: 'app,linux'
-  properties: {
+module functionApp 'modules/function-app.bicep' = {
+  name: 'functionApp'
+  params: {
+    name: functionAppName
+    location: location
+    kind: 'functionapp,linux'
+    runtimeName: runtimeName
+    runtimeVersion: functionRuntimeVersion
     httpsOnly: false
-    reserved: true
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${webRuntimeVersion}')
-      appSettings: [
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
-        { name: 'AZURE_CLIENT_ID', value: managedIdentity.properties.clientId }
-        { name: 'AZURE_TABLES_ENDPOINT', value: storageEndpoints.table }
-        { name: 'LINKS_TABLE', value: linksTableName }
-        { name: 'KEYVAULT_URL', value: keyVault.properties.vaultUri }
-        { name: 'QUEUE_ENDPOINT', value: storageEndpoints.queue }
-        { name: 'QR_JOBS_QUEUE', value: qrJobsQueueName }
-        { name: 'BLOB_ENDPOINT', value: storageEndpoints.blob }
-        { name: 'QR_CONTAINER', value: qrContainerName }
-        { name: 'SB_CONN', value: servicebusConnectionString }
-        { name: 'SB_QUEUE', value: servicebusQueueName }
-        { name: 'PG_SECRET_NAME', value: 'pg-conn' }
-        { name: 'INTERNAL_TOKEN', value: internalToken }
-      ]
+    identityType: 'UserAssigned'
+    managedIdentityId: managedIdentity.outputs.id
+    hostingPlanName: appServicePlan.outputs.name
+    storageAccountName: storageAccount.outputs.name
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      ENABLE_ORYX_BUILD: 'true'
+      AzureWebJobsStorage: storageConnectionString
+      AZURE_CLIENT_ID: managedIdentity.outputs.clientId
+      ServiceBusConnection__fullyQualifiedNamespace: '${servicebusNamespaceName}.servicebus.windows.net'
+      ServiceBusConnection__clientId: managedIdentity.outputs.clientId
+      ServiceBusConnection__credential: 'managedidentity'
+      QrStorage: storageConnectionString
+      WEB_BASE_URL: 'http://${webApp.outputs.defaultHostName}'
+      INTERNAL_TOKEN: internalToken
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
+      // The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
+      // forwarding its log records, and only the records of the functions' logger
+      PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY: 'true'
+      PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME: 'function_app'
     }
-  }
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
-  }
-}
-
-resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: functionAppName
-  location: location
-  kind: 'functionapp,linux'
-  properties: {
-    httpsOnly: false
-    reserved: true
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${functionRuntimeVersion}')
-      appSettings: [
-        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
-        { name: 'FUNCTIONS_WORKER_RUNTIME', value: runtimeName }
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
-        { name: 'ENABLE_ORYX_BUILD', value: 'true' }
-        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};BlobEndpoint=${storageEndpoints.blob};QueueEndpoint=${storageEndpoints.queue};TableEndpoint=${storageEndpoints.table}' }
-        { name: 'AZURE_CLIENT_ID', value: managedIdentity.properties.clientId }
-        { name: 'ServiceBusConnection__fullyQualifiedNamespace', value: '${servicebusNamespaceName}.servicebus.windows.net' }
-        { name: 'ServiceBusConnection__clientId', value: managedIdentity.properties.clientId }
-        { name: 'ServiceBusConnection__credential', value: 'managedidentity' }
-        { name: 'QrStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};BlobEndpoint=${storageEndpoints.blob};QueueEndpoint=${storageEndpoints.queue};TableEndpoint=${storageEndpoints.table}' }
-        { name: 'WEB_BASE_URL', value: 'http://${webApp.properties.defaultHostName}' }
-        { name: 'INTERNAL_TOKEN', value: internalToken }
-      ]
-    }
-  }
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -432,11 +304,12 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
 //********************************************
 
 output resourceGroupName string = resourceGroup().name
-output storageAccountName string = storageAccount.name
-output keyVaultName string = keyVault.name
-output logAnalyticsWorkspaceName string = logAnalyticsWorkspace.name
-output webAppName string = webApp.name
-output functionAppName string = functionApp.name
-output webAppHostName string = webApp.properties.defaultHostName
+output storageAccountName string = storageAccount.outputs.name
+output keyVaultName string = keyVault.outputs.name
+output logAnalyticsWorkspaceName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name
+output webAppName string = webApp.outputs.name
+output functionAppName string = functionApp.outputs.name
+output webAppHostName string = webApp.outputs.defaultHostName
 output postgresHost string = postgresHost
 output postgresPort string = postgresPort

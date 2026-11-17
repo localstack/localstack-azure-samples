@@ -14,6 +14,8 @@ This directory contains Bash scripts for deploying and validating the sample usi
 
 | Script | Purpose |
 |--------|---------|
-| `deploy.sh` | Idempotently provisions all resources and deploys the web app and the worker from zip packages. Persists the generated PostgreSQL credentials to `.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix). |
-| `validate.sh` | Walks the full causal chain end to end and exits non-zero on any failure. |
+| `deploy.sh` | Idempotently provisions all resources, among them a Log Analytics workspace and a workspace-based Application Insights resource, gives every resource that offers diagnostic settings one that sends to the workspace, and deploys the web app and the worker from zip packages. Persists the generated PostgreSQL credentials to `.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix). |
+| `validate.sh` | Walks the full causal chain end to end, checks the Application Insights resource and the telemetry app settings of both apps, and exits non-zero on any failure. |
 | `call-web-app.sh` | Quick user-level smoke test: home page, shorten a URL, follow the redirect. |
+| `query-telemetry.sh` | Shortens and follows a link, waits for the workers, then reads back from the workspace the telemetry the two apps sent to Application Insights: requests, dependencies, log records, custom events, custom metrics and exceptions. |
+| `query-logs-and-metrics.sh` | Lists the diagnostic settings of the resources and reads back from the workspace the logs and metrics they sent, then reads platform metrics from the metrics API. |

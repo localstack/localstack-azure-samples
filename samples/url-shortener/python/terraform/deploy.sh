@@ -2,7 +2,7 @@
 
 # Variables
 PREFIX="${PREFIX:-local}"
-SUFFIX='test'
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEBAPP_ZIPFILE="linklet_webapp.zip"
@@ -10,6 +10,36 @@ WORKER_ZIPFILE="linklet_worker.zip"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+
+# Resolve the object id of the deploying principal. azurerm_key_vault_secret writes through the Key Vault
+# data plane, so on Azure the principal running terraform apply needs Key Vault Secrets Officer on the
+# vault; the configuration assigns it when the id is known. The lookup goes through Microsoft Graph; when
+# it fails the assignment is skipped and the role becomes a prerequisite (see the README).
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
+
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
+else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
+fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid
+# claim of the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the Key Vault Secrets Officer role on the key vault must already be assigned to it"
+	DEPLOYER_OBJECT_ID=""
+fi
 
 # Initialize Terraform
 echo "Initializing Terraform..."
@@ -20,7 +50,9 @@ echo "Planning Terraform deployment..."
 terraform plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION"
+	-var "location=$LOCATION" \
+	-var "deployer_object_id=$DEPLOYER_OBJECT_ID" \
+	-var "deployer_principal_type=$DEPLOYER_PRINCIPAL_TYPE"
 
 if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."
@@ -56,32 +88,6 @@ POSTGRES_ADMIN_PASSWORD=$(terraform output -raw postgres_password)
 POSTGRES_HOST=$(terraform output -raw postgres_host)
 POSTGRES_PORT=$(terraform output -raw postgres_port)
 EOF
-
-# Attach diagnostic settings for the storage account to the Log Analytics workspace
-echo "Attaching diagnostic settings for [$STORAGE_ACCOUNT_NAME] to [$LOG_ANALYTICS_NAME]..."
-STORAGE_ACCOUNT_ID=$(az storage account show \
-	--name "$STORAGE_ACCOUNT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query id \
-	--output tsv)
-LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--workspace-name "$LOG_ANALYTICS_NAME" \
-	--query id \
-	--output tsv)
-az monitor diagnostic-settings create \
-	--name default \
-	--resource "$STORAGE_ACCOUNT_ID" \
-	--workspace "$LOG_ANALYTICS_ID" \
-	--metrics '[{"category":"Transaction","enabled":true}]' \
-	--output none
-
-if [ $? -eq 0 ]; then
-	echo "Diagnostic settings successfully attached."
-else
-	# Best-effort: validate.sh step 8 fails the run if diagnostics are missing.
-	echo "Failed to attach diagnostic settings."
-fi
 
 # Change current directory to the web app source folder
 cd "$CURRENT_DIR/../src" || exit

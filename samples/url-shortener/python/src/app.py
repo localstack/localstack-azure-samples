@@ -7,21 +7,49 @@ import os
 import secrets
 import string
 
-import psycopg2
-import qrcode
-import qrcode.image.svg
-from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
-from azure.data.tables import TableServiceClient, UpdateMode
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-from azure.servicebus import ServiceBusClient, ServiceBusMessage
-from azure.storage.blob import BlobServiceClient, ContentSettings
-from azure.storage.queue import QueueClient, TextBase64EncodePolicy
-from flask import Flask, abort, jsonify, redirect, render_template_string, request
-from io import BytesIO
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the app serves, its calls to Table Storage, Key Vault, Service Bus,
+# Queue and Blob Storage and PostgreSQL, the records of the application's logger (traces), the exceptions it logs, the
+# custom events and the custom metric below. It runs before Flask and psycopg2 are imported, so that its
+# instrumentations wrap them.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+import psycopg2  # noqa: E402
+import qrcode  # noqa: E402
+import qrcode.image.svg  # noqa: E402
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError  # noqa: E402
+from azure.data.tables import TableServiceClient, UpdateMode  # noqa: E402
+from azure.identity import DefaultAzureCredential  # noqa: E402
+from azure.keyvault.secrets import SecretClient  # noqa: E402
+from azure.servicebus import ServiceBusClient, ServiceBusMessage  # noqa: E402
+from azure.storage.blob import BlobServiceClient, ContentSettings  # noqa: E402
+from azure.storage.queue import QueueClient, TextBase64EncodePolicy  # noqa: E402
+from flask import Flask, abort, jsonify, redirect, render_template_string, request  # noqa: E402
+from io import BytesIO  # noqa: E402
+from opentelemetry import metrics  # noqa: E402
 
 app = Flask(__name__)
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger(LOGGER_NAME)
+LOG.setLevel(logging.INFO)
+
+# The custom metric: the number of links created and followed, by operation (customMetrics table)
+LINKS = metrics.get_meter(LOGGER_NAME).create_counter(
+    "links", unit="{link}", description="The number of links created and followed."
+)
+
+
+def track_link_event(event_name: str, operation: str, code: str) -> None:
+    """Send a custom event (customEvents table) and count the operation in the custom metric."""
+    # The Microsoft OpenTelemetry Distro sends a log record that carries the microsoft.custom_event.name attribute as a
+    # custom event named after its value, with the other attributes as its custom dimensions.
+    LOG.info(f"{event_name}: {code}", extra={"microsoft.custom_event.name": event_name, "link.code": code})
+    LINKS.add(1, {"operation": operation})
 
 TABLE_NAME = os.environ.get("LINKS_TABLE", "links")
 PARTITION = "links"
@@ -213,6 +241,7 @@ def shorten():
         sender.send_messages(ServiceBusMessage(json.dumps({"code": code, "url": url})))
     qr_queue().send_message(json.dumps({"code": code}))
 
+    track_link_event("LinkCreated", "create", code)
     short_url = request.host_url.rstrip("/") + "/l/" + code
     if request.is_json:
         return jsonify(code=code, short_url=short_url, url=url, sig=entity["sig"]), 201
@@ -234,8 +263,10 @@ def follow(code):
         conn.commit()
         conn.close()
     except Exception as e:
-        # Analytics must not break redirects; the click is lost and logged.
-        LOG.warning("click logging to postgres failed for %s: %s", code, e)
+        # Analytics must not break redirects; the click is lost and logged. The distro sends a log record that carries
+        # an exception to Application Insights as an exception.
+        LOG.warning("click logging to postgres failed for %s: %s", code, e, exc_info=True)
+    track_link_event("LinkFollowed", "follow", code)
     return redirect(entity["url"], code=302)
 
 

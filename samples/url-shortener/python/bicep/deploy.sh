@@ -2,7 +2,7 @@
 
 # Variables
 PREFIX="${PREFIX:-local}"
-SUFFIX='test'
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 DEPLOYMENT_NAME='url-shortener'
@@ -50,6 +50,7 @@ az deployment group validate \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters prefix=$PREFIX \
+	suffix=$SUFFIX \
 	--output none
 
 if [[ $? == 0 ]]; then
@@ -67,6 +68,7 @@ DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters prefix=$PREFIX \
+	suffix=$SUFFIX \
 	--query properties.outputs)
 
 if [[ $? == 0 ]]; then

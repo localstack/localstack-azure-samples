@@ -58,7 +58,7 @@ SAMPLES=(
   "samples/container-apps-blob-storage/python|bash scripts/deploy.sh|bash scripts/validate.sh"
   "samples/container-apps-blob-storage/python|MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/deploy.sh|MANAGED_IDENTITY_TYPE=SystemAssigned bash scripts/validate.sh"
   "samples/container-apps-blob-storage/python|MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/deploy.sh|MANAGED_IDENTITY_TYPE=UserAssigned bash scripts/validate.sh"
-  "samples/url-shortener/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh"
+  "samples/url-shortener/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-web-app.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
 )
 
 # 1a. Define Terraform Samples
@@ -90,7 +90,7 @@ TERRAFORM_SAMPLES=(
   "samples/container-apps-blob-storage/python/terraform|bash deploy.sh"
   "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
   "samples/container-apps-blob-storage/python/terraform|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
-  "samples/url-shortener/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/url-shortener/python/terraform|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
 )
 
 # 1b. Define Bicep Samples
@@ -122,7 +122,7 @@ BICEP_SAMPLES=(
   "samples/container-apps-blob-storage/python/bicep|bash deploy.sh"
   "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=SystemAssigned bash deploy.sh"
   "samples/container-apps-blob-storage/python/bicep|MANAGED_IDENTITY_TYPE=UserAssigned bash deploy.sh"
-  "samples/url-shortener/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/url-shortener/python/bicep|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
 )
 
 # Combine script-based, Terraform, and Bicep samples into one array

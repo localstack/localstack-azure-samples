@@ -3,27 +3,31 @@ output "resource_group_name" {
 }
 
 output "storage_account_name" {
-  value = azurerm_storage_account.main.name
+  value = module.storage_account.name
 }
 
 output "key_vault_name" {
-  value = azurerm_key_vault.main.name
+  value = module.key_vault.name
 }
 
 output "log_analytics_workspace_name" {
-  value = azurerm_log_analytics_workspace.main.name
+  value = module.log_analytics_workspace.name
+}
+
+output "application_insights_name" {
+  value = module.application_insights.name
 }
 
 output "web_app_name" {
-  value = azurerm_linux_web_app.web.name
+  value = module.web_app.name
 }
 
 output "function_app_name" {
-  value = azurerm_linux_function_app.worker.name
+  value = module.function_app.name
 }
 
 output "web_app_host" {
-  value = azurerm_linux_web_app.web.default_hostname
+  value = module.web_app.default_hostname
 }
 
 output "postgres_host" {
