@@ -728,16 +728,17 @@ echo "Creating zip package of the function app..."
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# The package is already built. On Linux, az functionapp deployment source config-zip sets
+# SCM_DO_BUILD_DURING_DEPLOYMENT to false and waits until the deployment site sees it: a deployment right after the app
+# settings changed got a remote build on Azure, which a published .NET app fails. On Azure the first deployment to a
+# new function app can also time out (504) while its deployment site starts, so a failed attempt is retried
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
-	az functionapp deploy \
+	az functionapp deployment source config-zip \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--name "$FUNCTION_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
+		--src "$ZIPFILE" \
+		--only-show-errors 1>/dev/null
 
 	if [[ $? == 0 ]]; then
 		DEPLOYED=1
