@@ -196,22 +196,36 @@ done
 
 # Add an activity, so that AppEvents holds its ActivityAdded custom event and AppMetrics the activities custom metric.
 # The form of the .NET app carries an antiforgery token, without which ASP.NET Core refuses the post: the script reads
-# the form first and sends the token back with the cookie that came with it. The Python app has no such token.
+# the form first and sends the token back with the cookie that came with it. The Python app has no such token. Right
+# after a deployment, Azure answered the post with 405 before the app served it (2026-11-17), so the post is retried
+# until the app stores the activity.
 ACTIVITY="Telemetry check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-COOKIE_JAR=$(mktemp)
 echo "Adding the [$ACTIVITY] activity with the [$WEB_APP_NAME] web app..."
-FORM_TOKEN=$(curl --max-time 30 --silent --cookie-jar "$COOKIE_JAR" "https://$WEB_APP_HOST_NAME/" |
-	grep -o 'name="__RequestVerificationToken"[^>]*value="[^"]*"' |
-	head -n 1 |
-	sed 's/.*value="//; s/"$//')
-STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" \
-	--cookie "$COOKIE_JAR" \
-	--data-urlencode "activity=$ACTIVITY" \
-	--data-urlencode "__RequestVerificationToken=$FORM_TOKEN" \
-	"https://$WEB_APP_HOST_NAME/")
-rm -f "$COOKIE_JAR"
+ATTEMPT=1
+while [ $ATTEMPT -le $RETRY_COUNT ]; do
+	COOKIE_JAR=$(mktemp)
+	FORM_TOKEN=$(curl --max-time 30 --silent --cookie-jar "$COOKIE_JAR" "https://$WEB_APP_HOST_NAME/" |
+		grep -o 'name="__RequestVerificationToken"[^>]*value="[^"]*"' |
+		head -n 1 |
+		sed 's/.*value="//; s/"$//')
+	STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" \
+		--cookie "$COOKIE_JAR" \
+		--data-urlencode "activity=$ACTIVITY" \
+		--data-urlencode "__RequestVerificationToken=$FORM_TOKEN" \
+		"https://$WEB_APP_HOST_NAME/")
+	rm -f "$COOKIE_JAR"
 
-# The app redirects to its page once it stored the activity
+	# The app redirects to its page once it stored the activity
+	if [[ $STATUS_CODE == 302 ]]; then
+		break
+	fi
+	if [ $ATTEMPT -lt $RETRY_COUNT ]; then
+		echo "Attempt $ATTEMPT of $RETRY_COUNT: the [$WEB_APP_NAME] web app answered the new activity with status code [$STATUS_CODE]. Waiting [$SLEEP] seconds before retry..."
+		sleep $SLEEP
+	fi
+	ATTEMPT=$((ATTEMPT + 1))
+done
+
 if [[ $STATUS_CODE == 302 ]]; then
 	echo "The [$WEB_APP_NAME] web app stored the [$ACTIVITY] activity"
 else
