@@ -758,12 +758,10 @@ az webapp config appsettings set \
 	"SCM_DO_BUILD_DURING_DEPLOYMENT=true" \
 	--only-show-errors 1>/dev/null || fail "could not set web app settings"
 
-az webapp config set \
-	--name "$WEB_APP_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--startup-file "gunicorn --config gunicorn.conf.py app:app" \
-	--only-show-errors 1>/dev/null || fail "could not set the dashboard startup command"
-
+# No custom startup command: App Service starts Gunicorn for the Flask app in app.py, and Gunicorn reads
+# gunicorn.conf.py from the app folder. With a custom command, a container that starts before the package is
+# deployed exits at once ('gunicorn.conf.py' doesn't exist), and on Azure the deployment can then report that the
+# site failed to start
 cd "$SRC_DIR/dashboard" || fail "missing src/dashboard"
 rm -f "$CURRENT_DIR/$WEB_APP_ZIP"
 zip -r "$(native_path "$CURRENT_DIR/$WEB_APP_ZIP")" app.py gunicorn.conf.py requirements.txt templates static 1>/dev/null

@@ -92,8 +92,8 @@ terraform apply -input=false -auto-approve "${TERRAFORM_VARIABLES[@]}" || fail "
 
 # A perfectly idempotent second apply reports "No changes". Against the emulator a few
 # resources still report drift because some properties are accepted on create but not
-# echoed back on read (App Service `always_on` / `ftps_state` / `app_command_line`,
-# Key Vault tags, and similar), so the provider re-sends them every run. That is an
+# echoed back on read (App Service `always_on` / `ftps_state`, Key Vault tags, and
+# similar), so the provider re-sends them every run. That is an
 # emulator parity gap rather than a problem with this configuration: the re-apply is
 # clean, converges, and changes nothing observable.
 DRIFT=$(terraform plan -input=false "${TERRAFORM_VARIABLES[@]}" -detailed-exitcode >/dev/null 2>&1; echo $?)

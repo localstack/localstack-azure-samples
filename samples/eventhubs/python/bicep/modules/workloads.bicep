@@ -187,7 +187,9 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'PYTHON|${pythonVersion}'
-      appCommandLine: 'gunicorn --config gunicorn.conf.py app:app'
+      // No custom startup command: App Service starts Gunicorn for the Flask app in app.py, and Gunicorn reads
+      // gunicorn.conf.py from the app folder. With a custom command, the container that starts before the package
+      // is deployed exits at once ('gunicorn.conf.py' doesn't exist)
       appSettings: [
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'

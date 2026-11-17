@@ -192,13 +192,15 @@ module "web_plan" {
   tags                       = var.tags
 }
 
+# The dashboard has no app_command_line: App Service starts Gunicorn for the Flask app in app.py, and Gunicorn reads
+# gunicorn.conf.py from the app folder. With a custom command, the container that starts before the package is
+# deployed exits at once ('gunicorn.conf.py' doesn't exist)
 module "web_app" {
   source                     = "./modules/web_app"
   name                       = local.web_app_name
   resource_group_name        = azurerm_resource_group.main.name
   location                   = module.web_plan.location
   service_plan_id            = module.web_plan.id
-  app_command_line           = "gunicorn --config gunicorn.conf.py app:app"
   python_version             = var.python_version
   log_analytics_workspace_id = module.log_analytics.id
   tags                       = var.tags
