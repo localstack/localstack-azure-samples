@@ -298,12 +298,15 @@ else
 	exit 1
 fi
 
-# Set the application settings of the web app
+# Set the application settings of the web app. The package holds the source code, so the deployment builds it:
+# without SCM_DO_BUILD_DURING_DEPLOYMENT, az webapp deploy only copies the files and Azure serves its welcome page
 echo "Setting the application settings of the [$WEB_APP_NAME] web app..."
 az webapp config appsettings set \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--name $WEB_APP_NAME \
-	--settings AZURECOSMOSDB_ENDPOINT=$AZURECOSMOSDB_ENDPOINT \
+	--settings SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
+	ENABLE_ORYX_BUILD='true' \
+	AZURECOSMOSDB_ENDPOINT=$AZURECOSMOSDB_ENDPOINT \
 	AZURECOSMOSDB_DATABASENAME=$AZURECOSMOSDB_DATABASENAME \
 	AZURECOSMOSDB_CONTAINERNAME=$AZURECOSMOSDB_CONTAINERNAME \
 	AZURECOSMOSDB_PRIMARY_KEY=$AZURECOSMOSDB_PRIMARY_KEY \
