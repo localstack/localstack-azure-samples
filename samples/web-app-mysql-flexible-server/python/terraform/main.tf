@@ -162,6 +162,11 @@ module "private_endpoint" {
   subresource_name               = "mysqlServer"
   private_dns_zone_group_name    = "private-dns-zone-group"
   private_dns_zone_group_ids     = [module.private_dns_zone.id]
+
+  # Azure runs one operation at a time on a flexible server and refuses the others with ServerIsBusy. The
+  # private endpoint's connection is one of them, so it waits for the server's database, firewall rule and
+  # other settings instead of being created in parallel with them.
+  depends_on = [module.mysql_flexible_server]
 }
 
 module "app_service_plan" {
