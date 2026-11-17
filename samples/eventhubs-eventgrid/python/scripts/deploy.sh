@@ -51,6 +51,8 @@ SEND_RULE_NAME='telemetry-send'
 LISTEN_RULE_NAME='pipeline-listen'
 
 FUNCTION_ZIP='capture_processor.zip'
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
@@ -374,11 +376,27 @@ zip -r "$(native_path "$CURRENT_DIR/$FUNCTION_ZIP")" function_app.py host.json r
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the processor (the first run pulls the build image and can take a few minutes)..."
-az functionapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path "$FUNCTION_ZIP" \
-	--type zip 1>/dev/null || fail "could not deploy the function app"
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src-path "$FUNCTION_ZIP" \
+		--type zip 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+[[ $DEPLOYED == 1 ]] || fail "could not deploy the function app"
 rm -f "$FUNCTION_ZIP"
 echo "Deployed the capture processor."
 

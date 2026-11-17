@@ -33,6 +33,8 @@ RULE_SET_NAME='catalogrules'
 ORIGIN_PATH='/api'
 PROBE_PATH='/api/health'
 FUNCTION_ZIPFILE='catalog_function.zip'
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 # The two Function Apps send their telemetry to the same Application Insights resource, where cloud_RoleName tells them apart
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
@@ -410,14 +412,29 @@ create_function_app() {
 	done
 
 	echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$FUNCTION_ZIPFILE]..."
-	az functionapp deploy \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--name "$FUNCTION_APP_NAME" \
-		--src-path "$FUNCTION_ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
+	# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+	# attempt is retried
+	DEPLOYED=0
+	for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+		az functionapp deploy \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--name "$FUNCTION_APP_NAME" \
+			--src-path "$FUNCTION_ZIPFILE" \
+			--type zip \
+			--async true 1>/dev/null
 
-	if [[ $? != 0 ]]; then
+		if [[ $? == 0 ]]; then
+			DEPLOYED=1
+			break
+		fi
+
+		if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+			echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+			sleep $DEPLOY_RETRY_SLEEP
+		fi
+	done
+
+	if [[ $DEPLOYED != 1 ]]; then
 		echo "Failed to deploy function app [$FUNCTION_APP_NAME]"
 		exit 1
 	fi
