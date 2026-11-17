@@ -32,6 +32,9 @@ WEBAPP_ZIPFILE='linklet_webapp.zip'
 WORKER_ZIPFILE='linklet_worker.zip'
 DEPLOY_RETRY_COUNT=3
 DEPLOY_RETRY_SLEEP=30
+KEY_VAULT_SECRETS_OFFICER_ROLE="Key Vault Secrets Officer"
+SECRET_RETRY_COUNT=20
+SECRET_RETRY_SLEEP=30
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_FILE="$CURRENT_DIR/.last_deploy.${PREFIX}.env"
 
@@ -196,6 +199,39 @@ for ROLE in "Storage Table Data Contributor" "Storage Queue Data Contributor" "S
 	fi
 done
 
+# Store a secret in the key vault. The value is never printed. Writes go through the Key Vault data plane, which the
+# deploying principal can use only once its Key Vault Secrets Officer assignment has propagated, so a failed write is
+# retried for a few minutes.
+# $1: the secret name
+# $2: the secret value
+set_secret() {
+	local secret_name=$1
+	local secret_value=$2
+	local attempt
+
+	echo "Storing the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault..."
+	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
+		az keyvault secret set \
+			--vault-name "$KEY_VAULT_NAME" \
+			--name "$secret_name" \
+			--value "$secret_value" \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			echo "[$secret_name] secret successfully stored in the [$KEY_VAULT_NAME] key vault"
+			return 0
+		fi
+
+		if [[ $attempt -lt $SECRET_RETRY_COUNT ]]; then
+			echo "Attempt $attempt of $SECRET_RETRY_COUNT to store the [$secret_name] secret failed (the [$KEY_VAULT_SECRETS_OFFICER_ROLE] assignment may still be propagating); retrying in $SECRET_RETRY_SLEEP seconds..."
+			sleep "$SECRET_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to store the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault"
+	exit 1
+}
+
 # Check if the key vault already exists
 echo "Checking if [$KEY_VAULT_NAME] key vault actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
 az keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP_NAME &>/dev/null
@@ -246,20 +282,59 @@ else
 	exit 1
 fi
 
-# Store the link-signing key in the key vault
-echo "Storing the [$SIGN_KEY_SECRET_NAME] secret in the [$KEY_VAULT_NAME] key vault..."
-SIGN_KEY=$(openssl rand -hex 16)
-az keyvault secret set \
-	--vault-name $KEY_VAULT_NAME \
-	--name $SIGN_KEY_SECRET_NAME \
-	--value "$SIGN_KEY" 1>/dev/null
+# Resolve the object id of the deploying principal. The vault uses the RBAC permission model, so writing the secrets
+# below needs the Key Vault Secrets Officer role on the vault; the script grants it to whoever runs it, a user or a
+# service principal. The lookup goes through Microsoft Graph; when it fails the script continues and the role
+# becomes a prerequisite (see the README).
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
 
-if [[ $? == 0 ]]; then
-	echo "[$SIGN_KEY_SECRET_NAME] secret successfully stored in the [$KEY_VAULT_NAME] key vault"
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
 else
-	echo "Failed to store the [$SIGN_KEY_SECRET_NAME] secret in the [$KEY_VAULT_NAME] key vault"
-	exit 1
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
 fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid claim of
+# the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
+	echo "Assigning [$KEY_VAULT_SECRETS_OFFICER_ROLE] role to the deploying principal on the [$KEY_VAULT_NAME] key vault..."
+	# Skip when already assigned: az role assignment create is not idempotent
+	EXISTING_ASSIGNMENT=$(az role assignment list \
+		--role "$KEY_VAULT_SECRETS_OFFICER_ROLE" \
+		--assignee "$DEPLOYER_OBJECT_ID" \
+		--scope "$KEY_VAULT_ID" \
+		--query "[0].id" \
+		--output tsv)
+	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
+		az role assignment create \
+			--role "$KEY_VAULT_SECRETS_OFFICER_ROLE" \
+			--assignee-object-id "$DEPLOYER_OBJECT_ID" \
+			--assignee-principal-type "$DEPLOYER_PRINCIPAL_TYPE" \
+			--scope "$KEY_VAULT_ID" 1>/dev/null
+	fi
+
+	if [[ $? == 0 ]]; then
+		echo "[$KEY_VAULT_SECRETS_OFFICER_ROLE] role successfully assigned to the deploying principal"
+	else
+		echo "Failed to assign [$KEY_VAULT_SECRETS_OFFICER_ROLE] role to the deploying principal"
+		exit 1
+	fi
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the [$KEY_VAULT_SECRETS_OFFICER_ROLE] role on the [$KEY_VAULT_NAME] key vault must already be assigned to it"
+fi
+
+# Store the link-signing key in the key vault
+set_secret "$SIGN_KEY_SECRET_NAME" "$(openssl rand -hex 16)"
 
 # Check if the PostgreSQL flexible server already exists
 echo "Checking if [$POSTGRES_SERVER_NAME] PostgreSQL flexible server actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -338,18 +413,7 @@ POSTGRES_PORT=$POSTGRES_PORT
 EOF
 
 # Store the PostgreSQL connection string in the key vault
-echo "Storing the [$PG_CONN_SECRET_NAME] secret in the [$KEY_VAULT_NAME] key vault..."
-az keyvault secret set \
-	--vault-name $KEY_VAULT_NAME \
-	--name $PG_CONN_SECRET_NAME \
-	--value "host=$POSTGRES_HOST port=$POSTGRES_PORT dbname=$POSTGRES_DB_NAME user=$POSTGRES_ADMIN_USER password=$POSTGRES_ADMIN_PASSWORD" 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$PG_CONN_SECRET_NAME] secret successfully stored in the [$KEY_VAULT_NAME] key vault"
-else
-	echo "Failed to store the [$PG_CONN_SECRET_NAME] secret in the [$KEY_VAULT_NAME] key vault"
-	exit 1
-fi
+set_secret "$PG_CONN_SECRET_NAME" "host=$POSTGRES_HOST port=$POSTGRES_PORT dbname=$POSTGRES_DB_NAME user=$POSTGRES_ADMIN_USER password=$POSTGRES_ADMIN_PASSWORD"
 
 # Check if the Service Bus namespace already exists
 echo "Checking if [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
