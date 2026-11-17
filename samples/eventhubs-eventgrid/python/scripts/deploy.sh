@@ -376,15 +376,17 @@ zip -r "$(native_path "$CURRENT_DIR/$FUNCTION_ZIP")" function_app.py host.json r
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the processor (the first run pulls the build image and can take a few minutes)..."
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# The function app runs on a Linux Consumption plan, which has no companion deployment site: Azure answers
+# az functionapp deploy with "This API isn't available in this environment yet!". Zip deployment with a remote build,
+# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). The first
+# deployment to a new function app can time out on Azure, so a failed attempt is retried
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
-	az functionapp deploy \
+	az functionapp deployment source config-zip \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--name "$FUNCTION_APP_NAME" \
-		--src-path "$FUNCTION_ZIP" \
-		--type zip 1>/dev/null
+		--src "$FUNCTION_ZIP" \
+		--build-remote true 1>/dev/null
 
 	if [[ $? == 0 ]]; then
 		DEPLOYED=1
