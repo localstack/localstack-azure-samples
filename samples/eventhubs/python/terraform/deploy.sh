@@ -149,11 +149,14 @@ zip -r "$(native_path "$CURRENT_DIR/$WEB_APP_ZIP")" app.py gunicorn.conf.py requ
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the dashboard..."
+# Asynchronous, as in the other web app samples: the CLI polls the deployment until the build ends. A synchronous
+# request timed out on Azure (504) while the build was still running
 az webapp deploy \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$WEB_APP_NAME" \
 	--src-path "$WEB_APP_ZIP" \
-	--type zip 1>/dev/null || fail "could not deploy the web app"
+	--type zip \
+	--async true 1>/dev/null || fail "could not deploy the web app"
 rm -f "$WEB_APP_ZIP"
 
 # -----------------------------------------------------------------------------
