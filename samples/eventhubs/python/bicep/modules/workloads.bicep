@@ -159,6 +159,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
+// Created after the Linux Consumption plan, as the scripts do: created alongside this Standard plan, the Consumption
+// plan was refused on Azure ("Requested features 'Dynamic SKU, Linux Worker' not available in resource group")
 resource webPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: webPlanName
   location: location
@@ -170,6 +172,9 @@ resource webPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   properties: {
     reserved: true
   }
+  dependsOn: [
+    functionPlan
+  ]
 }
 
 resource webApp 'Microsoft.Web/sites@2023-12-01' = {
