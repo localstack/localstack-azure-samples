@@ -194,9 +194,13 @@ set_secret eventhub-listen-connection "$LISTEN_CONNECTION"
 set_secret storage-connection "$STORAGE_CONNECTION_STRING"
 echo "Stored the connection strings as Key Vault secrets."
 
+# Azure refuses a function app that has the WEBSITE_CONTENTSHARE setting without WEBSITE_CONTENTAZUREFILECONNECTIONSTRING,
+# so the template creates the app with neither and both are set here, with the other connection strings: the storage
+# key stays out of the deployment history
 az functionapp config appsettings set --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
 	--settings "AzureWebJobsStorage=$STORAGE_CONNECTION_STRING" \
 	"WEBSITE_CONTENTAZUREFILECONNECTIONSTRING=$STORAGE_CONNECTION_STRING" \
+	"WEBSITE_CONTENTSHARE=$(echo "$FUNCTION_APP_NAME" | tr '[:upper:]' '[:lower:]')" \
 	"EVENTHUB_LISTEN_CONNECTION=$LISTEN_CONNECTION" \
 	"EVENTHUB_SEND_CONNECTION=$ALERT_SEND_CONNECTION" \
 	--only-show-errors 1>/dev/null || fail "could not set the function app settings"

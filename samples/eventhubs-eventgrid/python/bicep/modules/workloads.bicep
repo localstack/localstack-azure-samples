@@ -75,10 +75,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'python'
         }
-        {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(functionAppName)
-        }
         // The trigger and output bindings resolve these by name (see function_app.py).
         {
           name: 'NOTIFICATION_HUB_NAME'

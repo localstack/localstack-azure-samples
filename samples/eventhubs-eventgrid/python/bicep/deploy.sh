@@ -116,11 +116,15 @@ NAMESPACE_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 [[ -n "$LISTEN_CONNECTION" ]] || fail "could not read the listen connection string"
 [[ -n "$NAMESPACE_CONNECTION" ]] || fail "could not read the namespace connection string"
 
+# Azure refuses a function app that has the WEBSITE_CONTENTSHARE setting without WEBSITE_CONTENTAZUREFILECONNECTIONSTRING,
+# so the template creates the app with neither and both are set here, with the other connection strings: the storage
+# key stays out of the deployment history
 az functionapp config appsettings set --name "$FUNCTION_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--settings \
 	"AzureWebJobsStorage=$STORAGE_CONNECTION_STRING" \
 	"WEBSITE_CONTENTAZUREFILECONNECTIONSTRING=$STORAGE_CONNECTION_STRING" \
+	"WEBSITE_CONTENTSHARE=$(echo "$FUNCTION_APP_NAME" | tr '[:upper:]' '[:lower:]')" \
 	"STORAGE_CONNECTION_STRING=$STORAGE_CONNECTION_STRING" \
 	"EVENTHUB_NOTIFICATION_CONNECTION=$NAMESPACE_CONNECTION" \
 	"EVENTHUB_CURATED_CONNECTION=$NAMESPACE_CONNECTION" \

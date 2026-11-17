@@ -116,10 +116,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'python'
         }
         {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(functionAppName)
-        }
-        {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
         }
