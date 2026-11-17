@@ -83,7 +83,10 @@ param virtualNetworkName string
 @description('Specifies the name of the subnet used by Azure Functions for the regional virtual network integration.')
 param subnetName string
 
-@description('Specifies the app settings of the Azure Functions App')
+@description('Specifies the name of the storage account that the Functions host uses for its own data (AzureWebJobsStorage).')
+param storageAccountName string
+
+@description('Specifies the app settings of the Azure Functions App, besides AzureWebJobsStorage, which the module sets.')
 param settings array = []
 
 @description('Specifies the resource id of the Log Analytics workspace.')
@@ -128,6 +131,9 @@ var metrics = [
     }
   }
 ]
+// Read at the deployment of this module, which starts once the storage account exists; the key stays out of the
+// deployment history
+var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
 
 //********************************************
 // Resources
@@ -148,6 +154,10 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2025-05-01' existing 
 
 resource hostingPlan 'Microsoft.Web/serverfarms@2025-03-01' existing = {
   name: hostingPlanName
+}
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' existing = {
+  name: storageAccountName
 }
 
 resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
@@ -176,12 +186,15 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         allowedOrigins: union(['https://portal.azure.com', 'https://ms.portal.azure.com'], allowedCorsOrigins)
       }
       publicNetworkAccess: publicNetworkAccess
-      appSettings: [
-        for setting in settings: {
-          name: setting.name
-          value: setting.value
-        }
-      ]
+      appSettings: concat(
+        [
+          {
+            name: 'AzureWebJobsStorage'
+            value: storageConnectionString
+          }
+        ],
+        settings
+      )
       netFrameworkVersion: runtimeName == 'dotnet' || runtimeName == 'dotnet-isolated' ? runtimeVersion : null
       nodeVersion: runtimeName == 'node' ? runtimeVersion : null
       pythonVersion: runtimeName == 'python' ? runtimeVersion : null

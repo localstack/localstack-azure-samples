@@ -309,12 +309,6 @@ module workspace 'modules/log-analytics.bicep' = {
   }
 }
 
-// The storage account, referenced here to build the connection string of the Functions host from its key: an output of
-// the module would keep the key in the deployment history
-resource storageAccountResource 'Microsoft.Storage/storageAccounts@2025-06-01' existing = {
-  name: storageAccountName
-}
-
 module storageAccount 'modules/storage-account.bicep' = {
   name: 'storageAccount'
   params: {
@@ -517,6 +511,9 @@ module functionApp 'modules/function-app.bicep' = {
     virtualNetworkName: network.outputs.virtualNetworkName
     subnetName: network.outputs.functionAppSubnetName
     hostingPlanName: appServicePlan.outputs.name
+    // The module reads the key of the storage account itself, so the key stays out of the deployment history, and the
+    // output makes the function app wait for the account (Azure refused a key read in this template before it existed)
+    storageAccountName: storageAccount.outputs.name
     workspaceId: workspace.outputs.id
     tags: tags
     managedIdentityType: managedIdentityType
@@ -525,10 +522,6 @@ module functionApp 'modules/function-app.bicep' = {
       {
         name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
         value: 'false'
-      }
-      {
-        name: 'AzureWebJobsStorage'
-        value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountResource.name};AccountKey=${storageAccountResource.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
       }
       {
         name: 'FUNCTIONS_WORKER_RUNTIME'
