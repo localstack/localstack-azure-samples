@@ -6,14 +6,16 @@ LocalStack Azure emulator.
 
 ## Scripts
 
-| Script | Description |
-|--------|-------------|
-| `deploy.sh` | Creates the whole topology: Log Analytics and Application Insights, a storage account with the Capture container, the Event Hubs namespace (Standard, Kafka enabled, auto-inflate), the `payments` hub with Capture, the `fraud-alerts` hub, three consumer groups, send-only and listen-only rules, the Schema Registry group, a Key Vault holding the connection strings, the Event Hubs-triggered Function App, and the dashboard Web App. |
-| `validate.sh` | Checks every deployed capability: control plane, Capture settings, consumer groups, authorization rights, Key Vault secrets, an AMQP send/receive round trip using the least-privilege rules, and partition runtime metadata. Bonus checks create and remove an application group with a throttling policy and a geo-disaster-recovery alias. |
-| `run-pipeline.sh` | The end-to-end demo: registers the Avro contract, ingests over AMQP, Kafka and HTTPS, waits for the function's fraud alerts, restarts the processor to demonstrate checkpoint recovery, then waits for Capture and decodes an Avro archive. Every stage is an assertion — see below. |
-| `cleanup.sh` | Deletes the resource group and the local artifacts. |
-| `roundtrip_check.py` | Data-plane helper used by `validate.sh`. |
-| `read_capture.py` | Decodes the newest Capture archive; used by `run-pipeline.sh`. |
+| Script                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy.sh`                 | Creates the whole topology: Log Analytics and Application Insights, a storage account with the Capture container, the Event Hubs namespace (Standard, Kafka enabled, auto-inflate), the `payments` hub with Capture, the `fraud-alerts` hub, three consumer groups, send-only and listen-only rules, the Schema Registry group, a Key Vault holding the connection strings, the Event Hubs-triggered Function App, and the dashboard Web App. Each resource gets a diagnostic setting right after it is created, and the deploying principal gets the Key Vault Secrets Officer role on the vault, which writing the secrets needs. |
+| `validate.sh`               | Checks every deployed capability: control plane, Capture settings, consumer groups, authorization rights, Key Vault secrets, an AMQP send/receive round trip using the least-privilege rules, and partition runtime metadata. Bonus checks create and remove an application group with a throttling policy and a geo-disaster-recovery alias.                                                                                                                                                                                                                                                                                       |
+| `run-pipeline.sh`           | The end-to-end demo: registers the Avro contract, ingests over AMQP, Kafka and HTTPS, waits for the function's fraud alerts, restarts the processor to demonstrate checkpoint recovery, then waits for Capture and decodes an Avro archive. Every stage is an assertion — see below.                                                                                                                                                                                                                                                                                                                                                |
+| `query-telemetry.sh`        | Asks the dashboard for its overview, then reads back what the two apps sent to Application Insights: requests and invocations, dependencies, log records, the `FraudDetected` custom events, the `payments_screened` custom metric and the exceptions.                                                                                                                                                                                                                                                                                                                                                                              |
+| `query-logs-and-metrics.sh` | Shows the diagnostic settings of every resource and reads back what they sent to the Log Analytics workspace, then platform metrics from the Azure Monitor metrics API.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `cleanup.sh`                | Deletes the resource group and the local artifacts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `roundtrip_check.py`        | Data-plane helper used by `validate.sh`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `read_capture.py`           | Decodes the newest Capture archive; used by `run-pipeline.sh`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Usage
 
@@ -23,6 +25,8 @@ cd samples/eventhubs/python
 bash scripts/deploy.sh
 bash scripts/validate.sh
 bash scripts/run-pipeline.sh
+bash scripts/query-telemetry.sh
+bash scripts/query-logs-and-metrics.sh
 
 # when you are done
 bash scripts/cleanup.sh
@@ -57,6 +61,14 @@ than a description of what it should have done. It fails if:
   Later runs reuse it.
 - `deploy.sh` is idempotent: every resource is created only when it does not already
   exist, so you can re-run it after a partial failure.
+- The key vault uses the RBAC permission model. `deploy.sh` resolves the object id of the
+  signed-in user or service principal through Microsoft Graph, or from the `oid` claim of
+  the CLI's access token, and gives it the Key Vault Secrets Officer role before writing the
+  secrets, retrying while the assignment propagates. When the id can't be resolved, the role
+  must already be assigned.
+- The query scripts retry until the records arrive. On Azure the telemetry takes a few
+  minutes and the first records of a new diagnostic setting up to 90 minutes: raise
+  `RETRY_COUNT` there.
 - These scripts need `src/producers/requirements.txt` installed (`azure-eventhub`,
   `azure-identity`, `azure-storage-blob`, `confluent-kafka`, `fastavro`, `requests`). The
   last two are for `read_capture.py`, which decodes a Capture archive in the final step of

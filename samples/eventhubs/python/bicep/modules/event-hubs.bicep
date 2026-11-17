@@ -73,6 +73,33 @@ param schemaGroupName string = 'payments-schemas'
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the resource id of the Log Analytics workspace the diagnostic settings send to.')
+param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes the operational logs to the resource-specific AZMSOperationalLogs table, the other categories have AzureDiagnostics only.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
+
+@description('Specifies the log categories that the diagnostic settings of the namespace send to the workspace. ArchiveLogs records the Capture archives; the runtime audit logs are left out, since Event Hubs writes them only in the Premium and Dedicated tiers.')
+param logCategories array = [
+  'ArchiveLogs'
+  'OperationalLogs'
+  'AutoScaleLogs'
+  'KafkaCoordinatorLogs'
+  'KafkaUserErrorLogs'
+  'EventHubVNetConnectionEvent'
+  'CustomerManagedKeyUserLogs'
+  'ApplicationMetricsLogs'
+  'DiagnosticErrorLogs'
+  'DataDRLogs'
+]
+
 resource namespace 'Microsoft.EventHub/namespaces@2024-01-01' = {
   name: namespaceName
   location: location
@@ -196,6 +223,26 @@ resource schemaGroup 'Microsoft.EventHub/namespaces/schemagroups@2024-01-01' = {
   }
 }
 
+resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: namespace
+  properties: {
+    workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
+    logs: [for category in logCategories: {
+      category: category
+      enabled: true
+    }]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
+}
+
+output namespaceId string = namespace.id
 output namespaceName string = namespace.name
 output eventHubName string = paymentsHub.name
 output alertHubName string = alertsHub.name

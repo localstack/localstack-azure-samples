@@ -29,11 +29,44 @@ fail() {
 	exit 1
 }
 
-# The configuration's prefix variable, passed only when PREFIX is set: otherwise terraform.tfvars, TF_VAR_prefix
-# or the variable's default decides it
-PREFIX_VARIABLE=()
+# Resolve the object id of the deploying principal. azurerm_key_vault_secret writes through the Key Vault
+# data plane, so on Azure the principal running terraform apply needs Key Vault Secrets Officer on the
+# vault; the configuration assigns it when the id is known. The lookup goes through Microsoft Graph; when
+# it fails the assignment is skipped and the role becomes a prerequisite (see the README).
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
+
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
+else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
+fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid
+# claim of the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the Key Vault Secrets Officer role on the key vault must already be assigned to it"
+	DEPLOYER_OBJECT_ID=""
+fi
+
+# The variables of the configuration: the deploying principal, and the prefix only when PREFIX is set, otherwise
+# terraform.tfvars, TF_VAR_prefix or the variable's default decides it
+TERRAFORM_VARIABLES=(
+	-var "deployer_object_id=$DEPLOYER_OBJECT_ID"
+	-var "deployer_principal_type=$DEPLOYER_PRINCIPAL_TYPE"
+)
 if [[ -n $PREFIX ]]; then
-	PREFIX_VARIABLE=(-var "prefix=$PREFIX")
+	TERRAFORM_VARIABLES+=(-var "prefix=$PREFIX")
 fi
 
 echo "=== Initializing Terraform ==="
@@ -45,7 +78,7 @@ terraform validate || fail "terraform validate failed"
 
 echo ""
 echo "=== Planning ==="
-terraform plan -input=false "${PREFIX_VARIABLE[@]}" -out=tfplan || fail "terraform plan failed"
+terraform plan -input=false "${TERRAFORM_VARIABLES[@]}" -out=tfplan || fail "terraform plan failed"
 
 echo ""
 echo "=== Applying ==="
@@ -53,7 +86,7 @@ terraform apply -input=false -auto-approve tfplan || fail "terraform apply faile
 
 echo ""
 echo "=== Re-applying (the configuration must converge without errors) ==="
-terraform apply -input=false -auto-approve "${PREFIX_VARIABLE[@]}" || fail "the second apply failed"
+terraform apply -input=false -auto-approve "${TERRAFORM_VARIABLES[@]}" || fail "the second apply failed"
 
 # A perfectly idempotent second apply reports "No changes". Against the emulator a few
 # resources still report drift because some properties are accepted on create but not
@@ -61,7 +94,7 @@ terraform apply -input=false -auto-approve "${PREFIX_VARIABLE[@]}" || fail "the 
 # Key Vault tags, and similar), so the provider re-sends them every run. That is an
 # emulator parity gap rather than a problem with this configuration: the re-apply is
 # clean, converges, and changes nothing observable.
-DRIFT=$(terraform plan -input=false "${PREFIX_VARIABLE[@]}" -detailed-exitcode >/dev/null 2>&1; echo $?)
+DRIFT=$(terraform plan -input=false "${TERRAFORM_VARIABLES[@]}" -detailed-exitcode >/dev/null 2>&1; echo $?)
 if [[ "$DRIFT" == "0" ]]; then
 	echo "Second apply is fully idempotent (no changes)."
 else

@@ -54,6 +54,7 @@ flowchart LR
     ehns -.-> kv
     funcapp -.->|"telemetry"| monitor
     dashboard -.->|"telemetry"| monitor
+    ehns & storage & kv -.->|"resource logs, metrics"| monitor
 
     style producers fill:#ffffff,stroke:#999999,color:#333333
     style ehns fill:#ffffff,stroke:#999999,color:#333333
@@ -65,7 +66,9 @@ flowchart LR
 storage account with the Capture container, the Event Hubs namespace with both hubs, three
 consumer groups, least-privilege authorization rules and a Schema Registry group; stores
 the connection strings in Key Vault; then deploys the Function App and the dashboard Web
-App.
+App. Every resource gets a diagnostic setting that sends its resource logs and platform
+metrics to the Log Analytics workspace, and both apps send their telemetry to Application
+Insights.
 
 **At runtime.** Producers publish payments over AMQP, Kafka and HTTPS to the same hub. The
 Function App's Event Hubs trigger reads the `fraud-detector` consumer group in batches,
@@ -76,21 +79,22 @@ schema registry.
 
 ## What this demonstrates
 
-| Capability | Where to see it |
-|------------|-----------------|
-| **Multi-protocol ingestion** - AMQP 1.0, Kafka and HTTPS into one hub | `src/producers/`, step 2 of `run-pipeline.sh` |
-| **Kafka compatibility** - an existing librdkafka app with no Azure SDK | `src/producers/producer_kafka.py` |
-| **Partition keys and ordering** - all of an account's payments on one partition | `producer_amqp.py`, the velocity rule in `function_app.py` |
-| **Consumer groups** - three independent readers of the same stream | `deploy.sh` step 6 |
-| **Serverless stream processing** - Event Hubs trigger, batched | `src/functions/function_app.py` |
-| **Checkpointing and recovery** - restart resumes where it left off | Step 4 of `run-pipeline.sh` |
-| **Event Hubs Capture** - Avro archives to Blob Storage, no consumer code | Step 5 of `run-pipeline.sh`, `scripts/read_capture.py` |
-| **Schema Registry** - a versioned Avro contract | `src/producers/schema_register.py` |
-| **Least-privilege SAS** - send-only and listen-only rules | `deploy.sh` step 7, `validate.sh` check 5 |
-| **Auto-inflate** - throughput units scale with ingress | `deploy.sh` step 4 |
-| **Geo-disaster recovery** - namespace pairing behind an alias | `validate.sh` check 11 |
-| **Application groups** - client throttling policies | `validate.sh` check 10 |
-| **Service integration** - Event Hubs with Storage, Key Vault, Functions, App Service, Monitor | the whole sample |
+| Capability                                                                                    | Where to see it                                                                      |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Multi-protocol ingestion** - AMQP 1.0, Kafka and HTTPS into one hub                         | `src/producers/`, step 2 of `run-pipeline.sh`                                        |
+| **Kafka compatibility** - an existing librdkafka app with no Azure SDK                        | `src/producers/producer_kafka.py`                                                    |
+| **Partition keys and ordering** - all of an account's payments on one partition               | `producer_amqp.py`, the velocity rule in `function_app.py`                           |
+| **Consumer groups** - three independent readers of the same stream                            | `deploy.sh` step 6                                                                   |
+| **Serverless stream processing** - Event Hubs trigger, batched                                | `src/functions/function_app.py`                                                      |
+| **Checkpointing and recovery** - restart resumes where it left off                            | Step 4 of `run-pipeline.sh`                                                          |
+| **Event Hubs Capture** - Avro archives to Blob Storage, no consumer code                      | Step 5 of `run-pipeline.sh`, `scripts/read_capture.py`                               |
+| **Schema Registry** - a versioned Avro contract                                               | `src/producers/schema_register.py`                                                   |
+| **Least-privilege SAS** - send-only and listen-only rules                                     | `deploy.sh` step 7, `validate.sh` check 5                                            |
+| **Auto-inflate** - throughput units scale with ingress                                        | `deploy.sh` step 4                                                                   |
+| **Geo-disaster recovery** - namespace pairing behind an alias                                 | `validate.sh` check 11                                                               |
+| **Application groups** - client throttling policies                                           | `validate.sh` check 10                                                               |
+| **Observability** - OpenTelemetry in both apps, diagnostic settings on every resource         | [Application Insights](#application-insights), [Logs and metrics](#logs-and-metrics) |
+| **Service integration** - Event Hubs with Storage, Key Vault, Functions, App Service, Monitor | the whole sample                                                                     |
 
 ## Prerequisites
 
@@ -123,9 +127,11 @@ lstk az start-interception
 cd samples/eventhubs/python
 pip install -r src/producers/requirements.txt
 
-bash scripts/deploy.sh        # create the pipeline
-bash scripts/validate.sh      # verify every capability
-bash scripts/run-pipeline.sh  # run the end-to-end demo
+bash scripts/deploy.sh                  # create the pipeline
+bash scripts/validate.sh                # verify every capability
+bash scripts/run-pipeline.sh            # run the end-to-end demo
+bash scripts/query-telemetry.sh         # read the telemetry of the two apps
+bash scripts/query-logs-and-metrics.sh  # read the resource logs and metrics
 ```
 
 Then open the dashboard URL printed at the end of the deployment.
@@ -170,13 +176,13 @@ what makes it usable as a CI test.
 
 ### Producers (`src/producers/`)
 
-| File | Role |
-|------|------|
-| `common.py` | Shared config, the Avro contract, the payment generator |
-| `producer_amqp.py` | POS terminals - official SDK, batches, partition keys |
-| `producer_kafka.py` | Legacy gateway - confluent-kafka, bootstrap derived from the connection string |
-| `producer_http.py` | ATM/IoT - HTTP runtime API with a hand-built SAS token |
-| `schema_register.py` | Registers and resolves the Avro contract |
+| File                 | Role                                                                           |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `common.py`          | Shared config, the Avro contract, the payment generator                        |
+| `producer_amqp.py`   | POS terminals - official SDK, batches, partition keys                          |
+| `producer_kafka.py`  | Legacy gateway - confluent-kafka, bootstrap derived from the connection string |
+| `producer_http.py`   | ATM/IoT - HTTP runtime API with a hand-built SAS token                         |
+| `schema_register.py` | Registers and resolves the Avro contract                                       |
 
 ### Processor (`src/functions/`)
 
@@ -187,23 +193,60 @@ because producers key events by account, which pins each account to one partitio
 ### Dashboard (`src/dashboard/`)
 
 A Flask app that polls the Event Hubs runtime API, the checkpoint blobs, the alerts hub,
-the Capture container and the Schema Registry, and refreshes every five seconds.
+the Capture container and the Schema Registry, and refreshes every five seconds. Reading the
+Schema Registry takes a Microsoft Entra token for the Event Hubs data plane, from
+`EVENTHUB_DATAPLANE_TOKEN` or from a credential `DefaultAzureCredential` finds. The deployments
+give the web app no managed identity, so on Azure that panel stays empty and the dashboard logs
+`SCHEMA_TOKEN_UNAVAILABLE`, unless you give the web app an identity with the
+[Schema Registry Reader](https://learn.microsoft.com/azure/event-hubs/schema-registry-concepts#azure-role-based-access-control) role.
 
-| Route | Description |
-|-------|-------------|
-| `/` | The dashboard |
+| Route           | Description                         |
+| --------------- | ----------------------------------- |
+| `/`             | The dashboard                       |
 | `/api/overview` | JSON snapshot of the whole pipeline |
-| `/health` | Health check |
+| `/health`       | Health check                        |
+
+## Application Insights
+
+Both apps send their telemetry to `<prefix>-eh-insights`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-eh-logs` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The three deployment methods set their `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource (`scripts/deploy.sh` passes `--app-insights` to `az functionapp create`, which otherwise creates an Application Insights resource of its own).
+
+- **Function App.** It uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto): `host.json` sets `"telemetryMode": "OpenTelemetry"`, `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` and `PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME` app settings have the Python worker send the records of the function's `function_app` logger. For each alert the function sends a `FraudDetected` [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events), with the account, the amount, the channel and the rules the payment tripped in `payment.account_id`, `payment.amount`, `payment.channel` and `fraud.reasons`, and it counts the payments it screens in the `payments_screened` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), by `outcome` (`legitimate`, `flagged`). A payment whose amount isn't a number is logged with its stack trace and skipped.
+- **Dashboard.** It uses the [Microsoft OpenTelemetry Distro](https://pypi.org/project/microsoft-opentelemetry/), set up before Flask is imported: the requests it serves, its calls to Event Hubs, Blob Storage and, when it has a token for it, the Schema Registry, the records of its `webapp` logger, such as `OVERVIEW`, and the exceptions it logs when a part of the pipeline can't be read.
+
+The workspace keeps the telemetry in `AppRequests` (the invocations of `FraudDetector` and the requests of the dashboard), `AppDependencies`, `AppTraces`, `AppEvents`, `AppMetrics` and `AppExceptions`; each record names the app that sent it in `AppRoleName`.
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) asks the dashboard for its overview, then reads these tables back, retrying until their records arrive: run it after `run-pipeline.sh`, which sends the payments the function screens. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
+
+## Logs and metrics
+
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one that sends its resource logs, its platform metrics or both to the workspace. `scripts/deploy.sh` creates each of them right after the resource and before anything runs on it, so the first operations are logged too.
+
+| Resource                       | Log categories                                                                        | Tables in the workspace                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Function App                   | `FunctionAppLogs`                                                                     | `FunctionAppLogs`                                                                       |
+| Web App                        | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs` and four more | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AzureMetrics` |
+| App Service plans              | None: metrics only                                                                    | `AzureMetrics`                                                                          |
+| Storage account                | None: metrics only                                                                    | `AzureMetrics`                                                                          |
+| Blob, queue and table services | `StorageRead`, `StorageWrite`, `StorageDelete`                                        | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics`               |
+| Event Hubs namespace           | `ArchiveLogs`, `OperationalLogs` and the other eight categories                       | `AZMSOperationalLogs`, `AzureDiagnostics`, `AzureMetrics`                               |
+| Key vault                      | `AuditEvent`, `AzurePolicyEvaluationDetails`                                          | `AZKVAuditLogs`, `AZKVPolicyEvaluationDetailsLogs`, `AzureMetrics`                      |
+| Log Analytics workspace        | `Audit`                                                                               | `LAQueryLogs`, `AzureMetrics`                                                           |
+
+The namespace writes its operational logs to their resource-specific table, its other categories to `AzureDiagnostics`; its setting leaves out the runtime audit logs, which Event Hubs writes [only in the Premium and Dedicated tiers](https://learn.microsoft.com/azure/event-hubs/monitor-event-hubs). The blob service records the Capture archives Event Hubs writes, the leases and checkpoints of the Functions host and the reads of the dashboard, and the key vault the reads of the secrets by `validate.sh`.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) shows the diagnostic settings and reads back the requests, console output and platform events of the dashboard, the invocation records of the function, the requests to the blobs, the reads of the secrets, the operations on the namespace, the exported platform metrics and the audit records of the queries run on the workspace, then reads platform metrics from the Azure Monitor metrics API. On Azure the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): raise `RETRY_COUNT` there.
 
 ## Scripts
 
-| Script | Description |
-|--------|-------------|
-| `scripts/deploy.sh` | Creates the full topology and deploys both workloads |
-| `scripts/validate.sh` | Numbered checks over the control plane, data plane and bonus capabilities |
-| `scripts/run-pipeline.sh` | The end-to-end demo |
-| `scripts/cleanup.sh` | Deletes the resource group and local artifacts |
-| `bicep/deploy.sh`, `terraform/deploy.sh` | The alternative deployment paths |
+| Script                                   | Description                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| `scripts/deploy.sh`                      | Creates the full topology and deploys both workloads                       |
+| `scripts/validate.sh`                    | Numbered checks over the control plane, data plane and bonus capabilities  |
+| `scripts/run-pipeline.sh`                | The end-to-end demo                                                        |
+| `scripts/query-telemetry.sh`             | Reads back the telemetry of the two apps from Application Insights         |
+| `scripts/query-logs-and-metrics.sh`      | Shows the diagnostic settings and reads back the resource logs and metrics |
+| `scripts/cleanup.sh`                     | Deletes the resource group and local artifacts                             |
+| `bicep/deploy.sh`, `terraform/deploy.sh` | The alternative deployment paths                                           |
 
 ## Cleanup
 

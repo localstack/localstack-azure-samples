@@ -5,3 +5,4 @@ azure-storage-blob==12.24.0
 azure-identity==1.19.0
 fastavro==1.10.0
 requests==2.33.0
+microsoft-opentelemetry==1.6.0

@@ -29,7 +29,7 @@ PURGE_DOCKER="${PURGE_DOCKER:-0}"
 # 1. Define Samples (placed before tool checks so --list works without dependencies)
 SAMPLES=(
   "samples/servicebus/java|bash scripts/deploy.sh"
-  "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
+  "samples/eventhubs/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
   "samples/eventhubs-eventgrid/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/run-pipeline.sh"
   "samples/function-app-front-door/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-front-door.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
   "samples/api-management-function-app/python|bash scripts/deploy.sh|bash scripts/validate.sh && bash scripts/call-api.sh && bash scripts/query-telemetry.sh && bash scripts/query-logs-and-metrics.sh"
@@ -64,7 +64,7 @@ SAMPLES=(
 # 1a. Define Terraform Samples
 TERRAFORM_SAMPLES=(
   "samples/servicebus/java/terraform|bash deploy.sh"
-  "samples/eventhubs/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/eventhubs/python/terraform|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/run-pipeline.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
   "samples/eventhubs-eventgrid/python/terraform|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/api-management-function-app/python/terraform|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
   "samples/function-app-managed-identity/python/terraform|bash deploy.sh|bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
@@ -96,7 +96,7 @@ TERRAFORM_SAMPLES=(
 # 1b. Define Bicep Samples
 BICEP_SAMPLES=(
   "samples/servicebus/java/bicep|bash deploy.sh"
-  "samples/eventhubs/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
+  "samples/eventhubs/python/bicep|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/run-pipeline.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
   "samples/eventhubs-eventgrid/python/bicep|bash deploy.sh|bash ../scripts/validate.sh"
   "samples/web-app-sql-database/python/bicep|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"
   "samples/web-app-sql-database/dotnet/bicep|bash deploy.sh|bash ../scripts/validate.sh && bash ../scripts/query-telemetry.sh && bash ../scripts/query-logs-and-metrics.sh"

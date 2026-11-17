@@ -20,6 +20,9 @@ param retentionInDays int = 30
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: workspaceName
   location: location
@@ -40,6 +43,27 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: workspace.id
+  }
+}
+
+// The workspace audits the queries run on it (Audit, table LAQueryLogs)
+resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: workspace
+  properties: {
+    workspaceId: workspace.id
+    logs: [
+      {
+        category: 'Audit'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
   }
 }
 

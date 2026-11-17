@@ -42,8 +42,21 @@ from datetime import UTC, datetime
 from typing import List
 
 import azure.functions as func
+from opentelemetry import metrics
 
-logging.basicConfig(level=logging.INFO)
+# The logger of the function. With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, telemetryMode set to
+# OpenTelemetry in host.json and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY set to true, the Python worker sends to
+# Application Insights the records of the logger that PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME names (traces), the
+# exceptions it logs, the custom event and the custom metric below.
+LOGGER_NAME = "function_app"
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+
+# The custom metric: the number of payments the function screened, by outcome (legitimate, flagged)
+# (customMetrics table)
+payments_screened = metrics.get_meter(LOGGER_NAME).create_counter(
+    "payments_screened", unit="{payment}", description="The number of payments the fraud detector screened."
+)
 
 app = func.FunctionApp()
 
@@ -110,14 +123,21 @@ def FraudDetector(events: List[func.EventHubEvent], alerts: func.Out[List[str]])
         except (ValueError, UnicodeDecodeError):
             # A payload that is not our contract: log and move on rather than failing the
             # whole batch, which would redeliver the good events too.
-            logging.warning("skipping event with an undecodable body")
+            logger.warning("skipping event with an undecodable body")
             continue
 
         # System properties tell us which partition the event came from, which is how you
         # prove per-account ordering in a demo (and debug skew in production).
         partition = (event.metadata or {}).get("PartitionContext", {}).get("PartitionId")
 
-        reasons = evaluate(payment)
+        try:
+            reasons = evaluate(payment)
+        except (TypeError, ValueError):
+            # A payment whose amount is not a number: log it with its stack trace (exceptions table) and move on,
+            # for the same reason as an undecodable body.
+            logger.exception("PAYMENT_INVALID transaction=%s", payment.get("transaction_id"))
+            continue
+
         if reasons:
             alert = {
                 "alert_id": f"ALERT-{payment.get('transaction_id', '')[:8]}",
@@ -132,18 +152,34 @@ def FraudDetector(events: List[func.EventHubEvent], alerts: func.Out[List[str]])
                 "detected_at": datetime.now(UTC).isoformat(),
             }
             flagged.append(json.dumps(alert))
-            logging.warning(
+            logger.warning(
                 "FRAUD_ALERT account=%s amount=%s reasons=%s",
                 payment.get("account_id"),
                 payment.get("amount"),
                 "; ".join(reasons),
             )
+            # A custom event (customEvents table): the worker sends a log record that carries the
+            # microsoft.custom_event.name attribute as a custom event named after its value, with the other
+            # attributes as its custom dimensions
+            logger.info(
+                f"FraudDetected: {alert['alert_id']}",
+                extra={
+                    "microsoft.custom_event.name": "FraudDetected",
+                    "payment.account_id": str(payment.get("account_id", "unknown")),
+                    "payment.amount": float(payment.get("amount", 0)),
+                    "payment.channel": str(payment.get("channel", "unknown")),
+                    "fraud.reasons": "; ".join(reasons),
+                },
+            )
+            payments_screened.add(1, {"outcome": "flagged"})
+        else:
+            payments_screened.add(1, {"outcome": "legitimate"})
 
     if flagged:
         # One output binding call emits the whole batch of alerts.
         alerts.set(flagged)
 
-    logging.info(
+    logger.info(
         "FRAUD_BATCH processed=%d flagged=%d threshold=%s",
         processed,
         len(flagged),

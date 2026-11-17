@@ -17,18 +17,33 @@ Run locally:  python app.py       (or gunicorn, as the Web App does)
 
 import io
 import json
+import logging
 import os
 import threading
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-import fastavro
-import requests
-from azure.eventhub import EventHubConsumerClient, EventHubProducerClient
-from azure.storage.blob import BlobServiceClient
-from flask import Flask, jsonify, render_template
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the dashboard serves, its calls to Event Hubs, Blob Storage and the
+# Schema Registry, the records of the application's logger (traces) and the exceptions it logs. It runs before Flask and
+# requests are imported, so that its instrumentations wrap them.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+import fastavro  # noqa: E402
+import requests  # noqa: E402
+from azure.eventhub import EventHubConsumerClient, EventHubProducerClient  # noqa: E402
+from azure.storage.blob import BlobServiceClient  # noqa: E402
+from flask import Flask, jsonify, render_template  # noqa: E402
 
 app = Flask(__name__)
+LOG = logging.getLogger(LOGGER_NAME)
+LOG.setLevel(logging.INFO)
 
 EVENT_HUB_NAME = os.environ.get("EVENT_HUB_NAME", "payments")
 ALERT_HUB_NAME = os.environ.get("ALERT_HUB_NAME", "fraud-alerts")
@@ -60,6 +75,22 @@ def _namespace_host(conn_str: str) -> str:
         if part.startswith("Endpoint="):
             return urlparse(part.split("=", 1)[1]).hostname or ""
     return ""
+
+
+def _http_netloc(conn_str: str) -> str:
+    """The 'host[:port]' that serves the Event Hubs REST APIs, such as the Schema Registry.
+
+    The same rule as http_netloc in src/producers/common.py: on Azure the REST APIs and AMQP share the namespace host
+    on their default ports, so the host is enough; the emulator serves AMQP on the port of the connection string and
+    the REST APIs on its gateway. EVENTHUB_HTTP_ENDPOINT overrides both.
+    """
+    override = os.environ.get("EVENTHUB_HTTP_ENDPOINT")
+    if override:
+        return override.replace("https://", "").replace("http://", "").rstrip("/")
+    host = _namespace_host(conn_str)
+    if host.endswith("localhost.localstack.cloud"):
+        return f"{host}:{os.environ.get('LOCALSTACK_GATEWAY_PORT', '4566')}"
+    return host
 
 
 def hub_total(hub_name: str) -> int:
@@ -160,6 +191,9 @@ def recent_alerts(limit: int = ALERT_PAGE_SIZE) -> list[dict]:
     try:
         partitions = set(client.get_partition_ids())
     except Exception:
+        # Logged with its stack trace (exceptions table): without the partition ids the read below cannot tell when
+        # every partition is drained, so it runs until its timeout
+        LOG.exception("ALERTS_PARTITIONS_UNREADABLE hub=%s", ALERT_HUB_NAME)
         partitions = set()
 
     def collect(partition_context, events):
@@ -215,6 +249,7 @@ def capture_snapshot(limit: int = 10) -> dict:
                 }
             )
     except Exception:
+        LOG.exception("CAPTURE_LIST_FAILED container=%s", CAPTURE_CONTAINER)
         return {"files": [], "sample_records": []}
 
     files.sort(key=lambda item: item["last_modified"] or "", reverse=True)
@@ -243,6 +278,7 @@ def capture_snapshot(limit: int = 10) -> dict:
                 if len(sample_records) >= 5:
                     break
         except Exception:
+            LOG.exception("CAPTURE_ARCHIVE_UNREADABLE blob=%s", candidate["name"])
             continue
         if sample_records:
             break
@@ -253,7 +289,7 @@ def capture_snapshot(limit: int = 10) -> dict:
 def schema_snapshot() -> list[dict]:
     """Contracts registered in the Event Hubs Schema Registry."""
     conn = eventhub_connection()
-    host = _namespace_host(conn)
+    host = _http_netloc(conn)
     if not host:
         return []
     token = os.environ.get("EVENTHUB_DATAPLANE_TOKEN")
@@ -262,7 +298,10 @@ def schema_snapshot() -> list[dict]:
             from azure.identity import DefaultAzureCredential
 
             token = DefaultAzureCredential().get_token("https://eventhubs.azure.net/.default").token
-        except Exception:
+        except Exception as error:
+            # A warning without the stack trace (traces table): it repeats on every refresh while no credential is
+            # available
+            LOG.warning("SCHEMA_TOKEN_UNAVAILABLE error=%s", type(error).__name__)
             return []
     # Listing a group's schemas is not part of the Schema Registry data plane. The 2023-07-01
     # spec exposes the versions of a *named* schema, so the panel asks about the contract this
@@ -277,12 +316,14 @@ def schema_snapshot() -> list[dict]:
             verify="localhost.localstack.cloud" not in host,
         )
         if not response.ok:
+            LOG.warning("SCHEMA_READ_FAILED status=%s", response.status_code)
             return []
         versions = response.json().get("Value", [])
         if not versions:
             return []
         return [{"group": SCHEMA_GROUP, "name": SCHEMA_NAME, "versions": len(versions)}]
     except Exception:
+        LOG.exception("SCHEMA_READ_FAILED group=%s schema=%s", SCHEMA_GROUP, SCHEMA_NAME)
         return []
 
 
@@ -299,15 +340,20 @@ def index():
 def overview():
     partitions = partition_snapshot()
     capture = capture_snapshot()
+    total_events = sum(row["events"] for row in partitions)
+    # The real number of alerts, not the length of the page below it.
+    total_alerts = hub_total(ALERT_HUB_NAME)
+    LOG.info(
+        "OVERVIEW events=%d alerts=%d capture_files=%d", total_events, total_alerts, len(capture["files"])
+    )
     return jsonify(
         {
             "generated_at": datetime.now(UTC).isoformat(),
             "event_hub": EVENT_HUB_NAME,
             "alert_hub": ALERT_HUB_NAME,
             "consumer_group": FRAUD_CONSUMER_GROUP,
-            "total_events": sum(row["events"] for row in partitions),
-            # The real number of alerts, not the length of the page below it.
-            "total_alerts": hub_total(ALERT_HUB_NAME),
+            "total_events": total_events,
+            "total_alerts": total_alerts,
             "partitions": partitions,
             "checkpoints": checkpoint_snapshot(partitions),
             "alerts": recent_alerts(),

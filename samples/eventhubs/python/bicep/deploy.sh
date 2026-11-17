@@ -12,6 +12,11 @@ RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"
 DEPLOYMENT_NAME="eventhubs-fraud-detection"
 FUNCTION_ZIP="fraud_function.zip"
 WEB_APP_ZIP="dashboard.zip"
+KEY_VAULT_SECRETS_OFFICER_ROLE='Key Vault Secrets Officer'
+ROLE_ASSIGNMENT_RETRY_COUNT=3
+ROLE_ASSIGNMENT_RETRY_SLEEP=5
+SECRET_RETRY_COUNT=20
+SECRET_RETRY_SLEEP=15
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
@@ -34,6 +39,57 @@ fail() {
 	exit 1
 }
 
+# Store a secret in the key vault. The deploying principal can write through the Key Vault data plane only once its
+# Key Vault Secrets Officer assignment has propagated, which takes a few minutes on Azure, so the write is retried. The
+# value is never printed.
+# $1: the secret name
+# $2: the secret value
+set_secret() {
+	local secret_name=$1
+	local secret_value=$2
+	local attempt error
+
+	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
+		if error=$(az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
+			--value "$secret_value" --only-show-errors 2>&1 1>/dev/null); then
+			return 0
+		fi
+		if [ "$attempt" -lt "$SECRET_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $SECRET_RETRY_COUNT: the [$secret_name] secret could not be stored yet. Waiting [$SECRET_RETRY_SLEEP] seconds before retry..."
+			sleep "$SECRET_RETRY_SLEEP"
+		fi
+	done
+	echo "$error"
+	fail "could not store the [$secret_name] secret"
+}
+
+# Resolve the object id of the deploying principal, a user or a service principal. The vault uses the RBAC permission
+# model, so writing the secrets needs the Key Vault Secrets Officer role on the vault. The lookup goes through Microsoft
+# Graph, with the oid claim of the CLI's own access token as the fallback for a principal that lacks directory
+# permissions; when both fail the role must already be assigned.
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
+
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
+else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
+fi
+
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]."
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the [$KEY_VAULT_SECRETS_OFFICER_ROLE] role on the key vault must already be assigned to it."
+fi
+
 echo "=== Creating the resource group ==="
 az group create \
 	--name "$RESOURCE_GROUP_NAME" \
@@ -48,6 +104,7 @@ az deployment group validate \
 	--template-file main.bicep \
 	--parameters main.bicepparam \
 	--parameters prefix="$PREFIX" \
+	--parameters deployerPrincipalId="$DEPLOYER_OBJECT_ID" deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
 	--only-show-errors 1>/dev/null || fail "the Bicep template did not pass validation"
 
 echo ""
@@ -58,6 +115,7 @@ az deployment group create \
 	--template-file main.bicep \
 	--parameters main.bicepparam \
 	--parameters prefix="$PREFIX" \
+	--parameters deployerPrincipalId="$DEPLOYER_OBJECT_ID" deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
 	--only-show-errors 1>/dev/null || fail "the Bicep deployment failed"
 echo "Template deployed."
 
@@ -128,12 +186,10 @@ NAMESPACE_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 	--name RootManageSharedAccessKey --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --query primaryConnectionString -o tsv --only-show-errors)
 
-az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name eventhub-send-connection \
-	--value "$SEND_CONNECTION" --only-show-errors 1>/dev/null || fail "could not store the send secret"
-az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name eventhub-listen-connection \
-	--value "$LISTEN_CONNECTION" --only-show-errors 1>/dev/null || fail "could not store the listen secret"
-az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name storage-connection \
-	--value "$STORAGE_CONNECTION_STRING" --only-show-errors 1>/dev/null || fail "could not store the storage secret"
+# The template gave the deploying principal Key Vault Secrets Officer on the vault; set_secret waits for it to propagate
+set_secret eventhub-send-connection "$SEND_CONNECTION"
+set_secret eventhub-listen-connection "$LISTEN_CONNECTION"
+set_secret storage-connection "$STORAGE_CONNECTION_STRING"
 echo "Stored the connection strings as Key Vault secrets."
 
 az functionapp config appsettings set --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \

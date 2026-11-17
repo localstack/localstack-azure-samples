@@ -59,6 +59,30 @@ param fraudVelocityWindowSeconds int = 60
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the resource id of the Log Analytics workspace the diagnostic settings send to.')
+param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the web app send to the workspace.')
+param webAppLogCategories array = [
+  'AppServiceHTTPLogs'
+  'AppServiceConsoleLogs'
+  'AppServiceAppLogs'
+  'AppServiceAuditLogs'
+  'AppServiceIPSecAuditLogs'
+  'AppServicePlatformLogs'
+  'AppServiceAuthenticationLogs'
+]
+
+var allMetrics = [
+  {
+    category: 'AllMetrics'
+    enabled: true
+  }
+]
+
 resource functionPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: functionPlanName
   location: location
@@ -98,6 +122,16 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
+        }
+        // With telemetryMode set to OpenTelemetry in host.json, the Python worker sends the records of the function's
+        // logger, its exceptions, custom events and custom metrics to Application Insights
+        {
+          name: 'PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'
+          value: 'true'
+        }
+        {
+          name: 'PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME'
+          value: 'function_app'
         }
         // The trigger and output bindings resolve these by name (see function_app.py).
         {
@@ -187,7 +221,57 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
+// The records the Functions host writes for each invocation (FunctionAppLogs) and the platform metrics of the function
+// app, of the web app and of their plans; the requests, console output and platform events of the web app
+resource functionPlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionPlan
+  properties: {
+    workspaceId: workspaceId
+    metrics: allMetrics
+  }
+}
+
+resource functionAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionApp
+  properties: {
+    workspaceId: workspaceId
+    logs: [
+      {
+        category: 'FunctionAppLogs'
+        enabled: true
+      }
+    ]
+    metrics: allMetrics
+  }
+}
+
+resource webPlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: webPlan
+  properties: {
+    workspaceId: workspaceId
+    metrics: allMetrics
+  }
+}
+
+resource webAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: webApp
+  properties: {
+    workspaceId: workspaceId
+    logs: [for category in webAppLogCategories: {
+      category: category
+      enabled: true
+    }]
+    metrics: allMetrics
+  }
+}
+
+output functionAppId string = functionApp.id
 output functionAppName string = functionApp.name
+output webAppId string = webApp.id
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output storageAccountUsed string = storageAccountName
