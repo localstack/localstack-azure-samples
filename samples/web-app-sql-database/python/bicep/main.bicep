@@ -332,6 +332,9 @@ param logAnalyticsSku string = 'PerNode'
 @description('Specifies the workspace data retention in days.')
 param logAnalyticsRetentionInDays int = 60
 
+@description('Specifies the object id of the principal that runs the deployment, which deploy.sh resolves: the key vault gives it the certificate permissions deploy.sh needs to create the certificate of the web app. Empty gives it no access policy.')
+param deployerPrincipalId string = ''
+
 //********************************************
 // Variables
 //********************************************
@@ -481,6 +484,7 @@ module keyVault 'modules/key-vault.bicep' = {
     sqlDatabaseName: sqlServer.outputs.databaseName
     sqlDatabaseUsername: sqlDatabaseUsername
     sqlDatabasePassword: sqlDatabasePassword
+    deployerPrincipalId: deployerPrincipalId
     workspaceId: workspace.outputs.id
     tags: tags
   }

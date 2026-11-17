@@ -20,6 +20,9 @@ param webAppPrincipalId string
 @description('Specifies the principal id of the user-assigned managed identity the SQL server reads its TDE protector key with.')
 param sqlServerIdentityPrincipalId string
 
+@description('Specifies the object id of the principal that runs the deployment, which creates the certificate of the web app after it. Empty gives it no access policy.')
+param deployerPrincipalId string = ''
+
 @description('Specifies whether soft delete is enabled for the Key Vault.')
 param enableSoftDelete bool = true
 
@@ -104,7 +107,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       family: 'A'
       name: skuName
     }
-    accessPolicies: [
+    accessPolicies: concat([
       {
         tenantId: subscription().tenantId
         objectId: webAppPrincipalId
@@ -129,7 +132,19 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
           ]
         }
       }
-    ]
+    ], empty(deployerPrincipalId) ? [] : [
+      {
+        tenantId: subscription().tenantId
+        objectId: deployerPrincipalId
+        permissions: {
+          certificates: [
+            'get'
+            'list'
+            'create'
+          ]
+        }
+      }
+    ])
     enableRbacAuthorization: false
     enableSoftDelete: enableSoftDelete
     softDeleteRetentionInDays: softDeleteRetentionInDays
