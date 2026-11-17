@@ -197,21 +197,9 @@ module servicebusNamespace 'modules/service-bus.bicep' = {
   }
 }
 
-// The keys are read when the modules that use them deploy: the web app module waits for the Service Bus module, and the
-// function app module for the storage module, whose outputs it uses
-resource servicebusRootAuthorizationRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' existing = {
-  name: '${servicebusNamespaceName}/RootManageSharedAccessKey'
-}
-
-resource storageAccountResource 'Microsoft.Storage/storageAccounts@2025-01-01' existing = {
-  name: storageAccountName
-}
-
-var servicebusConnectionString = servicebusRootAuthorizationRule.listKeys().primaryConnectionString
-var storageAccountKey = storageAccountResource.listKeys().keys[0].value
-// Explicit endpoints rather than an EndpointSuffix: the Functions host's storage clients cannot parse a suffix that
-// carries the emulator's port.
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};BlobEndpoint=${storageAccount.outputs.blobEndpoint};QueueEndpoint=${storageAccount.outputs.queueEndpoint};TableEndpoint=${storageAccount.outputs.tableEndpoint}'
+// The keys are read by the modules that use them, when they deploy: Azure refused key reads in this template before the
+// Service Bus namespace and the storage account existed. The web app module gets the namespace name and the function
+// app module the storage account name and endpoints, outputs of the modules that create them.
 
 //********************************************
 // Compute: one Linux plan hosting both the web app and the worker
@@ -250,18 +238,15 @@ module webApp 'modules/web-app.bicep' = {
       QR_JOBS_QUEUE: qrJobsQueueName
       BLOB_ENDPOINT: storageAccount.outputs.blobEndpoint
       QR_CONTAINER: qrContainerName
-      SB_CONN: servicebusConnectionString
       SB_QUEUE: servicebusQueueName
       PG_SECRET_NAME: keyVault.outputs.postgresConnectionSecretName
       INTERNAL_TOKEN: internalToken
       APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
     }
+    serviceBusNamespaceName: servicebusNamespace.outputs.name
     workspaceId: workspace.outputs.id
     tags: tags
   }
-  dependsOn: [
-    servicebusNamespace
-  ]
 }
 
 module functionApp 'modules/function-app.bicep' = {
@@ -277,15 +262,21 @@ module functionApp 'modules/function-app.bicep' = {
     managedIdentityId: managedIdentity.outputs.id
     hostingPlanName: appServicePlan.outputs.name
     storageAccountName: storageAccount.outputs.name
+    // Explicit endpoints rather than an EndpointSuffix: the Functions host's storage clients cannot parse a suffix that
+    // carries the emulator's port. The module also writes the connection string to QrStorage.
+    storageEndpoints: {
+      blob: storageAccount.outputs.blobEndpoint
+      queue: storageAccount.outputs.queueEndpoint
+      table: storageAccount.outputs.tableEndpoint
+    }
+    storageConnectionStringSettingName: 'QrStorage'
     appSettings: {
       SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
       ENABLE_ORYX_BUILD: 'true'
-      AzureWebJobsStorage: storageConnectionString
       AZURE_CLIENT_ID: managedIdentity.outputs.clientId
       ServiceBusConnection__fullyQualifiedNamespace: '${servicebusNamespaceName}.servicebus.windows.net'
       ServiceBusConnection__clientId: managedIdentity.outputs.clientId
       ServiceBusConnection__credential: 'managedidentity'
-      QrStorage: storageConnectionString
       WEB_BASE_URL: 'http://${webApp.outputs.defaultHostName}'
       INTERNAL_TOKEN: internalToken
       APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString

@@ -73,6 +73,9 @@ param storageAccountName string
 @description('Specifies the app settings of the Azure Function App, besides AzureWebJobsStorage, FUNCTIONS_EXTENSION_VERSION and FUNCTIONS_WORKER_RUNTIME, which the module sets.')
 param appSettings object = {}
 
+@description('Specifies the blob, queue and table endpoints of the storage account (blob, queue, table). When given, the connection strings the module builds name them instead of an EndpointSuffix, which the Functions host\'s storage clients cannot parse when it carries the emulator\'s port.')
+param storageEndpoints object = {}
+
 @description('Specifies the name of an app setting that the module sets to the connection string of the storage account, for the bindings of the functions that connect with a key. Empty for none.')
 param storageConnectionStringSettingName string = ''
 
@@ -120,7 +123,9 @@ var metrics = [
     enabled: true
   }
 ]
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+// The key is read when this module deploys, once the storage account exists, and stays out of the deployment history
+var storageAccountKey = storageAccount.listKeys().keys[0].value
+var storageConnectionString = empty(storageEndpoints) ? 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccountKey}' : 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccountKey};BlobEndpoint=${storageEndpoints.blob};QueueEndpoint=${storageEndpoints.queue};TableEndpoint=${storageEndpoints.table}'
 
 //********************************************
 // Resources
@@ -162,8 +167,7 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
 resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   parent: functionApp
   name: 'appsettings'
-  // The app settings passed in win over the defaults, so that the sample can give the Functions host an
-  // explicit-endpoint AzureWebJobsStorage
+  // The app settings passed in win over the defaults
   properties: union({
     AzureWebJobsStorage: storageConnectionString
     FUNCTIONS_EXTENSION_VERSION: '~4'

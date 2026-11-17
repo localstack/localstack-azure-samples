@@ -23,8 +23,14 @@ param hostingPlanName string
 @description('Specifies the resource id of the user-assigned managed identity the web app authenticates with.')
 param managedIdentityId string
 
-@description('Specifies the app settings of the web app.')
+@description('Specifies the app settings of the web app, besides the Service Bus connection string, which the module sets.')
 param appSettings object = {}
+
+@description('Specifies the name of the Service Bus namespace whose RootManageSharedAccessKey connection string the web app receives. The module reads it when it deploys, once the namespace exists, and the key stays out of the deployment history.')
+param serviceBusNamespaceName string
+
+@description('Specifies the name of the app setting that receives the connection string of the Service Bus namespace.')
+param serviceBusConnectionStringSettingName string = 'SB_CONN'
 
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
@@ -76,6 +82,10 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2024-11-01' existing = {
   name: hostingPlanName
 }
 
+resource serviceBusRootAuthorizationRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' existing = {
+  name: '${serviceBusNamespaceName}/RootManageSharedAccessKey'
+}
+
 resource webApp 'Microsoft.Web/sites@2024-11-01' = {
   name: name
   location: location
@@ -102,7 +112,9 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' = {
 resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   parent: webApp
   name: 'appsettings'
-  properties: appSettings
+  properties: union(appSettings, {
+    '${serviceBusConnectionStringSettingName}': serviceBusRootAuthorizationRule.listKeys().primaryConnectionString
+  })
 }
 
 resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(workspaceId)) {
