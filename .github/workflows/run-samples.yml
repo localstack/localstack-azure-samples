@@ -300,7 +300,6 @@ jobs:
           LOCALSTACK_MSSQL_ACCEPT_EULA: "Y"
           LOCALSTACK_LS_LOG: "DEBUG"
           LOCALSTACK_DISABLE_EVENTS: "1"
-          LOCALSTACK_DNS_ADDRESS: "0"
 
       - name: Install MSSQL ODBC and Tools
         # Required for the 'web-app-sql-database' sample which uses 'sqlcmd' to
@@ -362,7 +361,6 @@ jobs:
           LOCALSTACK_MSSQL_ACCEPT_EULA: "Y"
           LOCALSTACK_LS_LOG: "DEBUG"
           LOCALSTACK_DISABLE_EVENTS: "1"
-          LOCALSTACK_DNS_ADDRESS: "0"
           PURGE_DOCKER: "1"
 
       - name: Get LocalStack Logs
@@ -483,7 +481,7 @@ jobs:
             --volume /var/run/docker.sock:/var/run/docker.sock \
             --volume /var/lib/localstack-azure:/var/lib/localstack \
             --env LOCALSTACK_AUTH_TOKEN --env GITHUB_API_TOKEN \
-            --env MSSQL_ACCEPT_EULA=Y --env LS_LOG=debug --env DISABLE_EVENTS=1 --env DNS_ADDRESS=0 \
+            --env MSSQL_ACCEPT_EULA=Y --env LS_LOG=debug --env DISABLE_EVENTS=1 \
             "$IMAGE" || exit 1
           for _ in $(seq 1 200); do
             if curl --silent --fail --max-time 5 http://127.0.0.1:4566/_localstack/health > /dev/null; then
