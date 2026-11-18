@@ -27,7 +27,7 @@ TOTAL=$(echo "$TEST_META" | jq length)
 echo "Run mode: $RUN_MODE | Arch filter: $ARCH_FILTER | Platform: $PLATFORM | Total tests: $TOTAL"
 
 # Changes to these files affect all tests, so any modification triggers a full run
-INFRA_FILES="run-samples.sh Makefile .github/workflows/run-samples.yml .github/scripts/build-matrix.sh pyproject.toml requirements-dev.txt requirements-runtime.txt"
+INFRA_FILES="run-samples.sh Makefile .github/workflows/run-samples.yml .github/scripts/build-matrix.sh .github/scripts/prepare-azurite.sh pyproject.toml requirements-dev.txt requirements-runtime.txt"
 
 if [[ "$RUN_MODE" == "changed" && -n "$BASE_SHA" ]]; then
   # Get list of files changed between base branch and current HEAD

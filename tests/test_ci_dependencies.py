@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import threading
@@ -12,6 +13,73 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_azurite_backend_change_runs_every_sample(tmp_path):
+    for path in (
+        "run-samples.sh",
+        ".github/scripts/build-matrix.sh",
+        ".github/scripts/prepare-azurite.sh",
+    ):
+        destination = tmp_path / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / path, destination)
+
+    def run(*args, **kwargs):
+        return subprocess.check_output(args, cwd=tmp_path, text=True, **kwargs)
+
+    run("git", "init", "-q")
+    run("git", "add", ".")
+    run(
+        "git",
+        "-c",
+        "user.name=CI",
+        "-c",
+        "user.email=ci@example.com",
+        "commit",
+        "-qm",
+        "baseline",
+    )
+    base = run("git", "rev-parse", "HEAD").strip()
+    with (tmp_path / ".github/scripts/prepare-azurite.sh").open("a") as helper:
+        helper.write("\n# Backend configuration changed\n")
+    # build-matrix compares commits, so record a change to only the shared helper.
+    run("git", "add", ".")
+    run(
+        "git",
+        "-c",
+        "user.name=CI",
+        "-c",
+        "user.email=ci@example.com",
+        "commit",
+        "-qm",
+        "backend",
+    )
+    output = tmp_path / "github-output"
+    run(
+        "bash",
+        ".github/scripts/build-matrix.sh",
+        "changed",
+        base,
+        "both",
+        "Linux",
+        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+    )
+
+    matrix = json.loads(
+        next(
+            line.removeprefix("matrix=")
+            for line in output.read_text().splitlines()
+            if line.startswith("matrix=")
+        )
+    )
+    samples = json.loads(run("bash", "run-samples.sh", "--list"))
+    assert len(matrix["include"]) == sum(len(sample["arches"]) for sample in samples)
+    assert {job["shard"] for job in matrix["include"]} == {
+        sample["shard"] for sample in samples
+    }
+
+
 REPOSITORY = (
     b"deb [arch=amd64] https://packages.microsoft.com/ubuntu/22.04/prod jammy main\n"
 )
