@@ -248,6 +248,7 @@ if ! az eventhubs eventhub show \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--partition-count "$ALERT_PARTITION_COUNT" \
 		--retention-time-in-hours $((RETENTION_DAYS * 24)) \
+		--cleanup-policy Delete \
 		--only-show-errors 1>/dev/null || fail "could not create event hub [$ALERT_HUB_NAME]"
 	echo "Created event hub [$ALERT_HUB_NAME] with $ALERT_PARTITION_COUNT partitions."
 else

@@ -25,8 +25,11 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install pre-commit
-        run: pip install pre-commit
+      - name: Install check dependencies
+        run: pip install pre-commit pytest PyYAML
 
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Test CI dependency installation
+        run: python -m pytest -q tests

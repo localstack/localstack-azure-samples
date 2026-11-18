@@ -150,6 +150,7 @@ if ! az eventhubs eventhub show --name "$TELEMETRY_HUB_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--partition-count "$TELEMETRY_PARTITION_COUNT" \
 		--retention-time-in-hours "$RETENTION_HOURS" \
+		--cleanup-policy Delete \
 		--enable-capture true \
 		--capture-interval "$CAPTURE_INTERVAL_SECONDS" \
 		--capture-size-limit "$CAPTURE_SIZE_LIMIT_BYTES" \
@@ -176,6 +177,7 @@ for hub_spec in "$NOTIFICATION_HUB_NAME:$NOTIFICATION_PARTITION_COUNT" "$CURATED
 			--resource-group "$RESOURCE_GROUP_NAME" \
 			--partition-count "$partitions" \
 			--retention-time-in-hours "$RETENTION_HOURS" \
+			--cleanup-policy Delete \
 			--only-show-errors 1>/dev/null || fail "could not create hub [$hub_name]"
 		echo "Created [$hub_name] with $partitions partitions."
 	else

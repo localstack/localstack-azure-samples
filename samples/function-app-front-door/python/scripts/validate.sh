@@ -175,11 +175,12 @@ fi
 echo "Calling [$ENDPOINT_URL/status]..."
 STATUS_CODE=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/status")
 STATUS_ORIGIN=$(jq -r '.origin' "$BODY_FILE" 2>/dev/null)
+STATUS_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
 echo "HTTP $STATUS_CODE: $(cat "$BODY_FILE" | tr -d '\n')"
-if [[ "$STATUS_CODE" == "200" && "$STATUS_ORIGIN" == "secondary" ]]; then
+if [[ "$STATUS_CODE" == "200" && "$STATUS_ORIGIN" == "secondary" && "$STATUS_PATH" == "/api/status" ]]; then
 	echo "/status matched the specific route and went to the other origin group"
 else
-	echo "Expected /status to be served by the secondary origin (got HTTP $STATUS_CODE, origin=$STATUS_ORIGIN)"
+	echo "Expected /api/status on the secondary origin (got HTTP $STATUS_CODE, origin=$STATUS_ORIGIN, path=$STATUS_PATH)"
 	FAILED=1
 fi
 
