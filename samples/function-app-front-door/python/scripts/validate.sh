@@ -67,8 +67,8 @@ else
 	ENDPOINT_HOST_NAME=$(az afd endpoint show --endpoint-name $ENDPOINT_NAME --profile-name $PROFILE_NAME --resource-group $RESOURCE_GROUP_NAME --query hostName --output tsv)
 	ENDPOINT_URL="https://$ENDPOINT_HOST_NAME"
 	# Microsoft budgets up to ten minutes for a purge to reach every PoP, and the loops that wait
-	# on one sleep five seconds, so ten minutes is 120 attempts. The endpoint-serving loop sleeps
-	# ten, which gives a new endpoint twenty minutes to come up.
+	# on one sleep five seconds, so ten minutes is 120 attempts. The loops that wait for the endpoint
+	# to serve, new or re-enabled, sleep ten, which gives it twenty minutes.
 	PROPAGATION_ATTEMPTS=120
 fi
 
@@ -185,11 +185,17 @@ else
 	FAILED=1
 fi
 
-# 5. The UrlRewrite rule: the client asks for /shop/2, the origin is asked for /api/catalog/2.
+# 5. The UrlRewrite rule: the client asks for /shop/2, the origin is asked for /api/catalog/2. On Azure the rule
+# can reach an edge after the route does: /shop/2 answered 404 right after the endpoint served the catalog, and
+# was rewritten on a later run, so the check retries while the configuration rolls out.
 echo "Calling [$ENDPOINT_URL/shop/2]..."
-SHOP_STATUS=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/shop/2")
-SHOP_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
-SHOP_SKU=$(jq -r '.item.sku' "$BODY_FILE" 2>/dev/null)
+for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
+	SHOP_STATUS=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/shop/2")
+	SHOP_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
+	SHOP_SKU=$(jq -r '.item.sku' "$BODY_FILE" 2>/dev/null)
+	[[ "$SHOP_STATUS" == "200" && "$SHOP_PATH" == "/api/catalog/2" ]] && break
+	sleep 5
+done
 echo "HTTP $SHOP_STATUS: origin path $SHOP_PATH, sku $SHOP_SKU"
 if [[ "$SHOP_STATUS" == "200" && "$SHOP_PATH" == "/api/catalog/2" && "$SHOP_SKU" == "AFD-002" ]]; then
 	echo "The UrlRewrite rule rewrote /shop to /catalog before the origin call"
@@ -374,11 +380,13 @@ az afd endpoint update \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--enabled-state Enabled 1>/dev/null
 
+# On Azure a re-enabled endpoint served again about eleven minutes later (2026-11-18), so this loop sleeps ten
+# seconds, which gives it the twenty minutes a new endpoint gets.
 ENABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
 	ENABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/api/status")
 	[[ "$ENABLED_STATUS" == "200" ]] && break
-	sleep 5
+	sleep 10
 done
 echo "The re-enabled endpoint answers: HTTP $ENABLED_STATUS"
 if [[ "$ENABLED_STATUS" == "200" ]]; then
