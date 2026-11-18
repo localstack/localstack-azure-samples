@@ -160,8 +160,9 @@ Both provision the same topology and then publish the same application packages.
    they all landed in the same log.
 3. **Detect fraud.** The Function App picks up each batch, applies the amount and velocity
    rules, and emits alerts to `fraud-alerts`.
-4. **Prove checkpointing.** The function app is restarted while new payments arrive. It
-   resumes from its checkpoint: nothing is lost and nothing is processed twice.
+4. **Prove checkpointing.** Once the function has exported its metrics, the function app is
+   restarted while new payments arrive. It resumes from its checkpoint: nothing is lost and
+   nothing is processed twice.
 5. **Read the archive.** Once a Capture window flushes, the newest Avro blob is decoded
    and its records printed - the cold path, with no consumer code.
 6. **Point at the dashboard** for the live view.

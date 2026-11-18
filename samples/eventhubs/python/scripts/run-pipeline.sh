@@ -36,9 +36,11 @@ native_path() {
 # Capture flushes on the interval configured in deploy.sh (60s); allow for the scan cycle.
 CAPTURE_WAIT_SECONDS="${CAPTURE_WAIT_SECONDS:-150}"
 PROCESSING_WAIT_SECONDS="${PROCESSING_WAIT_SECONDS:-420}"
-# A redeploy replaces the container, so the host starts cold and downloads its extension
-# bundle again before the first invocation.
+# After the restart the host starts cold and can download its extension bundle again before
+# the first invocation.
 RESTART_WAIT_SECONDS="${RESTART_WAIT_SECONDS:-600}"
+# The function's Azure Monitor OpenTelemetry Distro exports its metrics once a minute.
+METRIC_EXPORT_WAIT_SECONDS="${METRIC_EXPORT_WAIT_SECONDS:-75}"
 
 # How many payments each protocol publishes, and the total the payments hub must grow by.
 # --burst-account makes producer_amqp.py add a fixed card-testing burst on top of --count.
@@ -208,6 +210,11 @@ step "Step 4/6 - Restart the processor: checkpoints prevent loss and reprocessin
 ALERTS_BEFORE=$(count_total "$ALERT_HUB_NAME") ||
 	fail "the alerts hub '$ALERT_HUB_NAME' could not be read"
 echo "Alerts before restart: $ALERTS_BEFORE"
+
+# A restart can drop what the processor aggregated since the distro last exported its metrics,
+# so the payments_screened counts of the payments above get one export first.
+echo "Waiting ${METRIC_EXPORT_WAIT_SECONDS}s for the processor to export its metrics..."
+sleep "$METRIC_EXPORT_WAIT_SECONDS"
 
 # Restarting the function app restarts its host: the processor comes back and has to decide
 # where to resume from.
