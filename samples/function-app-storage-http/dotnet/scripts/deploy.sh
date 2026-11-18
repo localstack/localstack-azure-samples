@@ -5,6 +5,8 @@ PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
+APP_SERVICE_PLAN_NAME="${PREFIX}-app-service-plan-${SUFFIX}"
+APP_SERVICE_PLAN_SKU="S1"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 RUNTIME="DOTNET-ISOLATED"
@@ -87,11 +89,39 @@ else
 	exit 1
 fi
 
+# Create the App Service plan. A Linux Consumption plan doesn't run .NET 10 or later, so the function app runs on
+# the same Linux plan the Bicep and Terraform deployments create.
+echo "Checking if App Service plan [$APP_SERVICE_PLAN_NAME] exists in the resource group [$RESOURCE_GROUP_NAME]..."
+az appservice plan show \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No App Service plan [$APP_SERVICE_PLAN_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating App Service plan [$APP_SERVICE_PLAN_NAME] in the [$RESOURCE_GROUP_NAME] resource group..."
+	az appservice plan create \
+		--name "$APP_SERVICE_PLAN_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--sku "$APP_SERVICE_PLAN_SKU" \
+		--is-linux \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "App Service plan [$APP_SERVICE_PLAN_NAME] created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create App Service plan [$APP_SERVICE_PLAN_NAME] in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "App Service plan [$APP_SERVICE_PLAN_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
 # Create the function app
 echo "Creating function app [$FUNCTION_APP_NAME]..."
 az functionapp create \
 	--resource-group $RESOURCE_GROUP_NAME \
-	--consumption-plan-location $LOCATION \
+	--plan "$APP_SERVICE_PLAN_NAME" \
 	--runtime $RUNTIME \
 	--runtime-version $RUNTIME_VERSION \
 	--functions-version 4 \

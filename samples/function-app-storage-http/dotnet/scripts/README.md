@@ -36,7 +36,8 @@ This [deploy.sh](deploy.sh) script creates the following Azure resources using A
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all gaming system resources.
 2. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob containers, queues, and tables for the gaming system.
-3. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) Serverless compute platform hosting the gaming logic with consumption plan.
+3. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Linux hosting plan with the Standard SKU for the Azure Functions application. A Linux Consumption plan doesn't run .NET 10 or later.
+4. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) Serverless compute platform hosting the gaming logic.
 
 The system implements a complete gaming scoreboard with multiple Azure Functions that handle HTTP requests, process blob uploads, manage queue messages, and maintain game statistics. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 
@@ -46,7 +47,7 @@ See [deploy.sh](deploy.sh) for the complete deployment script. The script perfor
 
 - Creates resource group if it doesn't exist
 - Creates Storage Account and retrieves access key
-- Creates Function App with consumption plan
+- Creates a Linux App Service plan and the Function App on it
 - Constructs storage connection string
 - Configures Function App settings (storage, queue, table, timer configurations)
 - Builds and publishes the .NET application in Release configuration

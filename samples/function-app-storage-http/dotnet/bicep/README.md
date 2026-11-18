@@ -41,7 +41,7 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 2. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Hosting plan for the Azure Functions application
     - Linux-based hosting plan for containerized workloads
     - Standard sku
-3. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) Serverless compute platform hosting the gaming logic with consumption plan
+3. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) Serverless compute platform hosting the gaming logic on the App Service plan
     - Linux Function App with .NET isolated runtime
     - Comprehensive application settings for gaming system configuration
 
