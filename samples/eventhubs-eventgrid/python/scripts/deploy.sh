@@ -365,8 +365,6 @@ az functionapp config appsettings set \
 	"CAPTURE_CONSUMER_GROUP=$CAPTURE_CONSUMER_GROUP" \
 	"TEMPERATURE_LIMIT=$TEMPERATURE_LIMIT" \
 	"APPLICATIONINSIGHTS_CONNECTION_STRING=$APPLICATION_INSIGHTS_CONNECTION_STRING" \
-	"PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY=true" \
-	"PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME=function_app" \
 	--only-show-errors 1>/dev/null || fail "could not set function app settings"
 echo "Configured function app settings."
 

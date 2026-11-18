@@ -119,16 +119,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
         }
-        // With telemetryMode set to OpenTelemetry in host.json, the Python worker sends the records of the function's
-        // logger, its exceptions, custom events and custom metrics to Application Insights
-        {
-          name: 'PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'
-          value: 'true'
-        }
-        {
-          name: 'PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME'
-          value: 'function_app'
-        }
         // The trigger and output bindings resolve these by name (see function_app.py).
         {
           name: 'EVENT_HUB_NAME'

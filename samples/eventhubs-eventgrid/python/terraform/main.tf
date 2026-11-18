@@ -152,9 +152,5 @@ module "function_app" {
     CAPTURE_CONSUMER_GROUP           = module.event_hubs.capture_consumer_group
     TEMPERATURE_LIMIT                = tostring(var.temperature_limit)
     FUNCTIONS_WORKER_RUNTIME         = "python"
-    # The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
-    # forwarding its log records, and only the records of the function's logger
-    PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY = "true"
-    PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME      = "function_app"
   }
 }

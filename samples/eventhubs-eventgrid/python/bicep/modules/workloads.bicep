@@ -96,16 +96,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
         }
-        // The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the
-        // host forwarding its log records, and only the records of the function's logger
-        {
-          name: 'PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'
-          value: 'true'
-        }
-        {
-          name: 'PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME'
-          value: 'function_app'
-        }
       ]
     }
   }

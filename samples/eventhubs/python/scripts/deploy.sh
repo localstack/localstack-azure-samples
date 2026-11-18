@@ -644,12 +644,9 @@ FUNCTION_SETTINGS=(
 	"FRAUD_VELOCITY_COUNT=$FRAUD_VELOCITY_COUNT"
 	"FRAUD_VELOCITY_WINDOW_SECONDS=$FRAUD_VELOCITY_WINDOW_SECONDS"
 )
-# With telemetryMode set to OpenTelemetry in host.json, the Python worker sends the records of the function's logger,
-# its exceptions, custom events and custom metrics to Application Insights
+# function_app.py configures the Azure Monitor OpenTelemetry Distro itself with this connection string
 FUNCTION_SETTINGS+=(
 	"APPLICATIONINSIGHTS_CONNECTION_STRING=$APP_INSIGHTS_CONNECTION"
-	"PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY=true"
-	"PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME=function_app"
 )
 
 az functionapp config appsettings set \

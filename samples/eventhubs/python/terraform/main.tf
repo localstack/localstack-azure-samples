@@ -173,10 +173,6 @@ module "function_app" {
     FRAUD_AMOUNT_THRESHOLD        = tostring(var.fraud_amount_threshold)
     FRAUD_VELOCITY_COUNT          = tostring(var.fraud_velocity_count)
     FRAUD_VELOCITY_WINDOW_SECONDS = tostring(var.fraud_velocity_window_seconds)
-    # With telemetryMode set to OpenTelemetry in host.json, the Python worker sends the records of the function's
-    # logger, its exceptions, custom events and custom metrics to Application Insights
-    PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY = "true"
-    PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME      = "function_app"
   }
 }
 

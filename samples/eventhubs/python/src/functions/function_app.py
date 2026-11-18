@@ -42,13 +42,19 @@ from datetime import UTC, datetime
 from typing import List
 
 import azure.functions as func
+from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry import metrics
 
-# The logger of the function. With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, telemetryMode set to
-# OpenTelemetry in host.json and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY set to true, the Python worker sends to
-# Application Insights the records of the logger that PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME names (traces), the
-# exceptions it logs, the custom event and the custom metric below.
+# The logger of the function
 LOGGER_NAME = "function_app"
+
+# With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, the Azure Monitor OpenTelemetry Distro sends to
+# Application Insights the records of this logger (traces), the exceptions it logs, the custom event and the custom
+# metric below. The app configures the distro itself, which works on every hosting plan: on the Linux Consumption
+# plan the Python worker sent none of them when PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY asked it to.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor(logger_name=LOGGER_NAME)
+
 logger = logging.getLogger(LOGGER_NAME)
 logger.setLevel(logging.INFO)
 

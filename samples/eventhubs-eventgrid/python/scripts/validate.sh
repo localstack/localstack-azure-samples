@@ -153,10 +153,10 @@ check_output "it is configured with the notifications hub" \
 check_output "it is configured with the curated hub" \
 	"az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"[?name=='CURATED_HUB_NAME'].value\" -o tsv" \
 	"$CURATED_HUB_NAME"
-# The names of the telemetry app settings only, never their values
+# The name of the telemetry app setting only, never its value
 check_output "it sends its telemetry to Application Insights" \
-	"az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING' || name=='PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'].name\" -o tsv | sort | tr '\\n' ' '" \
-	"APPLICATIONINSIGHTS_CONNECTION_STRING PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY"
+	"az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING'].name\" -o tsv" \
+	"APPLICATIONINSIGHTS_CONNECTION_STRING"
 check_output "the Application Insights resource stores its telemetry in the workspace" \
 	"az monitor app-insights component show --app $APPLICATION_INSIGHTS_NAME --resource-group $RESOURCE_GROUP_NAME --query workspaceResourceId -o tsv" \
 	"$LOG_ANALYTICS_NAME"
