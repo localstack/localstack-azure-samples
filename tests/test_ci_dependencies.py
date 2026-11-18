@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import threading
@@ -12,6 +13,68 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_infra_change_in_a_large_diff_runs_every_sample(tmp_path):
+    # build-matrix.sh runs with pipefail. When the list of changed files outgrew a pipe buffer, echo died of SIGPIPE
+    # once grep -q had its match, the match read as a failure, and a pull request that changed an infrastructure
+    # file among many others ran only some of the samples.
+    for path in (
+        "run-samples.sh",
+        ".github/scripts/build-matrix.sh",
+        ".github/workflows/run-samples.yml",
+    ):
+        destination = tmp_path / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / path, destination)
+
+    def run(*args, **kwargs):
+        return subprocess.check_output(args, cwd=tmp_path, text=True, **kwargs)
+
+    def commit(message):
+        run("git", "add", ".")
+        run(
+            "git",
+            "-c",
+            "user.name=CI",
+            "-c",
+            "user.email=ci@example.com",
+            "commit",
+            "-qm",
+            message,
+        )
+
+    run("git", "init", "-q")
+    commit("baseline")
+    base = run("git", "rev-parse", "HEAD").strip()
+    with (tmp_path / ".github/workflows/run-samples.yml").open("a") as workflow:
+        workflow.write("\n# Workflow changed\n")
+    # Enough other changed files for their list to exceed a 64 KiB pipe buffer
+    other_files = tmp_path / "docs" / "large-change"
+    other_files.mkdir(parents=True)
+    for index in range(2000):
+        (other_files / f"{index:04d}-{'x' * 60}.md").write_text("changed\n")
+    commit("the workflow and many other files")
+    output = tmp_path / "github-output"
+    run(
+        "bash",
+        ".github/scripts/build-matrix.sh",
+        "changed",
+        base,
+        "both",
+        "Linux",
+        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+    )
+
+    matrix = json.loads(
+        next(
+            line.removeprefix("matrix=")
+            for line in output.read_text().splitlines()
+            if line.startswith("matrix=")
+        )
+    )
+    samples = json.loads(run("bash", "run-samples.sh", "--list"))
+    assert len(matrix["include"]) == sum(len(sample["arches"]) for sample in samples)
 
 
 REPOSITORY = (
