@@ -145,6 +145,9 @@ module "key_vault" {
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   rbac_authorization_enabled = true
+  # Azure's default, which the script, the Bicep deployment and the earlier version of this configuration keep. A
+  # vault's retention can't change once it is set, so another value would fail on a vault deployed earlier.
+  soft_delete_retention_days = 90
   deployer_object_id         = var.deployer_object_id
   deployer_principal_type    = var.deployer_principal_type
   log_analytics_workspace_id = module.log_analytics_workspace.id
