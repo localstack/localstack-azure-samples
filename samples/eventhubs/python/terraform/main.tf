@@ -176,6 +176,9 @@ module "function_app" {
   }
 }
 
+# Created after the Linux Consumption plan, as the scripts and the Bicep template do: created alongside this Standard
+# plan, the Consumption plan was refused on Azure ("Requested features 'Dynamic SKU, Linux Worker' not available in
+# resource group")
 module "web_plan" {
   source                     = "./modules/app_service_plan"
   name                       = local.web_plan_name
@@ -186,6 +189,8 @@ module "web_plan" {
   diagnostic_setting_name    = "default"
   log_analytics_workspace_id = module.log_analytics.id
   tags                       = var.tags
+
+  depends_on = [module.function_plan]
 }
 
 # The dashboard has no app_command_line: App Service starts Gunicorn for the Flask app in app.py, and Gunicorn reads
