@@ -838,7 +838,7 @@ if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
 		--resource-group $RESOURCE_GROUP_NAME \
 		--order 3 \
 		--conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[legacy],negate-condition:false}}}]" \
-		--actions "[{url-redirect:{parameters:{redirect-type:Found,destination-protocol:MatchRequest,custom-path:/api/status}}}]" 1>/dev/null
+		--actions "[{url-redirect:{parameters:{redirect-type:Found,destination-protocol:MatchRequest,custom-path:/status}}}]" 1>/dev/null
 else
 	az afd rule create \
 		--rule-name redirectLegacy \
@@ -847,7 +847,7 @@ else
 		--resource-group $RESOURCE_GROUP_NAME \
 		--order 3 \
 		--match-variable UrlPath --operator BeginsWith --match-values legacy \
-		--action-name UrlRedirect --redirect-type Found --redirect-protocol MatchRequest --custom-path /api/status 1>/dev/null
+		--action-name UrlRedirect --redirect-type Found --redirect-protocol MatchRequest --custom-path /status 1>/dev/null
 fi
 
 if [[ $? != 0 ]]; then
@@ -901,9 +901,7 @@ fi
 
 # A more specific pattern wins over the catch-all, whatever order the routes were created in.
 # This one has no rule set and no caching, which is how the two routes tell themselves apart.
-# It has no origin path either: on Azure an origin path replaces the part of the request path
-# the pattern matched, so a /status pattern with the /api origin path would reach the origin as
-# /api. The pattern names the function's own path instead, which the origin receives unchanged.
+# An exact pattern has no unmatched suffix: its origin path must include the status trigger.
 echo "Creating the [$STATUS_ROUTE] route..."
 az afd route create \
 	--route-name $STATUS_ROUTE \
@@ -911,7 +909,8 @@ az afd route create \
 	--profile-name $PROFILE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--origin-group $STATUS_ORIGIN_GROUP \
-	--patterns-to-match '/api/status' \
+	--origin-path "$ORIGIN_PATH/status" \
+	--patterns-to-match '/status' \
 	--supported-protocols Http Https \
 	--link-to-default-domain Enabled \
 	--https-redirect $HTTPS_REDIRECT \
@@ -936,6 +935,6 @@ echo "Deployment completed. The catalog is published at: $ENDPOINT_URL"
 echo "Try it with:"
 echo "  curl -i $ENDPOINT_URL/catalog/1     # cacheable, served by the primary origin"
 echo "  curl -i $ENDPOINT_URL/shop/1        # rewritten to /catalog/1 by the rules engine"
-echo "  curl -i $ENDPOINT_URL/legacy        # redirected to /api/status by the rules engine"
-echo "  curl -i $ENDPOINT_URL/api/status    # the more specific route, served by the secondary origin"
+echo "  curl -i $ENDPOINT_URL/legacy        # redirected to /status by the rules engine"
+echo "  curl -i $ENDPOINT_URL/status        # the more specific route, served by the secondary origin"
 echo "  curl -s $ENDPOINT_URL/whoami | jq   # what the origin received"

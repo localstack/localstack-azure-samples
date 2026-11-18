@@ -174,14 +174,15 @@ fi
 
 # 4. A more specific route wins over the catch-all, and sends the request to a different origin
 # group. Both routes are linked to the same endpoint.
-echo "Calling [$ENDPOINT_URL/api/status]..."
-STATUS_CODE=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/api/status")
+echo "Calling [$ENDPOINT_URL/status]..."
+STATUS_CODE=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/status")
 STATUS_ORIGIN=$(jq -r '.origin' "$BODY_FILE" 2>/dev/null)
+STATUS_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
 echo "HTTP $STATUS_CODE: $(cat "$BODY_FILE" | tr -d '\n')"
-if [[ "$STATUS_CODE" == "200" && "$STATUS_ORIGIN" == "secondary" ]]; then
-	echo "/api/status matched the specific route and went to the other origin group"
+if [[ "$STATUS_CODE" == "200" && "$STATUS_ORIGIN" == "secondary" && "$STATUS_PATH" == "/api/status" ]]; then
+	echo "/status matched the specific route and went to the other origin group"
 else
-	echo "Expected /api/status to be served by the secondary origin (got HTTP $STATUS_CODE, origin=$STATUS_ORIGIN)"
+	echo "Expected /api/status on the secondary origin (got HTTP $STATUS_CODE, origin=$STATUS_ORIGIN, path=$STATUS_PATH)"
 	FAILED=1
 fi
 
@@ -209,10 +210,10 @@ echo "Calling [$ENDPOINT_URL/legacy]..."
 REDIRECT_STATUS=$(curl -s -m 20 -o "$(null_device)" -D "$HEADERS_FILE" -w "%{http_code}" "$ENDPOINT_URL/legacy")
 LOCATION=$(grep -i "^location:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 echo "HTTP $REDIRECT_STATUS -> ${LOCATION:-(no Location header)}"
-if [[ "$REDIRECT_STATUS" == "302" && "$LOCATION" == */api/status ]]; then
+if [[ "$REDIRECT_STATUS" == "302" && "$LOCATION" == */status ]]; then
 	echo "The UrlRedirect rule answered at the edge"
 else
-	echo "Expected a 302 to /api/status from the rule set"
+	echo "Expected a 302 to /status from the rule set"
 	FAILED=1
 fi
 
@@ -361,7 +362,7 @@ az afd endpoint update \
 
 DISABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
-	DISABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/api/status")
+	DISABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/status")
 	[[ "$DISABLED_STATUS" != "200" ]] && break
 	sleep 5
 done
@@ -384,7 +385,7 @@ az afd endpoint update \
 # seconds, which gives it the twenty minutes a new endpoint gets.
 ENABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
-	ENABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/api/status")
+	ENABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/status")
 	[[ "$ENABLED_STATUS" == "200" ]] && break
 	sleep 10
 done

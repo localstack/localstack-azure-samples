@@ -193,7 +193,7 @@ fi
 # Call the routes of the endpoint, so that the tables hold the requests of this run
 echo "Calling the catalog, status and whoami routes of the [$ENDPOINT_NAME] Front Door endpoint [$CALLS] times each..."
 for CALL in $(seq 1 "$CALLS"); do
-	for ROUTE_PATH in /catalog/1 /catalog/2 /catalog/3 /api/status /whoami; do
+	for ROUTE_PATH in /catalog/1 /catalog/2 /catalog/3 /status /whoami; do
 		STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "$ENDPOINT_URL$ROUTE_PATH")
 		echo "Call $CALL of $CALLS to [$ROUTE_PATH] answered with status code [$STATUS_CODE]"
 	done

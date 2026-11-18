@@ -100,11 +100,10 @@ whatever happened to be in the last batch.
 - `jq` and `zip`.
 
 > [!IMPORTANT]
-> **The emulator must be able to resolve `cdn.functions.azure.com` from the function container.**
-> The Event Hubs trigger lives in the Functions extension bundle, which the host downloads on
-> every cold container. If the emulator's DNS server cannot forward external queries, the host
-> aborts and the trigger silently never fires. Starting the emulator with `DNS_ADDRESS=0`
-> sidesteps it.
+> **Don't start the emulator with `DNS_ADDRESS=0`.** The function container resolves the emulator's
+> hosts through the emulator's DNS server, and `cdn.functions.azure.com` too, where the Functions host
+> downloads the Event Hubs trigger's extension bundle on every cold container. If either lookup fails,
+> the trigger silently never fires.
 
 > [!IMPORTANT]
 > **Macs with Apple silicon**: the function app runs natively on arm64, but the emulator builds each deployment with Microsoft's Oryx build image, which Microsoft publishes for amd64 only ([microsoft/Oryx#2133](https://github.com/microsoft/Oryx/issues/2133) asks for arm64).
