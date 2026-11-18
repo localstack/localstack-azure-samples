@@ -307,7 +307,7 @@ jobs:
         # initialize and verify the database schema in the local emulator.
         # amd64 only: the sample is backed by mcr.microsoft.com/mssql/server, which has
         # no arm64 image, so it never runs on the arm64 runners.
-        if: matrix.os == 'linux' && matrix.arch == 'amd64'
+        if: matrix.os == 'linux' && matrix.arch == 'amd64' && startsWith(matrix.name, 'web-app-sql-database/')
         run: |
           # Download and check both files before changing APT configuration. A failed
           # request can return HTML, which must never become a sources.list entry.
