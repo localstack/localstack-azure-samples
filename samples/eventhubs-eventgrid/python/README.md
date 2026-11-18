@@ -146,8 +146,8 @@ bash ../scripts/run-pipeline.sh
 
 ## The demo, step by step
 
-`scripts/run-pipeline.sh` asserts each stage rather than narrating it — it exits non-zero, and
-prints the processor's container logs, the moment the chain breaks:
+`scripts/run-pipeline.sh` asserts each stage rather than narrating it. It exits non-zero the
+moment the chain breaks and, on the emulator, prints the processor's container logs too:
 
 1. **Publish telemetry.** 120 readings across 6 devices, keyed by device id. One device
    (`DEV-0003` by default) also emits readings above the temperature limit.
