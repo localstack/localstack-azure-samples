@@ -35,6 +35,10 @@ PROBE_PATH='/api/health'
 FUNCTION_ZIPFILE='catalog_function.zip'
 DEPLOY_RETRY_COUNT=3
 DEPLOY_RETRY_SLEEP=30
+# How long to wait for a deployed function app to list its functions, and when to restart it if it lists none
+FUNCTIONS_RETRY_COUNT=30
+FUNCTIONS_RETRY_SLEEP=10
+FUNCTIONS_RESTART_ATTEMPT=12
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 # The two Function Apps send their telemetry to the same Application Insights resource, where cloud_RoleName tells them apart
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
@@ -439,6 +443,47 @@ create_function_app() {
 		exit 1
 	fi
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully"
+
+	# On Azure a function app can finish a deployment without loading the new package: it lists no functions and answers
+	# 404 on every route until it restarts. Wait until the app lists its functions, and restart it once if it doesn't
+	echo "Waiting for the [$FUNCTION_APP_NAME] function app to list its functions..."
+	local FUNCTION_COUNT
+	local LISTED=0
+	for ((ATTEMPT = 1; ATTEMPT <= FUNCTIONS_RETRY_COUNT; ATTEMPT++)); do
+		FUNCTION_COUNT=$(az functionapp function list \
+			--name "$FUNCTION_APP_NAME" \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--query "length(@)" \
+			--output tsv \
+			--only-show-errors 2>/dev/null)
+
+		if [[ $FUNCTION_COUNT =~ ^[1-9][0-9]*$ ]]; then
+			LISTED=1
+			break
+		fi
+
+		if [[ $ATTEMPT == "$FUNCTIONS_RESTART_ATTEMPT" ]]; then
+			echo "The [$FUNCTION_APP_NAME] function app lists no functions after its deployment. Restarting it..."
+			az functionapp restart \
+				--name "$FUNCTION_APP_NAME" \
+				--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+
+			if [[ $? != 0 ]]; then
+				echo "Failed to restart the [$FUNCTION_APP_NAME] function app"
+				exit 1
+			fi
+		fi
+
+		echo "Attempt $ATTEMPT of $FUNCTIONS_RETRY_COUNT: the [$FUNCTION_APP_NAME] function app lists no functions yet. Waiting [$FUNCTIONS_RETRY_SLEEP] seconds before retry..."
+		sleep $FUNCTIONS_RETRY_SLEEP
+	done
+
+	if [[ $LISTED == 1 ]]; then
+		echo "The [$FUNCTION_APP_NAME] function app lists its [$FUNCTION_COUNT] functions"
+	else
+		echo "The [$FUNCTION_APP_NAME] function app lists no functions"
+		exit 1
+	fi
 }
 
 create_function_app "$PRIMARY_FUNCTION_APP_NAME" "$PRIMARY_STORAGE_ACCOUNT_NAME" primary
