@@ -308,11 +308,23 @@ jobs:
         # no arm64 image, so it never runs on the arm64 runners.
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: |
+          # Download and check both files before changing APT configuration. A failed
+          # request can return HTML, which must never become a sources.list entry.
+          DOWNLOAD_DIR=$(mktemp -d)
+          trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
+          curl --fail --show-error --silent --location --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 180 --connect-timeout 10 --max-time 60 \
+            https://packages.microsoft.com/keys/microsoft.asc -o "$DOWNLOAD_DIR/microsoft.asc"
+          curl --fail --show-error --silent --location --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 180 --connect-timeout 10 --max-time 60 \
+            "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" -o "$DOWNLOAD_DIR/mssql-release.list"
+          if ! grep -Eq '^deb (\[[^]]+\] )?https://packages\.microsoft\.com/' "$DOWNLOAD_DIR/mssql-release.list"; then
+            echo "Microsoft package repository download did not contain an APT source" >&2
+            exit 1
+          fi
           sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
-          curl "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
-          sudo apt-get update
-          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
+          sudo install -m 644 "$DOWNLOAD_DIR/microsoft.asc" /etc/apt/trusted.gpg.d/microsoft.asc
+          sudo install -m 644 "$DOWNLOAD_DIR/mssql-release.list" /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo ACCEPT_EULA=Y apt-get -o Acquire::Retries=5 install -y msodbcsql18 mssql-tools18
           echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
 
       - name: "Run: ${{ matrix.name }}"

@@ -480,6 +480,7 @@ fi
 
 # A more specific pattern wins over the catch-all, whatever order the routes were created in.
 # This one has no rule set and no caching, which is how the two routes tell themselves apart.
+# An exact pattern has no unmatched suffix: its origin path must include the status trigger.
 echo "Creating the [$STATUS_ROUTE] route..."
 az afd route create \
 	--route-name $STATUS_ROUTE \
@@ -487,7 +488,7 @@ az afd route create \
 	--profile-name $PROFILE_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--origin-group $STATUS_ORIGIN_GROUP \
-	--origin-path $ORIGIN_PATH \
+	--origin-path "$ORIGIN_PATH/status" \
 	--patterns-to-match '/status' \
 	--supported-protocols Http Https \
 	--link-to-default-domain Enabled \
