@@ -9,8 +9,8 @@
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
 FUNCTION_ZIP='capture_processor.zip'
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT=10
+DEPLOY_RETRY_SLEEP=60
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
@@ -86,8 +86,9 @@ cd "$CURRENT_DIR" || exit 1
 echo "Deploying the capture processor (the first run can take several minutes)..."
 # The function app runs on a Linux Consumption plan, which has no companion deployment site: Azure answers
 # az functionapp deploy with "This API isn't available in this environment yet!". Zip deployment with a remote build,
-# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). The first
-# deployment to a new function app can time out on Azure, so a failed attempt is retried
+# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). On Azure the first
+# deployment to a new function app can time out, and its deployment endpoint can answer 503 (Site Unavailable) for
+# several minutes after the app is created, so a failed attempt is retried for about ten minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deployment source config-zip \

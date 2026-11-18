@@ -11,8 +11,8 @@ LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"
 DEPLOYMENT_NAME="eventhubs-fraud-detection"
 FUNCTION_ZIP="fraud_function.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT=10
+DEPLOY_RETRY_SLEEP=60
 WEB_APP_ZIP="dashboard.zip"
 KEY_VAULT_SECRETS_OFFICER_ROLE='Key Vault Secrets Officer'
 ROLE_ASSIGNMENT_RETRY_COUNT=3
@@ -223,8 +223,9 @@ cd "$CURRENT_DIR" || exit 1
 echo "Deploying the fraud detection function (the first run can take several minutes)..."
 # The function app runs on a Linux Consumption plan, which has no companion deployment site: Azure answers
 # az functionapp deploy with "This API isn't available in this environment yet!". Zip deployment with a remote build,
-# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). The first
-# deployment to a new function app can time out on Azure, so a failed attempt is retried
+# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). On Azure the first
+# deployment to a new function app can time out, and its deployment endpoint can answer 503 (Site Unavailable) for
+# several minutes after the app is created, so a failed attempt is retried for about ten minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deployment source config-zip \
