@@ -4,7 +4,7 @@
 PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
-STORAGE_ACCOUNT_NAME="${PREFIX}urlshortstorage${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}urlstorage${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-urlshort-log-analytics-${SUFFIX}"
 WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 FUNCTION_APP_NAME="${PREFIX}-urlshort-functionapp-${SUFFIX}"
