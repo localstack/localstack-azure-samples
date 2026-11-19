@@ -25,7 +25,7 @@ ENVIRONMENT_NAME=$(az account show --query environmentName --output tsv)
 if [[ "$ENVIRONMENT_NAME" == "LocalStack" ]]; then
 	BACKEND_SCHEME='http'
 	# What points the azurerm provider at the emulator instead of the real Azure endpoints.
-	export ARM_METADATA_HOSTNAME='localhost.localstack.cloud:4566'
+	export ARM_METADATA_HOSTNAME='azure.localhost.localstack.cloud:4566'
 	export ARM_SUBSCRIPTION_ID='00000000-0000-0000-0000-000000000000'
 else
 	BACKEND_SCHEME='https'
