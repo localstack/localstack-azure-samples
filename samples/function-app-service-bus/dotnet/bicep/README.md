@@ -67,21 +67,27 @@ For more information on the sample application, see [Azure Functions App with Se
 
 ## Configuration
 
-Before deploying the `main.bicep` template, update the `bicep.bicepparam` file with your specific values:
+Before deploying the `main.bicep` template, update the `main.bicepparam` file with your specific values:
 
 ```bicep
 using 'main.bicep'
 
 param prefix = 'local'
 param suffix = 'test'
-param runtimeName = 'python'
-param runtimeVersion = '3.13'
-param databaseName = 'sampledb'
-param collectionName = 'activities'
-param username = 'paolo'
-param primaryRegion = 'westeurope'
-param secondaryRegion = 'northeurope'
+param runtimeName = 'dotnet-isolated'
+param runtimeVersion = '10.0'
 ```
+
+### Flex Consumption plan
+
+The template hosts the function app on a Standard (`S1`) App Service plan. To host it on the [Flex Consumption plan](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan) instead, add these parameters to `main.bicepparam`:
+
+```bicep
+param skuTier = 'FlexConsumption'
+param skuName = 'FC1'
+```
+
+On that plan, the template gives the function app a `functionAppConfig` with its runtime, its scale settings (`functionAppMaximumInstanceCount`, `functionAppInstanceMemoryMB`), and its deployment storage, a blob container of the storage account. It leaves out the settings the plan replaced, such as the `FUNCTIONS_WORKER_RUNTIME` app setting and the `linuxFxVersion` site property, and delegates the function app subnet to `Microsoft.App/environments`.
 
 ## Provisioning Scripts
 
@@ -93,8 +99,8 @@ See [deploy.sh](deploy.sh) for the complete deployment automation. The script pe
 - Optionally runs what-if deployment for preview
 - Deploys the main.bicep template with parameters from [main.bicepparam](main.bicepparam)
 - Extracts deployment outputs (Function App name, Service Bus Namespace name details)
-- Creates zip package of the Python application
-- Deploys the zip to the Azure Functions App
+- Builds the .NET application and creates its zip package
+- Deploys the zip to the Azure Functions App with `az functionapp deployment source config-zip`
 
 ## Deployment
 

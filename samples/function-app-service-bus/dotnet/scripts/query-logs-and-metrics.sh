@@ -294,6 +294,31 @@ else
 	exit 1
 fi
 
+# Get the tier of the App Service plan: the Azure CLI shows it under properties since version 2.93.0, and at the top
+# level before it
+echo "Retrieving the tier of the App Service plan of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_SKU=$(az functionapp show \
+	--name "$FUNCTION_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "properties.sku || sku" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $FUNCTION_APP_SKU ]]; then
+	echo "Tier [$FUNCTION_APP_SKU] of the App Service plan successfully retrieved"
+else
+	echo "Failed to retrieve the tier of the App Service plan of the [$FUNCTION_APP_NAME] function app"
+	exit 1
+fi
+
+# The platform metric that counts the executions of the function app: OnDemandFunctionExecutionCount on the Flex
+# Consumption plan, which doesn't define FunctionExecutionCount (Azure Functions monitoring data reference)
+if [[ $FUNCTION_APP_SKU == "FlexConsumption" ]]; then
+	EXECUTION_COUNT_METRIC="OnDemandFunctionExecutionCount"
+else
+	EXECUTION_COUNT_METRIC="FunctionExecutionCount"
+fi
+
 # Get the resource id of the storage account
 echo "Retrieving the resource id of the [$STORAGE_ACCOUNT_NAME] storage account..."
 STORAGE_ACCOUNT_ID=$(az storage account show \
@@ -410,18 +435,29 @@ query_workspace \
 # The platform metrics of the function app that the AllMetrics category of its diagnostic setting exports to the workspace
 # (AzureMetrics), one record per metric and minute, exported once the minute is over. Azure exports the memory, I/O and
 # HTTP metrics of the function app, such as MemoryWorkingSet, but not its executions (FunctionExecutionCount), which only
-# the metrics API serves (see the end of the script).
+# the metrics API serves (see the end of the script). A function app on the Flex Consumption plan defines fewer metrics,
+# and Azure exports its executions too (OnDemandFunctionExecutionCount).
 query_metrics \
 	"Platform metrics of the [$FUNCTION_APP_NAME] function app exported to the workspace (AzureMetrics)" \
 	"AzureMetrics | where _ResourceId =~ '$FUNCTION_APP_ID' | summarize Minutes = count(), Total = sum(Total) by Resource, MetricName | order by MetricName asc" \
 	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Total:Total}"
 
 # The platform metrics of the App Service plan that the AllMetrics category of its diagnostic setting exports to the
-# workspace (AzureMetrics): the average use of the CPU and of the memory of its instances in each minute
-query_metrics \
-	"Platform metrics of the App Service plan exported to the workspace (AzureMetrics)" \
-	"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' and MetricName in ('CpuPercentage', 'MemoryPercentage') | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
-	"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}"
+# workspace (AzureMetrics): the average use of the CPU and of the memory of its instances in each minute. Azure records
+# no metric for a Flex Consumption plan, whose apps' instances the platform runs, so on that plan the query runs once
+# instead of waiting for records.
+if [[ $FUNCTION_APP_SKU == "FlexConsumption" ]]; then
+	show_workspace_records \
+		"Platform metrics of the App Service plan exported to the workspace (AzureMetrics)" \
+		"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
+		"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}" \
+		"No records: the Flex Consumption plan exported no platform metric."
+else
+	query_metrics \
+		"Platform metrics of the App Service plan exported to the workspace (AzureMetrics)" \
+		"AzureMetrics | where _ResourceId =~ '$APP_SERVICE_PLAN_ID' and MetricName in ('CpuPercentage', 'MemoryPercentage') | summarize Minutes = count(), Average = avg(Average) by Resource, MetricName | order by MetricName asc" \
+		"[].{Resource:Resource,Metric:MetricName,Minutes:Minutes,Average:Average}"
+fi
 
 # The requests to the blobs of the storage account, from the diagnostic setting of the blob service: the Functions host
 # keeps its locks and keys there and authenticates with the account key (AccountKey)
@@ -484,7 +520,7 @@ query_workspace \
 
 # The executions of the function app and the transactions of the storage account, read from the Azure Monitor metrics
 # API: they need no diagnostic setting
-show_metrics "$FUNCTION_APP_ID" "[$FUNCTION_APP_NAME] function app" FunctionExecutionCount
+show_metrics "$FUNCTION_APP_ID" "[$FUNCTION_APP_NAME] function app" "$EXECUTION_COUNT_METRIC"
 show_metrics "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account" Transactions Ingress Egress
 show_metrics "$SERVICE_BUS_NAMESPACE_ID" "[$SERVICE_BUS_NAMESPACE] Service Bus namespace" IncomingMessages OutgoingMessages
 

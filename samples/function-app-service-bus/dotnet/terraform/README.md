@@ -76,7 +76,7 @@ You can use the [deploy.sh](deploy.sh) script to automate the deployment of all 
 - Applies the Terraform plan to provision all necessary Azure resources.
 - Extracts resource names and outputs from the Terraform deployment.
 - Packages the code of the function app into a zip file for deployment.
-- Deploys the zip package to the Azure Functions App using the LocalStack Azure CLI.
+- Deploys the zip package to the Azure Functions App with `az functionapp deployment source config-zip`.
 
 ## Configuration
 
@@ -100,6 +100,16 @@ provider "azurerm" {
   subscription_id = "00000000-0000-0000-0000-000000000000"
 }
 ```
+
+### Flex Consumption plan
+
+The configuration hosts the function app on a Standard (`S1`) App Service plan. To host it on the [Flex Consumption plan](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan) instead, set the plan's SKU in `terraform.tfvars`:
+
+```hcl
+sku_name = "FC1"
+```
+
+On that plan, the configuration creates the function app with the `azurerm_function_app_flex_consumption` resource, with its runtime, its scale settings (`maximum_instance_count`, `instance_memory_in_mb`), and its deployment storage, a blob container of the storage account. It leaves out the app settings the plan replaced, such as `FUNCTIONS_WORKER_RUNTIME`, and delegates the function app subnet to `Microsoft.App/environments`.
 
 ## Deployment
 

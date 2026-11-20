@@ -89,6 +89,23 @@ param storageAccountName string
 @description('Specifies the app settings of the Azure Functions App, besides AzureWebJobsStorage, which the module sets.')
 param settings array = []
 
+@description('Specifies whether the hosting plan is a Flex Consumption plan, whose apps take their runtime and deployment storage from functionAppConfig.')
+param isFlexConsumption bool = false
+
+@description('Specifies the blob container of the storage account that keeps the deployment packages of a Flex Consumption app.')
+param deploymentContainerName string = ''
+
+@description('Specifies the maximum number of instances of a Flex Consumption app.')
+param maximumInstanceCount int = 100
+
+@description('Specifies the instance memory, in MB, of a Flex Consumption app.')
+@allowed([
+  512
+  2048
+  4096
+])
+param instanceMemoryMB int = 2048
+
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
@@ -134,6 +151,45 @@ var metrics = [
 // Read at the deployment of this module, which starts once the storage account exists; the key stays out of the
 // deployment history
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+// The app setting that holds the connection string of the deployment storage of a Flex Consumption app, the name
+// az functionapp create --flexconsumption-location gives it
+var deploymentStorageSettingName = 'DEPLOYMENT_STORAGE_CONNECTION_STRING'
+var commonSiteConfig = {
+  minTlsVersion: minTlsVersion
+  cors: {
+    allowedOrigins: union(['https://portal.azure.com', 'https://ms.portal.azure.com'], allowedCorsOrigins)
+  }
+  publicNetworkAccess: publicNetworkAccess
+  appSettings: concat(
+    [
+      {
+        name: 'AzureWebJobsStorage'
+        value: storageConnectionString
+      }
+    ],
+    isFlexConsumption
+      ? [
+          {
+            name: deploymentStorageSettingName
+            value: storageConnectionString
+          }
+        ]
+      : [],
+    settings
+  )
+}
+// The Flex Consumption plan replaces these site properties with functionAppConfig (Flex Consumption plan
+// deprecations, App settings reference for Azure Functions)
+var runtimeSiteConfig = isFlexConsumption
+  ? {}
+  : {
+      alwaysOn: alwaysOn
+      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
+      netFrameworkVersion: runtimeName == 'dotnet' || runtimeName == 'dotnet-isolated' ? runtimeVersion : null
+      nodeVersion: runtimeName == 'node' ? runtimeVersion : null
+      pythonVersion: runtimeName == 'python' ? runtimeVersion : null
+      javaVersion: runtimeName == 'java' ? runtimeVersion : null
+    }
 
 //********************************************
 // Resources
@@ -171,36 +227,44 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           '${managedIdentity.id}': {}
         } 
   }
-  properties: {
-    httpsOnly: httpsOnly
-    serverFarmId: hostingPlan.id
-    virtualNetworkSubnetId: subnet.id
-    outboundVnetRouting: {
-      allTraffic: true
-    }
-    siteConfig: {
-      minTlsVersion: minTlsVersion
-      alwaysOn: alwaysOn
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      cors: {
-        allowedOrigins: union(['https://portal.azure.com', 'https://ms.portal.azure.com'], allowedCorsOrigins)
-      }
-      publicNetworkAccess: publicNetworkAccess
-      appSettings: concat(
-        [
-          {
-            name: 'AzureWebJobsStorage'
-            value: storageConnectionString
+  properties: union(
+    {
+      httpsOnly: httpsOnly
+      serverFarmId: hostingPlan.id
+      virtualNetworkSubnetId: subnet.id
+      siteConfig: union(commonSiteConfig, runtimeSiteConfig)
+    },
+    isFlexConsumption
+      ? {
+          functionAppConfig: {
+            deployment: {
+              storage: {
+                type: 'blobContainer'
+                value: '${storageAccount.properties.primaryEndpoints.blob}${deploymentContainerName}'
+                authentication: {
+                  type: 'StorageAccountConnectionString'
+                  storageAccountConnectionStringName: deploymentStorageSettingName
+                }
+              }
+            }
+            scaleAndConcurrency: {
+              maximumInstanceCount: maximumInstanceCount
+              instanceMemoryMB: instanceMemoryMB
+            }
+            runtime: {
+              name: runtimeName
+              version: runtimeVersion
+            }
           }
-        ],
-        settings
-      )
-      netFrameworkVersion: runtimeName == 'dotnet' || runtimeName == 'dotnet-isolated' ? runtimeVersion : null
-      nodeVersion: runtimeName == 'node' ? runtimeVersion : null
-      pythonVersion: runtimeName == 'python' ? runtimeVersion : null
-      javaVersion: runtimeName == 'java' ? runtimeVersion : null
-    }
-  }
+        }
+      : {
+          // A Flex Consumption app routes all its traffic through the integrated virtual network without it (Azure
+          // Functions networking options)
+          outboundVnetRouting: {
+            allTraffic: true
+          }
+        }
+  )
 }
 
 resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){

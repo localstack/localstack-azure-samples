@@ -87,6 +87,17 @@ param reserved bool = true
 @description('Specifies whether the hosting plan is zone redundant.')
 param zoneRedundant bool = false
 
+@description('Specifies the maximum number of instances of the Azure Functions App on a Flex Consumption plan.')
+param functionAppMaximumInstanceCount int = 100
+
+@description('Specifies the instance memory, in MB, of the Azure Functions App on a Flex Consumption plan.')
+@allowed([
+  512
+  2048
+  4096
+])
+param functionAppInstanceMemoryMB int = 2048
+
 @description('Specifies the language runtime used by the Azure Functions App.')
 @allowed([
   'dotnet'
@@ -282,6 +293,10 @@ var blobStoragePrivateEndpointName = '${prefix}-blob-storage-pe-${suffix}'
 var queueStoragePrivateEndpointName = '${prefix}-queue-storage-pe-${suffix}'
 var tableStoragePrivateEndpointName = '${prefix}-table-storage-pe-${suffix}'
 var serviceBusPrivateEndpointName = '${prefix}-service-bus-pe-${suffix}'
+// A Flex Consumption app takes its runtime and its deployment storage from functionAppConfig, and keeps its deployment
+// packages in a blob container of its storage account
+var isFlexConsumption = skuTier == 'FlexConsumption'
+var deploymentContainerName = toLower('app-package-${functionAppName}')
 
 //********************************************
 // Modules and Resources
@@ -325,8 +340,10 @@ module storageAccount 'modules/storage-account.bicep' = {
     networkAclsDefaultAction: storageAccountANetworkAclsDefaultAction
     supportsHttpsTrafficOnly: storageAccountSupportsHttpsTrafficOnly
     workspaceId: workspace.outputs.id
-    createContainers: storageAccountCreateContainers
-    containerNames: storageAccountContainerNames
+    createContainers: storageAccountCreateContainers || isFlexConsumption
+    containerNames: isFlexConsumption
+      ? union(storageAccountContainerNames, [deploymentContainerName])
+      : storageAccountContainerNames
     createFileShares: false
     fileShareNames: []
   }
@@ -474,7 +491,7 @@ module appServicePlan 'modules/app-service-plan.bicep' = {
     location: location
     skuName: skuName
     skuTier: skuTier
-    kind: appServicePlanKind
+    kind: isFlexConsumption ? 'functionapp' : appServicePlanKind
     reserved: reserved
     zoneRedundant: zoneRedundant
     workspaceId: workspace.outputs.id
@@ -518,52 +535,78 @@ module functionApp 'modules/function-app.bicep' = {
     tags: tags
     managedIdentityType: managedIdentityType
     managedIdentityName: managedIdentityName
-    settings: [
-      {
-        name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-        value: 'false'
-      }
-      {
-        name: 'FUNCTIONS_WORKER_RUNTIME'
-        value: runtimeName
-      }
-      {
-        name: 'FUNCTIONS_EXTENSION_VERSION'
-        value: '~4'
-      }
-      {
-        name: 'AZURE_CLIENT_ID'
-        value: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
-      }
-      {
-        name: 'SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace'
-        value: '${serviceBus.outputs.name}.servicebus.windows.net'
-      }
-      {
-        name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-        value: applicationInsights.outputs.connectionString
-      }
-      {
-        name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
-        value: managedIdentityType == 'UserAssigned' ? 'ClientId=${managedIdentity!.outputs.clientId};Authorization=AAD' : ''
-      }
-      {
-        name: 'INPUT_QUEUE_NAME'
-        value: 'input'
-      }
-      {
-        name: 'OUTPUT_QUEUE_NAME'
-        value: 'output'
-      }
-      {
-        name: 'NAMES'
-        value: names
-      }
-      {
-        name: 'TIMER_SCHEDULE'
-        value: '*/10 * * * * *'
-      }
-    ]
+    isFlexConsumption: isFlexConsumption
+    deploymentContainerName: deploymentContainerName
+    maximumInstanceCount: functionAppMaximumInstanceCount
+    instanceMemoryMB: functionAppInstanceMemoryMB
+    // A Flex Consumption app refuses FUNCTIONS_WORKER_RUNTIME, and the plan replaces the other two (Flex Consumption
+    // plan deprecations, App settings reference for Azure Functions). On that plan the Service Bus triggered function
+    // runs on instances of its own (per-function scaling, Flex Consumption plan), and its connection uses the
+    // system-assigned identity unless credential and clientId name a user-assigned one (Configure an identity-based
+    // connection, Azure Functions developer guide): without them, the input queue was never drained on Azure
+    settings: concat(
+      isFlexConsumption
+        ? managedIdentityType == 'UserAssigned'
+            ? [
+                {
+                  name: 'SERVICE_BUS_CONNECTION_STRING__credential'
+                  value: 'managedidentity'
+                }
+                {
+                  name: 'SERVICE_BUS_CONNECTION_STRING__clientId'
+                  value: managedIdentity!.outputs.clientId
+                }
+              ]
+            : []
+        : [
+            {
+              name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+              value: 'false'
+            }
+            {
+              name: 'FUNCTIONS_WORKER_RUNTIME'
+              value: runtimeName
+            }
+            {
+              name: 'FUNCTIONS_EXTENSION_VERSION'
+              value: '~4'
+            }
+          ],
+      [
+        {
+          name: 'AZURE_CLIENT_ID'
+          value: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
+        }
+        {
+          name: 'SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace'
+          value: '${serviceBus.outputs.name}.servicebus.windows.net'
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: applicationInsights.outputs.connectionString
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
+          value: managedIdentityType == 'UserAssigned' ? 'ClientId=${managedIdentity!.outputs.clientId};Authorization=AAD' : ''
+        }
+        {
+          name: 'INPUT_QUEUE_NAME'
+          value: 'input'
+        }
+        {
+          name: 'OUTPUT_QUEUE_NAME'
+          value: 'output'
+        }
+        {
+          name: 'NAMES'
+          value: names
+        }
+        {
+          name: 'TIMER_SCHEDULE'
+          value: '*/10 * * * * *'
+        }
+      ]
+    )
   }
 }
 

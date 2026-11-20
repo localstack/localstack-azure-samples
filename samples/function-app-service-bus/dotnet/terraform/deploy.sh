@@ -78,8 +78,32 @@ cd ./publish || exit
 zip -r "../$ZIPFILE" .
 cd ..
 
+# Get the tier of the hosting plan of the function app and the host name of its deployment site. The Azure CLI shows
+# them under properties since version 2.93.0, and at the top level before it
+FUNCTION_APP_SKU=$(az functionapp show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$FUNCTION_APP_NAME" \
+	--query "properties.sku || sku" \
+	--output tsv)
+
+if [[ $? != 0 || -z "$FUNCTION_APP_SKU" ]]; then
+	echo "Failed to retrieve the hosting plan of function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
+
+SCM_HOST_NAME=$(az functionapp show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$FUNCTION_APP_NAME" \
+	--query "(properties.hostNameSslStates || hostNameSslStates)[?hostType=='Repository'] | [0].name" \
+	--output tsv)
+
+if [[ $? != 0 || -z "$SCM_HOST_NAME" ]]; then
+	echo "Failed to retrieve the host name of the deployment site of function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
+
 # Deploy the function app
-echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
+echo "Deploying function app [$FUNCTION_APP_NAME] on the [$FUNCTION_APP_SKU] plan with zip file [$ZIPFILE]..."
 # On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
 # attempt is retried
 DEPLOYED=0
@@ -92,6 +116,25 @@ for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	if [[ $? == 0 ]]; then
 		DEPLOYED=1
 		break
+	fi
+
+	# On the Flex Consumption plan, config-zip ends with a health check that accepts the default host name of the app
+	# only without a port. LocalStack's carries one, so there the check fails after the deployment succeeded: the status
+	# of the deployment itself decides (4 is success)
+	if [[ "$FUNCTION_APP_SKU" == "FlexConsumption" ]]; then
+		DEPLOYMENT_STATUS=$(az rest \
+			--method get \
+			--url "https://$SCM_HOST_NAME/api/deployments/latest" \
+			--resource "$(az cloud show --query endpoints.appServiceResourceId --output tsv)" \
+			--query status \
+			--output tsv \
+			--only-show-errors)
+
+		if [[ "$DEPLOYMENT_STATUS" == "4" ]]; then
+			echo "The deployment to function app [$FUNCTION_APP_NAME] succeeded; only the health check that ends config-zip failed."
+			DEPLOYED=1
+			break
+		fi
 	fi
 
 	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then

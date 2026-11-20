@@ -538,3 +538,20 @@ variable "managed_identity_type" {
     error_message = "The managed identity type must be either SystemAssigned or UserAssigned."
   }
 }
+
+variable "maximum_instance_count" {
+  description = "(Optional) Specifies the maximum number of instances of the function app on a Flex Consumption plan (sku_name FC1)."
+  type        = number
+  default     = 100
+}
+
+variable "instance_memory_in_mb" {
+  description = "(Optional) Specifies the instance memory, in MB, of the function app on a Flex Consumption plan (sku_name FC1)."
+  type        = number
+  default     = 2048
+
+  validation {
+    condition     = contains([512, 2048, 4096], var.instance_memory_in_mb)
+    error_message = "The instance_memory_in_mb must be 512, 2048 or 4096."
+  }
+}
