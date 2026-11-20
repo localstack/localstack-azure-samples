@@ -246,6 +246,9 @@ param cosmosDbPrivateEndpointName string = ''
 @description('Specifies the name of the Azure Log Analytics resource.')
 param logAnalyticsName string = ''
 
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
 @description('Specifies the service tier of the workspace: Free, Standalone, PerNode, Per-GB.')
 @allowed([
   'Free'
@@ -284,6 +287,16 @@ module workspace 'modules/log-analytics.bicep' = {
     tags: tags
     sku: logAnalyticsSku
     retentionInDays: logAnalyticsRetentionInDays
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -348,7 +361,6 @@ module privateEndpoints 'modules/private-endpoint.bicep' = {
       : cosmosDbPrivateEndpointName
     privateLinkServiceId: mongoDb.outputs.id
     privateDnsZoneId: privateDnsZone.outputs.id
-    vnetId: network.outputs.virtualNetworkId
     subnetId: network.outputs.peSubnetId
     groupIds: [
       'mongodb'
@@ -392,6 +404,7 @@ module webApp 'modules/web-app.bicep' = {
     databaseName: mongoDb.outputs.databaseName
     collectionName: mongoDb.outputs.collectionName
     username: username
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     workspaceId: workspace.outputs.id
     tags: tags
   }
@@ -405,3 +418,5 @@ output accountName string = mongoDb.outputs.name
 output databaseName string = mongoDb.outputs.databaseName
 output collectionName string = collectionName
 output documentEndpoint string = mongoDb.outputs.documentEndpoint
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

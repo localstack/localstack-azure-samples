@@ -14,7 +14,8 @@ from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 
 # Configure logging
-logger = logging.getLogger(__name__)
+# A child of the application's logger, so that the Microsoft OpenTelemetry Distro sends its records too
+logger = logging.getLogger("webapp.database")
 logger.setLevel(logging.INFO)
 
 class SqlHelper:

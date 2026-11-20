@@ -77,7 +77,7 @@ bash query-logs-and-metrics.sh
 | `LOGIN_NAME`         | `paolo`            | User whose activities the app shows                                         |
 | `DEPLOY_APP`         | `1`                | Set to `0` to skip the zip deployment step                                  |
 
-`query-logs-and-metrics.sh` takes the same `PREFIX` and `SUFFIX`, plus `WEB_APP_CALLS` (the requests it makes to the Web App, `5`), `RETRY_COUNT` (the attempts of each query, `30`) and `SLEEP` (the seconds between attempts, `10`). Raise `RETRY_COUNT` on Azure, where the first records of a new diagnostic setting can take up to 90 minutes.
+`query-logs-and-metrics.sh` takes the same `PREFIX` and `SUFFIX`, plus `WEB_APP_CALLS` (the requests it makes to the Web App, `5`), `RETRY_COUNT` (the attempts of each query, `30`) and `SLEEP` (the seconds between attempts, `10`). Raise `RETRY_COUNT` on Azure, where the first records of a new diagnostic setting can take up to 90 minutes. On Azure `query-logs-and-metrics.sh` reads the exported platform metrics (`AzureMetrics`) only once and notes the missing ones instead of failing: Azure exports them late and irregularly.
 
 The script uses [`call-web-app.sh`](call-web-app.sh) (unchanged from the source sample) to demonstrate four ways of hitting the Web App from outside the emulator.
 

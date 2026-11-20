@@ -27,7 +27,7 @@ TOTAL=$(echo "$TEST_META" | jq length)
 echo "Run mode: $RUN_MODE | Arch filter: $ARCH_FILTER | Platform: $PLATFORM | Total tests: $TOTAL"
 
 # Changes to these files affect all tests, so any modification triggers a full run
-INFRA_FILES="run-samples.sh Makefile .github/workflows/run-samples.yml .github/scripts/build-matrix.sh .github/scripts/prepare-azurite.sh pyproject.toml requirements-dev.txt requirements-runtime.txt"
+INFRA_FILES="run-samples.sh Makefile .github/workflows/run-samples.yml .github/scripts/build-matrix.sh pyproject.toml requirements-dev.txt requirements-runtime.txt"
 
 if [[ "$RUN_MODE" == "changed" && -n "$BASE_SHA" ]]; then
   # Get list of files changed between base branch and current HEAD
@@ -35,10 +35,12 @@ if [[ "$RUN_MODE" == "changed" && -n "$BASE_SHA" ]]; then
   echo "Changed files:"
   echo "$CHANGED"
 
-  # Safety net: if any infrastructure file changed, run all tests
+  # Safety net: if any infrastructure file changed, run all tests. The matches read the list from a here-string,
+  # not a pipe: under pipefail, echo dies of SIGPIPE once grep -q has its match in a list longer than a pipe buffer,
+  # and the match then reads as a failure.
   RUN_ALL=false
   for f in $INFRA_FILES; do
-    if echo "$CHANGED" | grep -qF "$f"; then
+    if grep -qF "$f" <<<"$CHANGED"; then
       echo "Infra changed: $f -> running all"
       RUN_ALL=true && break
     fi
@@ -52,7 +54,7 @@ if [[ "$RUN_MODE" == "changed" && -n "$BASE_SHA" ]]; then
     for (( i=0; i<TOTAL; i++ )); do
       mapfile -t folders < <(echo "$TEST_META" | jq -r ".[$i].watch_folders[]")
       for wf in "${folders[@]}"; do
-        if echo "$CHANGED" | grep -q "^${wf}/"; then
+        if grep -q "^${wf}/" <<<"$CHANGED"; then
           INDICES+=" $i" && break
         fi
       done

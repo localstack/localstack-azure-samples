@@ -263,7 +263,6 @@ jobs:
         # happy path. A start that fails or never becomes ready is retried on a fresh container.
         if: matrix.os == 'linux'
         run: |
-          bash .github/scripts/prepare-azurite.sh
           attempts=3
           for attempt in $(seq 1 "${attempts}"); do
             if lstk start --non-interactive --type azure --image "${IMAGE}" --timeout 400s; then
@@ -508,7 +507,6 @@ jobs:
           exit 1
           EOF
           docker pull "$IMAGE"
-          bash .github/scripts/prepare-azurite.sh
           bash "$RUNNER_TEMP/start-emulator.sh"
 
       - name: Give lstk an Azure CLI path without spaces

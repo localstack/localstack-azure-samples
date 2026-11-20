@@ -8,6 +8,8 @@ PRIMARY_FUNCTION_APP_NAME="${PREFIX}-catalog-primary-${SUFFIX}"
 SECONDARY_FUNCTION_APP_NAME="${PREFIX}-catalog-secondary-${SUFFIX}"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
@@ -65,8 +67,8 @@ else
 	ENDPOINT_HOST_NAME=$(az afd endpoint show --endpoint-name $ENDPOINT_NAME --profile-name $PROFILE_NAME --resource-group $RESOURCE_GROUP_NAME --query hostName --output tsv)
 	ENDPOINT_URL="https://$ENDPOINT_HOST_NAME"
 	# Microsoft budgets up to ten minutes for a purge to reach every PoP, and the loops that wait
-	# on one sleep five seconds, so ten minutes is 120 attempts. The endpoint-serving loop sleeps
-	# ten, which gives a new endpoint twenty minutes to come up.
+	# on one sleep five seconds, so ten minutes is 120 attempts. The loops that wait for the endpoint
+	# to serve, new or re-enabled, sleep ten, which gives it twenty minutes.
 	PROPAGATION_ATTEMPTS=120
 fi
 
@@ -184,11 +186,17 @@ else
 	FAILED=1
 fi
 
-# 5. The UrlRewrite rule: the client asks for /shop/2, the origin is asked for /api/catalog/2.
+# 5. The UrlRewrite rule: the client asks for /shop/2, the origin is asked for /api/catalog/2. On Azure the rule
+# can reach an edge after the route does: /shop/2 answered 404 right after the endpoint served the catalog, and
+# was rewritten on a later run, so the check retries while the configuration rolls out.
 echo "Calling [$ENDPOINT_URL/shop/2]..."
-SHOP_STATUS=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/shop/2")
-SHOP_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
-SHOP_SKU=$(jq -r '.item.sku' "$BODY_FILE" 2>/dev/null)
+for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
+	SHOP_STATUS=$(curl -s -m 20 -o "$BODY_FILE" -w "%{http_code}" "$ENDPOINT_URL/shop/2")
+	SHOP_PATH=$(jq -r '.path' "$BODY_FILE" 2>/dev/null)
+	SHOP_SKU=$(jq -r '.item.sku' "$BODY_FILE" 2>/dev/null)
+	[[ "$SHOP_STATUS" == "200" && "$SHOP_PATH" == "/api/catalog/2" ]] && break
+	sleep 5
+done
 echo "HTTP $SHOP_STATUS: origin path $SHOP_PATH, sku $SHOP_SKU"
 if [[ "$SHOP_STATUS" == "200" && "$SHOP_PATH" == "/api/catalog/2" && "$SHOP_SKU" == "AFD-002" ]]; then
 	echo "The UrlRewrite rule rewrote /shop to /catalog before the origin call"
@@ -373,11 +381,13 @@ az afd endpoint update \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--enabled-state Enabled 1>/dev/null
 
+# On Azure a re-enabled endpoint served again about eleven minutes later (2026-11-18), so this loop sleeps ten
+# seconds, which gives it the twenty minutes a new endpoint gets.
 ENABLED_STATUS=''
 for i in $(seq 1 $PROPAGATION_ATTEMPTS); do
 	ENABLED_STATUS=$(curl -s -m 20 -o "$(null_device)" -w "%{http_code}" "$ENDPOINT_URL/status")
 	[[ "$ENABLED_STATUS" == "200" ]] && break
-	sleep 5
+	sleep 10
 done
 echo "The re-enabled endpoint answers: HTTP $ENABLED_STATUS"
 if [[ "$ENABLED_STATUS" == "200" ]]; then
@@ -386,6 +396,28 @@ else
 	echo "Expected the re-enabled endpoint to serve again"
 	FAILED=1
 fi
+
+# The telemetry: a workspace-based Application Insights resource, and both Function Apps sending to it through
+# OpenTelemetry (the names of their app settings only, never the values)
+WORKSPACE_RESOURCE_ID=$(az monitor log-analytics workspace show --resource-group $RESOURCE_GROUP_NAME --workspace-name $LOG_ANALYTICS_NAME --query id --output tsv)
+INSIGHTS_WORKSPACE_ID=$(az monitor app-insights component show --app $APPLICATION_INSIGHTS_NAME --resource-group $RESOURCE_GROUP_NAME --query workspaceResourceId --output tsv)
+# Resource ids compare case-insensitively; tr keeps the comparison working on the bash 3.2 of macOS
+if [[ -n "$WORKSPACE_RESOURCE_ID" && "$(echo "$INSIGHTS_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]')" == "$(echo "$WORKSPACE_RESOURCE_ID" | tr '[:upper:]' '[:lower:]')" ]]; then
+	echo "The [$APPLICATION_INSIGHTS_NAME] Application Insights resource stores its telemetry in the [$LOG_ANALYTICS_NAME] workspace"
+else
+	echo "Expected the [$APPLICATION_INSIGHTS_NAME] Application Insights resource to be based on the [$LOG_ANALYTICS_NAME] workspace"
+	FAILED=1
+fi
+for FUNCTION_APP_NAME in $PRIMARY_FUNCTION_APP_NAME $SECONDARY_FUNCTION_APP_NAME; do
+	TELEMETRY_SETTINGS=$(az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME \
+		--query "[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING' || name=='PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY'].name" --output tsv | sort | tr '\n' ' ')
+	if [[ "$TELEMETRY_SETTINGS" == "APPLICATIONINSIGHTS_CONNECTION_STRING PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY " ]]; then
+		echo "The [$FUNCTION_APP_NAME] function app sends its telemetry to Application Insights"
+	else
+		echo "Expected the [$FUNCTION_APP_NAME] function app to have the APPLICATIONINSIGHTS_CONNECTION_STRING and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY app settings (found: $TELEMETRY_SETTINGS)"
+		FAILED=1
+	fi
+done
 
 if [[ $FAILED == 0 ]]; then
 	echo "All validation checks passed"

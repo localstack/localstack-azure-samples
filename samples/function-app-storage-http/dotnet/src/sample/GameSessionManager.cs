@@ -391,6 +391,7 @@ public class GameSessionManager
 
         // Log the successful processing
         _logger.LogInformation("[CreateGameStatus] Processed request successfully with gameId = {gameId}, winner = {winner}.", requestMessage.GameId, winner.Name);
+        GameTelemetry.TrackWinnerDetermined(_logger, "http", requestMessage.GameId, winner.Name);
 
         // Return the HTTP response
         return response;
@@ -469,6 +470,7 @@ public class GameSessionManager
 
         // Log the successful processing of the blob
         _logger.LogInformation("[ProcessGameFile] Processed blob [{name}] successfully for game {gameId}.", name, gameStatusRequest.GameId);
+        GameTelemetry.TrackWinnerDetermined(_logger, "blob", gameStatusRequest.GameId, winner.Name);
 
         // Return the response message
         return outputMessage;
@@ -548,6 +550,7 @@ public class GameSessionManager
 
         // Log the successful processing of the queue message
         _logger.LogInformation("[HandleGameEvent] Processed queue message [{messageId}] successfully for game {gameId}.", message.MessageId, requestMessage.GameId);
+        GameTelemetry.TrackWinnerDetermined(_logger, "queue", requestMessage.GameId, winner.Name);
 
         // Return the response message
         return outputMessage;
@@ -574,6 +577,8 @@ public class GameSessionManager
 
         if (winner != null)
         {
+            GameTelemetry.TrackWinnerDetermined(_logger, "table", winner.GameId, winner.PlayerName ?? string.Empty);
+
             // Create a new entity for the output table with a new RowKey
             var winnerEntity = new ScoreboardEntity
             {
@@ -645,6 +650,7 @@ public class GameSessionManager
 
         // Send message to the trigger queue
         await SendQueueMessageAsync(_connectionString, _triggerQueueName, _gameId.ToString());
+        GameTelemetry.TrackGameCreated(_logger, _gameId);
 
         // Increment game ID for next execution
         _gameId++;

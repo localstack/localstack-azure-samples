@@ -5,13 +5,15 @@ TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
 PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
-RESOURCE_GROUP_NAME="${PREFIX}-func-storage-rg"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOCATION="westeurope"
 VALIDATE_TEMPLATE=1
 USE_WHAT_IF=0
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="function_app.zip"
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 
 # Change the current directory to the script's directory
@@ -88,10 +90,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	echo "$DEPLOYMENT_OUTPUTS" | jq .
 	FUNCTION_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.functionAppName.value')
 	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value')
-	STORAGE_ACCOUNT_CONNECTION_STRING=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountConnectionString.value')
 	echo "Function App Name: $FUNCTION_APP_NAME"
 	echo "Storage Account Name: $STORAGE_ACCOUNT_NAME"
-	echo "Storage Account Connection String: $STORAGE_ACCOUNT_CONNECTION_STRING"
 else
 	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1
@@ -102,11 +102,14 @@ if [[ -z "$FUNCTION_APP_NAME" || -z "$STORAGE_ACCOUNT_NAME" ]]; then
 	exit 1
 fi
 
-# Print the application settings of the function app
-echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
+# Print the names of the application settings of the function app: their values hold secrets, such as the connection
+# string of the storage account
+echo "Retrieving the names of the application settings of the function app [$FUNCTION_APP_NAME]..."
 az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME"
+	--name "$FUNCTION_APP_NAME" \
+	--query "[].name" \
+	--output tsv
 
 # CD into the function app directory
 cd ../src/sample || exit
@@ -126,11 +129,36 @@ cd .. || exit
 
 # Deploy the function app using the zip file
 echo "Deploying function app [$FUNCTION_APP_NAME]..."
-az functionapp deploy \
-    --resource-group "$RESOURCE_GROUP_NAME" \
-    --name "$FUNCTION_APP_NAME" \
-    --src-path $ZIPFILE \
-    --type zip 1>/dev/null
+# The package is already built. az functionapp deploy got an Oryx build of it on Azure although the app settings set
+# SCM_DO_BUILD_DURING_DEPLOYMENT to false, and that build fails on a published .NET app. On Linux,
+# az functionapp deployment source config-zip sets the setting to false and waits until the deployment site sees it
+# before it deploys. On Azure the first deployment to a new function app can also time out (504) while its deployment
+# site starts, so a failed attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deployment source config-zip \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src "$ZIPFILE" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
+	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
 
 # Remove the zip package of the function app
 if [ -f "$ZIPFILE" ]; then

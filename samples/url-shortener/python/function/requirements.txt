@@ -1,1 +1,2 @@
 azure-functions
+azure-monitor-opentelemetry>=1.8.0

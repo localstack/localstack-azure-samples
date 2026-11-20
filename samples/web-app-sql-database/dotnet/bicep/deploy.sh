@@ -44,6 +44,33 @@ else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
 fi
 
+# Resolve the object id of the deploying principal. The template gives it the certificate permissions of the key vault
+# this script needs to create the certificate the web app serves HTTPS with, after the deployment: Bicep cannot create
+# a Key Vault certificate. The lookup goes through Microsoft Graph, then the oid claim of the CLI's own access token.
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
+
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
+else
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
+fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid claim of
+# the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] has object id [$DEPLOYER_OBJECT_ID]"
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the key vault gives it no access policy, and creating the certificate can fail"
+	DEPLOYER_OBJECT_ID=""
+fi
+
 # Validates the Bicep template
 if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	if [[ $USE_WHAT_IF == 1 ]]; then
@@ -60,6 +87,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			administratorLoginPassword=$ADMIN_PASSWORD \
 			sqlDatabaseUsername=$DATABASE_USER_NAME \
 			sqlDatabasePassword=$DATABASE_USER_PASSWORD \
+			deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -82,6 +110,7 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			administratorLoginPassword=$ADMIN_PASSWORD \
 			sqlDatabaseUsername=$DATABASE_USER_NAME \
 			sqlDatabasePassword=$DATABASE_USER_PASSWORD \
+			deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -108,6 +137,7 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	administratorLoginPassword=$ADMIN_PASSWORD \
 	sqlDatabaseUsername=$DATABASE_USER_NAME \
 	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
+	deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
 	--query 'properties.outputs' \
 	--output json); then
 	# Extract only the JSON portion (everything from first { to the end)

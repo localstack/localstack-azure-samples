@@ -1,11 +1,48 @@
 import os
 import io
+import sys
 import datetime
+import logging
 from typing import List, Tuple
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the app serves, its calls to Blob Storage, the records of the
+# application's logger (traces), the exceptions it logs, the custom events and the custom metric below. It runs before
+# Flask is imported, so that its Flask instrumentation wraps the application.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+from opentelemetry import metrics
+
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
 from flask import Flask, flash, render_template, request, redirect, url_for
+
+# The application's logger also writes its records to the console, which App Service collects as the container's output
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler(sys.stdout))
+
+# The custom metric: the number of activities added, updated and deleted, by operation (customMetrics table)
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    """Send a custom event (customEvents table) and count the operation in the custom metric."""
+    # The Microsoft OpenTelemetry Distro sends a log record that carries the microsoft.custom_event.name attribute as a
+    # custom event named after its value, with the other attributes as its custom dimensions.
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
 
 # Initialize Flask application
 app: Flask = Flask(__name__)
@@ -39,40 +76,40 @@ def get_environment_variables():
         # Get container name from environment variable with a default value
         container_name = os.environ.get("CONTAINER_NAME", "activities")
     except ValueError as ve:
-        print(f"Configuration Error: {ve}")
-    except Exception as ex:
-        print(f"An error occurred: {ex}")
+        logger.error(f"Configuration Error: {ve}")
+    except Exception:
+        logger.exception("An error occurred while reading the configuration.")
 
 def get_blob_service_client():
     """Create a BlobServiceClient using the connection string."""
     global connection_string
     try:
         # Create BlobServiceClient
-        print(f"Creating BlobServiceClient...")
+        logger.info("Creating BlobServiceClient...")
 
         if client_id and client_secret and tenant_id and account_url:
             # Use ClientSecretCredential for authentication
-            print("Using ClientSecretCredential with BlobServiceClient...")
+            logger.info("Using ClientSecretCredential with BlobServiceClient...")
             credential = ClientSecretCredential(tenant_id=tenant_id, 
                                                 client_id=client_id, 
                                                 client_secret=client_secret)
             blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         elif connection_string:
             # Use connection string for authentication
-            print("Using storage account connection string with BlobServiceClient...")
+            logger.info("Using storage account connection string with BlobServiceClient...")
             blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         elif account_url:
             # Use DefaultAzureCredential for authentication
-            print("Using DefaultAzureCredential with BlobServiceClient...")
+            logger.info("Using DefaultAzureCredential with BlobServiceClient...")
             credential = DefaultAzureCredential()
             blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         else:
             raise ValueError("Insufficient configuration for BlobServiceClient. Please set the necessary environment variables.")
         
-        print("BlobServiceClient created successfully.")
+        logger.info("BlobServiceClient created successfully.")
         return blob_service_client
-    except Exception as ex:
-        print(f"An error occurred while creating BlobServiceClient: {ex}")
+    except Exception:
+        logger.exception("An error occurred while creating BlobServiceClient.")
         return None
 
 def create_container_if_not_exists():
@@ -87,25 +124,25 @@ def create_container_if_not_exists():
             raise ValueError("Container name is not set. Please set the CONTAINER_NAME environment variable.")
 
         # Get the container client
-        print(f"Creating container client for container: {container_name}")
+        logger.info(f"Creating container client for container: {container_name}")
         container_client = blob_service_client.get_container_client(container_name)
 
         # Check whether the container exists and create it if it does not
         if not container_client.exists():
-            print(f"Attempting to create container '{container_name}' if it does not exist.")
+            logger.info(f"Attempting to create container '{container_name}' if it does not exist.")
             container_client.create_container()
-            print(f"Container '{container_name}' created.")
+            logger.info(f"Container '{container_name}' created.")
         else:
-            print(f"Container '{container_name}' already exists.")
+            logger.info(f"Container '{container_name}' already exists.")
     except ValueError as ve:
-        print(f"Configuration Error: {ve}")
+        logger.error(f"Configuration Error: {ve}")
     except ResourceExistsError:
-        print(f"Container '{container_name}' already exists.")
-    except Exception as ex:
-        print(f"An error occurred while creating the container: {ex}")
+        logger.info(f"Container '{container_name}' already exists.")
+    except Exception:
+        logger.exception("An error occurred while creating the container.")
 
-def read_blobs_from_container():
-    """Read all blobs from the container."""
+def read_blobs_from_container() -> bool:
+    """Read all blobs from the container. Return whether it succeeded."""
     global blob_service_client, container_name, activities
     try:
         if not blob_service_client:
@@ -122,8 +159,8 @@ def read_blobs_from_container():
 
         for blob in blob_list:
             if blob.name:
-                # Print blob details
-                print(f"Found blob: {blob.name} with size {blob.size} bytes")
+                # Log blob details
+                logger.info(f"Found blob: {blob.name} with size {blob.size} bytes")
 
                 # Read blob content
                 blob_client = container_client.get_blob_client(blob.name)
@@ -133,15 +170,19 @@ def read_blobs_from_container():
                 else:
                     blob_content = str(blob_content)
 
-                print(f"Content of blob '{blob.name}': {blob_content}")
+                logger.info(f"Content of blob '{blob.name}': {blob_content}")
                 activities.append((blob.name, blob_content))
-    except ValueError as ve:
-        print(f"Configuration Error: {ve}")
-    except Exception as ex:
-        print(f"An error occurred while reading blobs from the container: {ex}")
 
-def create_blob_if_not_exists(name: str | None, content: str | None):
-    """Create a blob in the container if it does not already exist."""
+        logger.info(f"Read {len(activities)} activities from container '{container_name}'.")
+        return True
+    except ValueError as ve:
+        logger.error(f"Configuration Error: {ve}")
+    except Exception:
+        logger.exception("An error occurred while reading blobs from the container.")
+    return False
+
+def create_blob_if_not_exists(name: str | None, content: str | None) -> bool:
+    """Create a blob in the container if it does not already exist. Return whether it succeeded."""
     global blob_service_client, container_name
 
     # Check if name and content are provided
@@ -162,19 +203,23 @@ def create_blob_if_not_exists(name: str | None, content: str | None):
         blob_client = container_client.get_blob_client(name)
 
         # Check if the blob exists and create it if it does not
-        print(f"Creating blob '{name}' in container '{container_name}'.")
+        logger.info(f"Creating blob '{name}' in container '{container_name}'.")
         with io.BytesIO(content.encode("utf-8")) as content_stream:
             blob_client.upload_blob(content_stream, blob_type="BlockBlob", overwrite=True)
-        print(f"Blob '{name}' created successfully.")
+        logger.info(f"Blob '{name}' created successfully.")
+        track_activity_event("ActivityAdded", "add", name)
+        return True
     except ValueError as ve:
-        print(f"Configuration Error: {ve}")
+        logger.error(f"Configuration Error: {ve}")
     except ResourceExistsError:
-        print(f"Blob '{name}' already exists in container '{container_name}'.")
-    except Exception as ex:
-        print(f"An error occurred while creating the blob: {ex}")
+        logger.info(f"Blob '{name}' already exists in container '{container_name}'.")
+        return True
+    except Exception:
+        logger.exception("An error occurred while creating the blob.")
+    return False
 
-def delete_blob(name: str):
-    """Delete a blob from the container."""
+def delete_blob(name: str) -> bool:
+    """Delete a blob from the container. Return whether it succeeded."""
     global blob_service_client, container_name
     try:
         if not blob_service_client:
@@ -190,16 +235,19 @@ def delete_blob(name: str):
         blob_client = container_client.get_blob_client(name)
 
         # Delete the blob
-        print(f"Deleting blob '{name}' from container '{container_name}'.")
+        logger.info(f"Deleting blob '{name}' from container '{container_name}'.")
         blob_client.delete_blob()
-        print(f"Blob '{name}' deleted successfully.")
+        logger.info(f"Blob '{name}' deleted successfully.")
+        track_activity_event("ActivityDeleted", "delete", name)
+        return True
     except ValueError as ve:
-        print(f"Configuration Error: {ve}")
-    except Exception as ex:
-        print(f"An error occurred while deleting the blob: {ex}")
+        logger.error(f"Configuration Error: {ve}")
+    except Exception:
+        logger.exception("An error occurred while deleting the blob.")
+    return False
 
-def update_blob(name: str, content: str):
-    """Update the content of an existing blob (overwrite in place)."""
+def update_blob(name: str, content: str) -> bool:
+    """Update the content of an existing blob (overwrite in place). Return whether it succeeded."""
     global blob_service_client, container_name
     if not name or not content:
         raise ValueError("Both 'name' and 'content' must be provided.")
@@ -210,14 +258,17 @@ def update_blob(name: str, content: str):
             raise ValueError("Container name is not set.")
         container_client = blob_service_client.get_container_client(container_name)
         blob_client = container_client.get_blob_client(name)
-        print(f"Updating blob '{name}' in container '{container_name}'.")
+        logger.info(f"Updating blob '{name}' in container '{container_name}'.")
         with io.BytesIO(content.encode("utf-8")) as content_stream:
             blob_client.upload_blob(content_stream, blob_type="BlockBlob", overwrite=True)
-        print(f"Blob '{name}' updated successfully.")
+        logger.info(f"Blob '{name}' updated successfully.")
+        track_activity_event("ActivityUpdated", "update", name)
+        return True
     except ValueError as ve:
-        print(f"Configuration Error: {ve}")
-    except Exception as ex:
-        print(f"An error occurred while updating the blob: {ex}")
+        logger.error(f"Configuration Error: {ve}")
+    except Exception:
+        logger.exception("An error occurred while updating the blob.")
+    return False
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -227,32 +278,39 @@ def index():
         if activity:
             if row_id:
                 # Update existing blob content in place
-                update_blob(row_id, activity)
-                for i, act in enumerate(activities):
-                    if act[0] == row_id:
-                        activities[i] = (row_id, activity)
-                        break
-                flash('Activity updated successfully.')
+                if update_blob(row_id, activity):
+                    for i, act in enumerate(activities):
+                        if act[0] == row_id:
+                            activities[i] = (row_id, activity)
+                            break
+                    flash('Activity updated successfully.')
+                else:
+                    flash('Failed to update the activity.')
             else:
                 # Generate a unique blob name with a timestamp
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
                 name = f"{timestamp}-activity.txt"
-                create_blob_if_not_exists(name, activity)
-                activities.append((name, activity))
-                flash('Activity added successfully.')
+                if create_blob_if_not_exists(name, activity):
+                    activities.append((name, activity))
+                    flash('Activity added successfully.')
+                else:
+                    flash('Failed to add the activity.')
         return redirect(url_for('index'))
 
     # Always reload activities from blob storage on GET
     activities.clear()
-    read_blobs_from_container()
+    if not read_blobs_from_container():
+        flash('Failed to read the activities.')
     return render_template('index.html', activities=activities)
 
 @app.route('/delete/<int:activity_id>', methods=['POST'])
 def delete(activity_id):
     if 0 <= activity_id < len(activities):
-        delete_blob(activities[activity_id][0])
-        activities.pop(activity_id)
-        flash('Activity deleted successfully.')
+        if delete_blob(activities[activity_id][0]):
+            activities.pop(activity_id)
+            flash('Activity deleted successfully.')
+        else:
+            flash('Failed to delete the activity.')
     return redirect(url_for('index'))
 
 # Initialize the application and Azure services when the module is loaded.

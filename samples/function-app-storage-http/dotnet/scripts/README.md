@@ -36,8 +36,11 @@ This [deploy.sh](deploy.sh) script creates the following Azure resources using A
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all gaming system resources.
 2. [Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview): Provides blob containers, queues, and tables for the gaming system.
-3. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): Linux hosting plan with the Standard SKU for the Azure Functions application. A Linux Consumption plan doesn't run .NET 10 or later.
-4. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) Serverless compute platform hosting the gaming logic.
+3. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): A Linux plan of the Basic (B1) tier that hosts the function app. The script doesn't use the Linux Consumption plan, because .NET 9 is the last .NET version that it supports ([Supported languages in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages)).
+4. [Azure Linux Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview): Hosts the gaming logic on the .NET 10 isolated worker runtime.
+5. [Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of the Application Insights resource, and the logs and metrics that the diagnostic settings send to it.
+6. [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the invocations of the functions and the log records of the functions and of the Functions host, which the host sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
+7. [Diagnostic Settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings): Send the resource logs (`FunctionAppLogs`) and the platform metrics of the function app, and the platform metrics of the App Service plan, to the Log Analytics workspace.
 
 The system implements a complete gaming scoreboard with multiple Azure Functions that handle HTTP requests, process blob uploads, manage queue messages, and maintain game statistics. For more information, see [Azure Functions Sample with LocalStack for Azure](../README.md).
 
@@ -47,9 +50,12 @@ See [deploy.sh](deploy.sh) for the complete deployment script. The script perfor
 
 - Creates resource group if it doesn't exist
 - Creates Storage Account and retrieves access key
-- Creates a Linux App Service plan and the Function App on it
+- Creates a Log Analytics workspace and a workspace-based Application Insights resource
+- Creates a Linux App Service plan of the Basic (B1) tier
+- Creates the Function App on the plan, connected to the Application Insights resource
 - Constructs storage connection string
 - Configures Function App settings (storage, queue, table, timer configurations)
+- Creates the diagnostic settings that send the logs and metrics of the Function App and the metrics of the App Service plan to the Log Analytics workspace
 - Builds and publishes the .NET application in Release configuration
 - Creates deployment zip package from published output
 - Deploys the zip to Azure Function App using `az functionapp deploy`
@@ -146,43 +152,95 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
+FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+
 # Check resource group
 az group show \
-  --name local-rg \
+  --name $RESOURCE_GROUP_NAME \
   --output table
 
 # List resources
 az resource list \
-  --resource-group local-rg \
+  --resource-group $RESOURCE_GROUP_NAME \
   --output table
 
 # Check function app status
 az functionapp show  \
-  --name local-func-test \
-  --resource-group local-rg \
+  --name $FUNCTION_APP_NAME \
+  --resource-group $RESOURCE_GROUP_NAME \
   --output table
 
 # Check storage account properties
 az storage account show \
-  --name localstoragetest \
-  --resource-group local-rg \
+  --name $STORAGE_ACCOUNT_NAME \
+  --resource-group $RESOURCE_GROUP_NAME \
   --output table
+
+# Check Log Analytics workspace
+az monitor log-analytics workspace show \
+  --resource-group $RESOURCE_GROUP_NAME \
+  --workspace-name $LOG_ANALYTICS_NAME \
+  --query '{Name:name,Location:location,ResourceGroup:resourceGroup,Sku:sku.name,RetentionInDays:retentionInDays}' \
+  --output table \
+  --only-show-errors
+
+# Check Application Insights component
+az monitor app-insights component show \
+  --app $APPLICATION_INSIGHTS_NAME \
+  --resource-group $RESOURCE_GROUP_NAME \
+  --query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
+  --output table \
+  --only-show-errors
+
+# Check the diagnostic settings of the function app and of its App Service plan
+FUNCTION_APP_ID=$(az functionapp show \
+  --name "$FUNCTION_APP_NAME" \
+  --resource-group "$RESOURCE_GROUP_NAME" \
+  --query id \
+  --output tsv \
+  --only-show-errors)
+APP_SERVICE_PLAN_ID=$(az functionapp show \
+  --name "$FUNCTION_APP_NAME" \
+  --resource-group "$RESOURCE_GROUP_NAME" \
+  --query appServicePlanId \
+  --output tsv \
+  --only-show-errors)
+
+echo -e "\n[$FUNCTION_APP_NAME] function app diagnostic settings:\n"
+az monitor diagnostic-settings list \
+  --resource "$FUNCTION_APP_ID" \
+  --query "[].{Name:name,Logs:join(', ', logs[?enabled].category),Metrics:join(', ', metrics[?enabled].category)}" \
+  --output table \
+  --only-show-errors
+
+echo -e "\nApp Service plan diagnostic settings:\n"
+az monitor diagnostic-settings list \
+  --resource "$APP_SERVICE_PLAN_ID" \
+  --query "[].{Name:name,Metrics:join(', ', metrics[?enabled].category)}" \
+  --output table \
+  --only-show-errors
 
 # List storage containers
 az storage container list \
-  --account-name localstoragetest \
+  --account-name $STORAGE_ACCOUNT_NAME \
   --output table \
   --only-show-errors
 
 # List storage queues
 az storage queue list \
-  --account-name localstoragetest \
+  --account-name $STORAGE_ACCOUNT_NAME \
   --output table \
   --only-show-errors
 
 # List storage tables
 az storage table list \
-  --account-name localstoragetest \
+  --account-name $STORAGE_ACCOUNT_NAME \
   --output table \
   --only-show-errors
 ```

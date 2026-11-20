@@ -20,20 +20,21 @@ brew install localstack/tap/lstk   # or: npm install -g @localstack/lstk
 [`deploy.sh`](deploy.sh) provisions the same resources as the Bicep and Terraform variants but with raw `az` commands:
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli).
-2. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
-3. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview) for both subnets.
-4. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview).
-5. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview) with:
+2. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview), with a diagnostic setting that sends the audit records of the queries run on the workspace to the workspace itself.
+3. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
+4. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview) for both subnets.
+5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview).
+6. [Azure Virtual Network](https://learn.microsoft.com/azure/virtual-network/virtual-networks-overview) with:
    - *app-subnet*: delegated to `Microsoft.Web/serverFarms` (with NAT gateway).
    - *pe-subnet*: hosts the Private Endpoint (no delegation; `disable-private-endpoint-network-policies=true`).
-6. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, `Burstable / Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. With a permissive `AllowAllIPs` firewall rule.
-7. The `plannerdb` [database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases).
-8. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone) `privatelink.mysql.database.azure.com`, linked to the VNet.
-9. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) targeting the MySQL server with group `mysqlServer`, plus the DNS-zone group that auto-registers the A record.
-10. A separate application user (`testuser`) created via the `mysql` client, with privileges on `plannerdb`.
-11. The `activities` table and the seeded rows.
-12. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-13. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*, configured with `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER=testuser`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `LOGIN_NAME`, `WEBSITES_PORT`.
+7. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, `Burstable / Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. With a permissive `AllowAllIPs` firewall rule. Its audit log is on for the connection events (the `audit_log_enabled` and `audit_log_events` server parameters).
+8. The `plannerdb` [database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases).
+9. [Azure Private DNS Zone](https://learn.microsoft.com/azure/dns/private-dns-privatednszone) `privatelink.mysql.database.azure.com`, linked to the VNet.
+10. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) targeting the MySQL server with group `mysqlServer`, plus the DNS-zone group that auto-registers the A record.
+11. A separate application user (`testuser`) created via the `mysql` client, with privileges on `plannerdb`.
+12. The `activities` table and the seeded rows.
+13. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
+14. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*, configured with `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER=testuser`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `LOGIN_NAME`, `WEBSITES_PORT`. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 The Web App uses `testuser` — the server-admin login is never written into the Web App's app settings. Use [`validate.sh`](validate.sh) after `deploy.sh` to inspect each Azure resource.
 
@@ -50,6 +51,12 @@ bash deploy.sh
 
 # inspect what was deployed
 bash validate.sh
+
+# read the telemetry the web app sent to Application Insights
+bash query-telemetry.sh
+
+# read the logs and metrics the diagnostic settings sent to the workspace
+bash query-logs-and-metrics.sh
 ```
 
 `deploy.sh` accepts the following environment overrides:

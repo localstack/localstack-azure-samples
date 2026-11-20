@@ -67,3 +67,11 @@ output "managed_identity_principal_id" {
   description = "Specifies the principal id of the user-assigned managed identity, the id its role assignments are keyed on."
   value       = module.managed_identity.principal_id
 }
+
+output "log_analytics_name" {
+  value = module.log_analytics_workspace.name
+}
+
+output "application_insights_name" {
+  value = module.application_insights.name
+}

@@ -4,7 +4,24 @@ import datetime
 import logging
 import threading
 from typing import List, Tuple
+
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the app serves, the records of the application's logger (traces),
+# the exceptions it logs, the custom events and the custom metric below. The distro doesn't instrument PyMongo, so the
+# OpenTelemetry instrumentation of PyMongo adds the commands sent to Azure Cosmos DB for MongoDB. Both run before Flask
+# and PyMongo are imported, so that their instrumentations wrap them.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+    PymongoInstrumentor().instrument()
+
 from flask import Flask, flash, render_template, request, redirect, url_for
+from opentelemetry import metrics
 from pymongo.errors import PyMongoError
 from mongodb import MongoDbClient
 import hashlib
@@ -27,8 +44,13 @@ logging.getLogger('azure').setLevel(logging.WARNING)
 logging.getLogger('werkzeug').setLevel(logging.INFO)
 
 # Get application logger
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(LOGGER_NAME)
 logger.setLevel(logging.INFO)
+
+# The custom metric: the number of activities added, updated and deleted, by operation (customMetrics table)
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
 
 # The MongoDB client is created by the first request that needs it, not when the module is loaded, so the web app
 # starts even when the database is not reachable yet, for example while Azure Cosmos DB for MongoDB upgrades the
@@ -49,9 +71,21 @@ def get_mongodb_client() -> MongoDbClient | None:
         if mongodb_client is None:
             try:
                 mongodb_client = MongoDbClient.from_env()
-            except PyMongoError as e:
-                logger.error("The database is not available: %s", e)
+            except PyMongoError:
+                # The distro sends a log record that carries an exception to Application Insights as an exception
+                logger.exception("The database is not available.")
         return mongodb_client
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    """Send a custom event (customEvents table) and count the operation in the custom metric."""
+    # The Microsoft OpenTelemetry Distro sends a log record that carries the microsoft.custom_event.name attribute as a
+    # custom event named after its value, with the other attributes as its custom dimensions.
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
 
 def create_document(activity: str | None = None) -> dict:
     """Create a document with activity and timestamp."""
@@ -84,11 +118,12 @@ def read_documents(username: str | None = None) -> List[dict]:
         for document in client.read_documents(query=query):
             documents.append(document)
             activities.append((document["_id"], document["activity"]))
-    except PyMongoError as e:
-        logger.error("Error reading documents: %s", e)
+    except PyMongoError:
+        logger.exception("Error reading documents.")
         flash(DATABASE_UNAVAILABLE)
-    except (ConnectionError, ValueError, KeyError) as e:
-        logger.error("Error reading documents: %s", e)
+    except (ConnectionError, ValueError, KeyError):
+        logger.exception("Error reading documents.")
+        flash("Failed to load the activities.")
     return documents
 
 @app.route('/', methods=['GET', 'POST'])
@@ -110,6 +145,7 @@ def index():
                     updated_activity = client.update_document_by_id(row_id, {"activity": activity})
                     if updated_activity:
                         logger.info(f"Activity updated: {row_id}")
+                        track_activity_event("ActivityUpdated", "update", row_id)
                         flash("Activity updated!")
                 else:
                     # Create a document with the activity provided
@@ -119,13 +155,15 @@ def index():
                     # Append the activity to the activities list
                     activities.append((document["_id"], activity))
                     logger.info(f"Activity added: {activity}")
+                    track_activity_event("ActivityAdded", "add", document["_id"])
                     flash("Activity added!")
 
-            except PyMongoError as e:
-                logger.error("Error saving the activity: %s", e)
+            except PyMongoError:
+                logger.exception("Error saving the activity.")
                 flash(DATABASE_UNAVAILABLE)
-            except (ConnectionError, ValueError) as e:
-                logger.error("Error creating document: %s", e)
+            except (ConnectionError, ValueError):
+                logger.exception("Error creating document.")
+                flash("Failed to save the activity.")
 
         return redirect(url_for('index'))
 
@@ -147,12 +185,15 @@ def delete(activity_id: int):
         if client is None:
             flash(DATABASE_UNAVAILABLE)
         else:
+            document_id = activities[activity_id][0]
             try:
                 # Delete the document from MongoDB
-                client.delete_document_by_id(activities[activity_id][0])
+                client.delete_document_by_id(document_id)
+                logger.info("Activity deleted: %s", document_id)
+                track_activity_event("ActivityDeleted", "delete", document_id)
                 flash("Activity deleted.")
-            except PyMongoError as e:
-                logger.error("Error deleting the activity: %s", e)
+            except PyMongoError:
+                logger.exception("Error deleting the activity %s.", document_id)
                 flash(DATABASE_UNAVAILABLE)
 
     return redirect(url_for('index'))

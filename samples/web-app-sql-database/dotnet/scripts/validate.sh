@@ -10,6 +10,7 @@ WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -92,6 +93,15 @@ az keyvault secret show \
 --name "$SECRET_NAME" \
 --query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
 --output table
+
+# Check Application Insights component
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
+	--output table \
+	--only-show-errors
 
 # Print the list of resources in the resource group
 echo -e "\nListing resources in resource group [$RESOURCE_GROUP_NAME]...\n"

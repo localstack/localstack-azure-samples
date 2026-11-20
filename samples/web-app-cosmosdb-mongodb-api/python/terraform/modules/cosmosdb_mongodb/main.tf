@@ -60,9 +60,10 @@ resource "azurerm_cosmosdb_mongo_collection" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "example" {
-  name                       = "DiagnosticsSettings"
-  target_resource_id         = azurerm_cosmosdb_account.example.id
-  log_analytics_workspace_id = var.log_analytics_workspace_id
+  name                           = "DiagnosticsSettings"
+  target_resource_id             = azurerm_cosmosdb_account.example.id
+  log_analytics_workspace_id     = var.log_analytics_workspace_id
+  log_analytics_destination_type = var.log_analytics_destination_type
 
   enabled_log {
     category = "DataPlaneRequests"

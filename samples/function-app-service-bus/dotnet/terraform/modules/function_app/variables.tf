@@ -134,3 +134,39 @@ variable "log_analytics_workspace_id" {
   description = "Specifies the resource id of the Azure Log Analytics workspace."
   type        = string
 }
+
+variable "is_flex_consumption" {
+  description = "(Optional) Specifies whether the hosting plan is a Flex Consumption plan, whose apps take their runtime and deployment storage from the function app configuration."
+  type        = bool
+  default     = false
+}
+
+variable "storage_container_endpoint" {
+  description = "(Optional) Specifies the endpoint of the blob container that keeps the deployment packages of a Flex Consumption app."
+  type        = string
+  default     = null
+}
+
+variable "runtime_name" {
+  description = "(Optional) Specifies the language runtime of a Flex Consumption app."
+  type        = string
+  default     = "dotnet-isolated"
+}
+
+variable "runtime_version" {
+  description = "(Optional) Specifies the language runtime version of a Flex Consumption app."
+  type        = string
+  default     = "10.0"
+}
+
+variable "maximum_instance_count" {
+  description = "(Optional) Specifies the maximum number of instances of a Flex Consumption app."
+  type        = number
+  default     = 100
+}
+
+variable "instance_memory_in_mb" {
+  description = "(Optional) Specifies the instance memory, in MB, of a Flex Consumption app."
+  type        = number
+  default     = 2048
+}

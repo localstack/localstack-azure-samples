@@ -6,3 +6,5 @@ python-dotenv==1.2.2
 azure-keyvault-secrets==4.11.0
 azure-keyvault-certificates==4.11.1
 cryptography==50.0.0
+microsoft-opentelemetry==1.6.0
+opentelemetry-instrumentation-dbapi==0.66b2

@@ -51,9 +51,10 @@ resource "azurerm_servicebus_queue" "example" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "example" {
-  name                       = "DiagnosticsSettings"
-  target_resource_id         = azurerm_servicebus_namespace.example.id
-  log_analytics_workspace_id = var.log_analytics_workspace_id
+  name                           = "DiagnosticsSettings"
+  target_resource_id             = azurerm_servicebus_namespace.example.id
+  log_analytics_workspace_id     = var.log_analytics_workspace_id
+  log_analytics_destination_type = var.log_analytics_destination_type
 
   enabled_log {
     category = "OperationalLogs"

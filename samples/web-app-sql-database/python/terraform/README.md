@@ -33,16 +33,17 @@ Alternatively, download a pre-built binary from the [lstk releases page](https:/
 
 ## Architecture Overview
 
-The [main.tf](main.tf) Terraform module creates the following Azure resources:
+The [main.tf](main.tf) Terraform module creates the following Azure resources, each through a module of the [modules](modules) folder except the resource group:
 
 1. [Azure Resource Group](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/manage-resource-groups-cli): Logical container for all resources in the sample.
 2. [Azure SQL Server](https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview): Logical server hosting one or more Azure SQL Databases.
-3. [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/): The `PlannerDB` database storing relational vacation activity data.
+3. [Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/): The `PlannerDB` database storing relational vacation activity data. Its auditing (`azurerm_mssql_database_extended_auditing_policy`, with `log_monitoring_enabled`) sends the records of the statements run on it and of the sign-ins to the workspace, through its diagnostic setting.
 4. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The compute resource that hosts the web application.
-5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to Azure SQL Database.
+5. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the Python Flask single-page application (*Vacation Planner*), connected to Azure SQL Database. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string as a secret, a self-signed certificate for HTTPS, and the RSA key that serves as the [TDE protector](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) of the SQL server.
-7. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
-8. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
+7. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
+8. [Azure Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the diagnostic settings of the web app, the App Service plan, the database, the key vault and the workspace itself send to it.
+9. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
 
 The system implements a Vacation Planner web application that stores and retrieves activity data from Azure SQL Database. For more information, see [Azure Web App with Azure SQL Database and Azure Key Vault](../README.md).
 
@@ -146,40 +147,111 @@ After deployment, you can use the `validate.sh` script to verify that all resour
 #!/bin/bash
 
 # Variables
-# Check resource group
-az group show \
---name local-rg \
---output table
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
+RESOURCE_GROUP_NAME="${PREFIX}-rg"
+SQL_SERVER_NAME="${PREFIX}-sqlserver-${SUFFIX}"
+SQL_DATABASE_NAME='PlannerDB'
+WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
+KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
+SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
+TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 
-# List resources
-az resource list \
---resource-group local-rg \
+# Check resource group
+echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
+az group show \
+--name "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Azure Web App
+echo -e "\n[$WEB_APP_NAME] web app:\n"
 az webapp show \
---name local-webapp-test \
---resource-group local-rg \
+--name "$WEB_APP_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "{name:name, state:state, defaultHostName:defaultHostName}" \
 --output table
 
 # Check Azure SQL Server
+echo -e "\n[$SQL_SERVER_NAME] SQL server:\n"
 az sql server show \
---name local-sqlserver-test \
---resource-group local-rg \
+--name "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
 
 # Check Azure SQL Database
+echo -e "\n[$SQL_DATABASE_NAME] SQL database:\n"
 az sql db show \
---name PlannerDB \
---server local-sqlserver-test \
---resource-group local-rg \
+--name "$SQL_DATABASE_NAME" \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
 
-# Check the TDE protector of the Azure SQL Server
-az sql server tde-key show \
---server local-sqlserver-test \
---resource-group local-rg \
+# Check that the Key Vault key is the TDE protector of the Azure SQL Server
+echo -e "\n[$SQL_SERVER_NAME] SQL server TDE protector:\n"
+# Read the key through Azure Resource Manager: the Bicep variant grants the caller no Key Vault data-plane access.
+KEY_VAULT_ID=$(az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "id" \
+--output tsv)
+TDE_KEY_ID=$(az resource show \
+--ids "$KEY_VAULT_ID/keys/$TDE_KEY_NAME" \
+--api-version 2024-11-01 \
+--query "properties.keyUriWithVersion" \
+--output tsv)
+TDE_PROTECTOR=$(az sql server tde-key show \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--output json)
+echo "$TDE_PROTECTOR" | jq '{serverKeyType, uri, autoRotationEnabled}'
+if [[ "$(jq -r .serverKeyType <<< "$TDE_PROTECTOR")" != "AzureKeyVault" ||
+	"$(jq -r .uri <<< "$TDE_PROTECTOR")" != "$TDE_KEY_ID" ||
+	"$(jq -r .autoRotationEnabled <<< "$TDE_PROTECTOR")" != "true" ]]; then
+	echo "The TDE protector of [$SQL_SERVER_NAME] is not the auto-rotated Key Vault key [$TDE_KEY_ID]"
+	exit 1
+fi
+
+# Check that TDE is enabled on the Azure SQL Database
+TDE_STATE=$(az sql db tde show \
+--database "$SQL_DATABASE_NAME" \
+--server "$SQL_SERVER_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "state" \
+--output tsv)
+echo -e "\n[$SQL_DATABASE_NAME] SQL database TDE state: [$TDE_STATE]"
+if [[ "$TDE_STATE" != "Enabled" ]]; then
+	echo "TDE is not enabled on [$SQL_DATABASE_NAME]"
+	exit 1
+fi
+
+# Check Azure Key Vault
+echo -e "\n[$KEY_VAULT_NAME] Key Vault:\n"
+az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
 --output table
+
+# Check Key Vault secret
+echo -e "\n[$SECRET_NAME] Key Vault secret:\n"
+az keyvault secret show \
+--vault-name "$KEY_VAULT_NAME" \
+--name "$SECRET_NAME" \
+--query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
+--output table
+
+# Check Application Insights component
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
+	--output table \
+	--only-show-errors
+
+# Print the list of resources in the resource group
+echo -e "\nListing resources in resource group [$RESOURCE_GROUP_NAME]...\n"
+az resource list --resource-group "$RESOURCE_GROUP_NAME" --output table 
 ```
 
 ## Cleanup
@@ -195,6 +267,17 @@ az group list --output table
 ```
 
 This will remove all Azure resources created by the CLI deployment script.
+
+## Telemetry, logs and metrics
+
+Once the web app is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
 
 ## Related Documentation
 

@@ -28,11 +28,12 @@ The Terraform configuration provisions:
 4. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (group `mysqlServer`).
 5. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview).
 6. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
-7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
-8. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. A permissive firewall rule (`AllowAllIPs`, `0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-apply mysql bootstrap.
-9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb`.
-10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration. `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` are written by Terraform; `MYSQL_USER` and `MYSQL_PASSWORD` are written by `deploy.sh` after the mysql client creates the application user.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview), with a diagnostic setting that sends the audit records of the queries run on the workspace to the workspace itself.
+8. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
+9. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. A permissive firewall rule (`AllowAllIPs`, `0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-apply mysql bootstrap. Its audit log is on for the connection events (the `audit_log_enabled` and `audit_log_events` server parameters).
+10. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb`.
+11. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
+12. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration. `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` are written by Terraform; `MYSQL_USER` and `MYSQL_PASSWORD` are written by `deploy.sh` after the mysql client creates the application user. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 ## Provisioning Script
 
@@ -61,6 +62,17 @@ Override any of the variables in [`variables.tf`](variables.tf) by editing [`ter
 | `mysql_database_name`         | `plannerdb`       | Application database                     |
 
 For non-dev deployments, set `mysql_admin_password` via env var: `MYSQL_ADMIN_PASSWORD=... bash deploy.sh`.
+
+## Telemetry, logs and metrics
+
+Once the web app is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
 
 ## Related Documentation
 

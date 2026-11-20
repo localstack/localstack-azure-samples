@@ -11,6 +11,8 @@ LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-ehgrid-rg"
 DEPLOYMENT_NAME='eventhubs-eventgrid-coldpath'
 FUNCTION_ZIP='capture_processor.zip'
+DEPLOY_RETRY_COUNT=10
+DEPLOY_RETRY_SLEEP=60
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
@@ -114,11 +116,15 @@ NAMESPACE_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 [[ -n "$LISTEN_CONNECTION" ]] || fail "could not read the listen connection string"
 [[ -n "$NAMESPACE_CONNECTION" ]] || fail "could not read the namespace connection string"
 
+# Azure refuses a function app that has the WEBSITE_CONTENTSHARE setting without WEBSITE_CONTENTAZUREFILECONNECTIONSTRING,
+# so the template creates the app with neither and both are set here, with the other connection strings: the storage
+# key stays out of the deployment history
 az functionapp config appsettings set --name "$FUNCTION_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--settings \
 	"AzureWebJobsStorage=$STORAGE_CONNECTION_STRING" \
 	"WEBSITE_CONTENTAZUREFILECONNECTIONSTRING=$STORAGE_CONNECTION_STRING" \
+	"WEBSITE_CONTENTSHARE=$(echo "$FUNCTION_APP_NAME" | tr '[:upper:]' '[:lower:]')" \
 	"STORAGE_CONNECTION_STRING=$STORAGE_CONNECTION_STRING" \
 	"EVENTHUB_NOTIFICATION_CONNECTION=$NAMESPACE_CONNECTION" \
 	"EVENTHUB_CURATED_CONNECTION=$NAMESPACE_CONNECTION" \
@@ -137,11 +143,30 @@ zip -r "$(native_path "$CURRENT_DIR/$FUNCTION_ZIP")" function_app.py host.json r
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the capture processor (the first run can take several minutes)..."
-az functionapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path "$FUNCTION_ZIP" \
-	--type zip 1>/dev/null || fail "could not deploy the function app"
+# The function app runs on a Linux Consumption plan, which has no companion deployment site: Azure answers
+# az functionapp deploy with "This API isn't available in this environment yet!". Zip deployment with a remote build,
+# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). On Azure the first
+# deployment to a new function app can time out, and its deployment endpoint can answer 503 (Site Unavailable) for
+# several minutes after the app is created, so a failed attempt is retried for about ten minutes
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deployment source config-zip \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src "$FUNCTION_ZIP" \
+		--build-remote true 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+[[ $DEPLOYED == 1 ]] || fail "could not deploy the function app"
 rm -f "$FUNCTION_ZIP"
 
 # -----------------------------------------------------------------------------

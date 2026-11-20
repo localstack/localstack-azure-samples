@@ -20,6 +20,10 @@ locals {
   application_insights_name           = "${local.prefix}-func-${local.suffix}"
   managed_identity_name               = "${local.prefix}-identity-${local.suffix}"
   private_dns_zone_group_name         = "private-dns-zone-group"
+  # A Flex Consumption app takes its runtime and its deployment storage from its function app configuration, and keeps
+  # its deployment packages in a blob container of its storage account
+  is_flex_consumption       = var.sku_name == "FC1"
+  deployment_container_name = "app-package-${local.function_app_name}"
 }
 
 # Data Sources
@@ -58,7 +62,8 @@ module "virtual_network" {
       address_prefixes : var.func_subnet_address_prefix
       private_endpoint_network_policies : "Enabled"
       private_link_service_network_policies_enabled : false
-      delegation : "Microsoft.Web/serverFarms"
+      # A Flex Consumption app integrates with a subnet delegated to Container Apps environments
+      delegation : local.is_flex_consumption ? "Microsoft.App/environments" : "Microsoft.Web/serverFarms"
     },
     {
       name : var.pe_subnet_name
@@ -107,7 +112,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.func_subnet_name) = module.virtual_network.subnet_ids[var.func_subnet_name]
   }
-  tags = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
 }
 
 # Create a storage account
@@ -121,6 +127,14 @@ module "storage_account" {
   replication_type           = var.account_replication_type
   log_analytics_workspace_id = module.log_analytics_workspace.id
   tags                       = var.tags
+}
+
+# Create the blob container that keeps the deployment packages of a Flex Consumption app
+resource "azurerm_storage_container" "deployment" {
+  count                 = local.is_flex_consumption ? 1 : 0
+  name                  = local.deployment_container_name
+  storage_account_id    = module.storage_account.id
+  container_access_type = "private"
 }
 
 # Create a private DNS zone for blob storage and link it to the virtual network
@@ -332,12 +346,30 @@ module "function_app" {
   managed_identity_id           = var.managed_identity_type == "UserAssigned" ? module.managed_identity.id : null
   log_analytics_workspace_id    = module.log_analytics_workspace.id
   tags                          = var.tags
+  is_flex_consumption           = local.is_flex_consumption
+  storage_container_endpoint    = local.is_flex_consumption ? "${module.storage_account.primary_blob_endpoint}${azurerm_storage_container.deployment[0].name}" : null
+  runtime_name                  = var.functions_worker_runtime
+  runtime_version               = var.dotnet_version
+  maximum_instance_count        = var.maximum_instance_count
+  instance_memory_in_mb         = var.instance_memory_in_mb
 
-  app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT                         = "false"
-    AzureWebJobsStorage                                    = module.storage_account.primary_connection_string
-    FUNCTIONS_WORKER_RUNTIME                               = var.functions_worker_runtime
-    FUNCTIONS_EXTENSION_VERSION                            = var.functions_extension_version
+  # A Flex Consumption app refuses FUNCTIONS_WORKER_RUNTIME, and the plan replaces the other two (Flex Consumption plan
+  # deprecations, App settings reference for Azure Functions). On that plan the Service Bus triggered function runs on
+  # instances of its own (per-function scaling, Flex Consumption plan), and its connection uses the system-assigned
+  # identity unless credential and clientId name a user-assigned one (Configure an identity-based connection, Azure
+  # Functions developer guide): without them, the input queue was never drained on Azure
+  app_settings = merge(local.is_flex_consumption ? (var.managed_identity_type == "UserAssigned" ? {
+    SERVICE_BUS_CONNECTION_STRING__credential = "managedidentity"
+    SERVICE_BUS_CONNECTION_STRING__clientId   = module.managed_identity.client_id
+    } : {}) : {
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "false"
+    FUNCTIONS_WORKER_RUNTIME       = var.functions_worker_runtime
+    FUNCTIONS_EXTENSION_VERSION    = var.functions_extension_version
+    }, {
+    # The core.windows.net suffix, as on Azure and as the Azure CLI script sets it: the provider's
+    # primary_connection_string carries the storage endpoint suffix of the current cloud, which on the emulator holds a
+    # port that the Functions host can't parse, so the host would keep none of its data in the storage account
+    AzureWebJobsStorage                                    = "DefaultEndpointsProtocol=https;AccountName=${module.storage_account.name};AccountKey=${module.storage_account.primary_access_key};EndpointSuffix=core.windows.net"
     AZURE_CLIENT_ID                                        = module.managed_identity.client_id
     SERVICE_BUS_CONNECTION_STRING__fullyQualifiedNamespace = "${module.service_bus_namespace.name}.servicebus.windows.net"
     APPLICATIONINSIGHTS_CONNECTION_STRING                  = module.application_insights.connection_string
@@ -346,5 +378,5 @@ module "function_app" {
     OUTPUT_QUEUE_NAME                                      = var.output_queue_name
     NAMES                                                  = var.names
     TIMER_SCHEDULE                                         = var.timer_schedule
-  }
+  })
 }

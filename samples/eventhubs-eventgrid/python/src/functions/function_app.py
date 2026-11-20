@@ -34,6 +34,27 @@ from typing import Any, List
 from urllib.parse import unquote, urlparse
 
 import azure.functions as func
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry import metrics
+
+# The logger of the function
+LOGGER_NAME = "function_app"
+
+# With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, the Azure Monitor OpenTelemetry Distro sends to
+# Application Insights the records of this logger (traces), the exceptions it logs, the custom event and the custom
+# metric below. The app configures the distro itself, which works on every hosting plan: on the Linux Consumption
+# plan the Python worker sent none of them when PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY asked it to.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor(logger_name=LOGGER_NAME)
+
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+
+# The custom metric: the number of readings the function summarized, by kind (all readings, excursions)
+# (customMetrics table)
+readings_processed = metrics.get_meter(LOGGER_NAME).create_counter(
+    "readings_processed", unit="{reading}", description="The number of readings the capture processor summarized."
+)
 
 app = func.FunctionApp()
 
@@ -73,14 +94,14 @@ def CaptureProcessor(notifications: List[func.EventHubEvent], curated: func.Out[
             except Exception:
                 # A summary is derived data: losing one archive must not park the notification
                 # and re-deliver it forever. Log loudly and move on.
-                logging.exception("CAPTURE_ARCHIVE_UNREADABLE url=%s", data.get("fileUrl"))
+                logger.exception("CAPTURE_ARCHIVE_UNREADABLE url=%s", data.get("fileUrl"))
                 continue
 
             summaries.extend(
                 json.dumps(summary) for summary in _summarize(readings, data, event["subject"])
             )
 
-    logging.info("CAPTURE_BATCH notifications=%d summaries=%d", len(notifications), len(summaries))
+    logger.info("CAPTURE_BATCH notifications=%d summaries=%d", len(notifications), len(summaries))
     if summaries:
         curated.set(summaries)
 
@@ -96,7 +117,7 @@ def _event_grid_batch(notification: func.EventHubEvent) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(body)
     except ValueError:
-        logging.warning("NOTIFICATION_NOT_JSON body=%s", body[:200])
+        logger.warning("NOTIFICATION_NOT_JSON body=%s", body[:200])
         return []
     if isinstance(parsed, dict):
         # Tolerated so the function still works if a producer hand-posts a single event.
@@ -179,11 +200,25 @@ def _summarize(
                 "summarized_at": datetime.now(UTC).isoformat(),
             }
         )
-        logging.info(
+        logger.info(
             "DEVICE_SUMMARY device=%s readings=%d max=%.2f excursions=%d",
             device_id,
             len(temperatures),
             max(temperatures),
             len(excursions),
         )
+        # A custom event (customEvents table): the worker sends a log record that carries the
+        # microsoft.custom_event.name attribute as a custom event named after its value, with the other attributes as
+        # its custom dimensions
+        logger.info(
+            f"DeviceSummarized: {device_id}",
+            extra={
+                "microsoft.custom_event.name": "DeviceSummarized",
+                "device.id": device_id,
+                "device.readings": len(temperatures),
+                "device.excursions": len(excursions),
+            },
+        )
+        readings_processed.add(len(temperatures), {"kind": "reading"})
+        readings_processed.add(len(excursions), {"kind": "excursion"})
     return summaries

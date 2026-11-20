@@ -2,7 +2,7 @@
 
 # Variables
 PREFIX="${PREFIX:-local}"
-SUFFIX='test'
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 DEPLOYMENT_NAME='url-shortener'
@@ -10,6 +10,8 @@ TEMPLATE="main.bicep"
 PARAMETERS="main.bicepparam"
 WEBAPP_ZIPFILE='linklet_webapp.zip'
 WORKER_ZIPFILE='linklet_worker.zip'
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Change the current directory to the script's directory
@@ -50,6 +52,7 @@ az deployment group validate \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters prefix=$PREFIX \
+	suffix=$SUFFIX \
 	--output none
 
 if [[ $? == 0 ]]; then
@@ -67,6 +70,7 @@ DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	--template-file $TEMPLATE \
 	--parameters $PARAMETERS \
 	--parameters prefix=$PREFIX \
+	suffix=$SUFFIX \
 	--query properties.outputs)
 
 if [[ $? == 0 ]]; then
@@ -130,14 +134,29 @@ zip -r "$WORKER_ZIPFILE" function_app.py host.json requirements.txt
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$WORKER_ZIPFILE]..."
-az functionapp deploy \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path "$WORKER_ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deploy \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--name "$FUNCTION_APP_NAME" \
+		--src-path "$WORKER_ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
 
-if [[ $? == 0 ]]; then
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully"
 else
 	echo "Failed to deploy function app [$FUNCTION_APP_NAME]"

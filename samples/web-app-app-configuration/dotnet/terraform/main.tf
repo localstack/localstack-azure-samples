@@ -3,6 +3,7 @@ locals {
   suffix                                  = lower(var.suffix)
   resource_group_name                     = "${var.prefix}-rg"
   log_analytics_name                      = "${local.prefix}-log-analytics-${local.suffix}"
+  application_insights_name               = "${local.prefix}-insights-${local.suffix}"
   virtual_network_name                    = "${local.prefix}-vnet-${local.suffix}"
   nat_gateway_name                        = "${local.prefix}-nat-gateway-${local.suffix}"
   webapp_subnet_nsg_name                  = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
@@ -58,6 +59,17 @@ module "log_analytics_workspace" {
   resource_group_name = azurerm_resource_group.example.name
   sku                 = var.log_analytics_sku
   retention_in_days   = var.log_analytics_retention_in_days
+  tags                = var.tags
+}
+
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies, logs,
+# exceptions, custom events and custom metrics
+module "application_insights" {
+  source              = "./modules/application_insights"
+  name                = local.application_insights_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  workspace_id        = module.log_analytics_workspace.id
   tags                = var.tags
 }
 
@@ -128,7 +140,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
   }
-  tags = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
+  tags                       = var.tags
 }
 
 # -----------------------------------------------------------------------------
@@ -354,12 +367,13 @@ module "web_app" {
   tags                          = var.tags
 
   app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT = tostring(var.scm_do_build_during_deployment)
-    ENABLE_ORYX_BUILD              = tostring(var.enable_oryx_build)
-    Endpoints__AppConfiguration    = module.app_configuration.endpoint
-    AZURE_CLIENT_ID                = module.managed_identity.client_id
-    LOGIN_NAME                     = var.login_name
-    WEBSITES_PORT                  = tostring(var.websites_port)
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = tostring(var.scm_do_build_during_deployment)
+    ENABLE_ORYX_BUILD                     = tostring(var.enable_oryx_build)
+    Endpoints__AppConfiguration           = module.app_configuration.endpoint
+    AZURE_CLIENT_ID                       = module.managed_identity.client_id
+    LOGIN_NAME                            = var.login_name
+    WEBSITES_PORT                         = tostring(var.websites_port)
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
   }
 
   # The app starts only once its configuration and permissions are in place (it also retries by itself).

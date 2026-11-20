@@ -40,6 +40,31 @@ param backendScheme string = 'http'
 @secure()
 param backendSecret string
 
+@description('SKU tier of the Linux App Service plan hosting the Function App.')
+param appServicePlanTier string = 'Basic'
+
+@description('Specifies the tags to be applied to the resources.')
+param tags object = {
+  environment: 'test'
+  iac: 'bicep'
+}
+
+//
+// Observability
+//
+@description('Specifies the name of the Azure Log Analytics resource.')
+param logAnalyticsName string = ''
+
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
+@description('Specifies the service tier of the workspace.')
+@allowed(['Free','Standalone','PerNode','PerGB2018'])
+param logAnalyticsSku string = 'PerNode'
+
+@description('Specifies the workspace data retention in days.')
+param logAnalyticsRetentionInDays int = 60
+
 //********************************************
 // Variables
 //********************************************
@@ -48,69 +73,95 @@ var storageAccountName = '${prefix}invstorage${suffix}'
 var appServicePlanName = '${prefix}-inventory-app-service-plan-${suffix}'
 var functionAppName = '${prefix}-inventory-functionapp-${suffix}'
 var apimName = '${prefix}-inventory-apim-${suffix}'
-var apiId = 'inventory-api'
-var apiPath = 'inventory'
-var productId = 'inventory-partners'
-var apimSubscriptionId = 'partner-subscription'
-var namedValueId = 'backend-secret'
-// Consumption has no capacity units; every other tier starts at one.
-var apimSkuCapacity = apimSkuName == 'Consumption' ? 0 : 1
+
+//********************************************
+// Monitoring: the workspace and Application Insights
+//********************************************
+
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: empty(logAnalyticsName) ? toLower('${prefix}-log-analytics-${suffix}') : logAnalyticsName
+    location: location
+    tags: tags
+    sku: logAnalyticsSku
+    retentionInDays: logAnalyticsRetentionInDays
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
+  }
+}
 
 //********************************************
 // Function App: the Inventory backend
 //********************************************
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
-  name: storageAccountName
-  location: location
-  sku: {
-    name: 'Standard_LRS'
+// The storage account of the Functions host, whose blob, queue and table services send their logs to the workspace
+module storageAccount 'modules/storage-account.bicep' = {
+  name: 'storageAccount'
+  params: {
+    name: storageAccountName
+    location: location
+    diagnosticServices: [
+      'blob'
+      'queue'
+      'table'
+    ]
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  kind: 'StorageV2'
 }
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  kind: 'linux'
-  sku: {
-    name: appServicePlanSku
-  }
-  properties: {
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuTier: appServicePlanTier
+    skuName: appServicePlanSku
+    kind: 'linux'
     reserved: true
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-var storageAccountKey = storageAccount.listKeys().keys[0].value
-var storageEndpoints = storageAccount.properties.primaryEndpoints
-
-resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: functionAppName
-  location: location
-  kind: 'functionapp,linux'
-  properties: {
-    // Plain HTTP while the gateway calls this app over http:// -- the emulator serves the Function
-    // App that way; with backendScheme = https the app accepts only HTTPS, as on real Azure.
+module functionApp 'modules/function-app.bicep' = {
+  name: 'functionApp'
+  params: {
+    name: functionAppName
+    location: location
+    kind: 'functionapp,linux'
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
+    // Plain HTTP while the gateway calls this app over http://: the emulator serves the Function App that way; with
+    // backendScheme = https the app accepts only HTTPS, as on real Azure.
     httpsOnly: backendScheme == 'https'
-    reserved: true
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      // On a Dedicated (App Service) plan the Functions host goes idle without this, and a gateway
-      // call then waits for a cold start. Both sibling Function App samples set it.
-      alwaysOn: true
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      appSettings: [
-        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
-        { name: 'FUNCTIONS_WORKER_RUNTIME', value: runtimeName }
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
-        { name: 'ENABLE_ORYX_BUILD', value: 'true' }
-        // Explicit endpoints rather than an EndpointSuffix: the Functions host's storage clients
-        // cannot parse a suffix that carries the emulator's port.
-        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};BlobEndpoint=${storageEndpoints.blob};QueueEndpoint=${storageEndpoints.queue};TableEndpoint=${storageEndpoints.table}' }
-        // The same secret the gateway injects from its named value.
-        { name: 'BACKEND_SECRET', value: backendSecret }
-      ]
+    // On a Dedicated (App Service) plan the Functions host goes idle without this, and a gateway call then waits for a
+    // cold start.
+    alwaysOn: true
+    hostingPlanName: appServicePlan.outputs.name
+    storageAccountName: storageAccount.outputs.name
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      ENABLE_ORYX_BUILD: 'true'
+      // The same secret the gateway injects from its named value
+      BACKEND_SECRET: backendSecret
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
+      // The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
+      // forwarding its log records, and only the records of the function's logger
+      PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY: 'true'
+      PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME: 'function_app'
     }
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -118,90 +169,22 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
 // API Management
 //********************************************
 
-resource apim 'Microsoft.ApiManagement/service@2024-05-01' = {
-  name: apimName
-  location: location
-  sku: {
-    name: apimSkuName
-    capacity: apimSkuCapacity
-  }
-  properties: {
+module apiManagement 'modules/api-management.bicep' = {
+  name: 'apiManagement'
+  params: {
+    name: apimName
+    location: location
+    skuName: apimSkuName
     publisherName: publisherName
     publisherEmail: publisherEmail
-  }
-}
-
-// The shared secret lives in a secret named value; the policy refers to it as {{backend-secret}}.
-resource backendSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-05-01' = {
-  parent: apim
-  name: namedValueId
-  properties: {
-    displayName: namedValueId
-    secret: true
-    value: backendSecret
-  }
-}
-
-// Imported from the OpenAPI document shared with the other deployment variants, so its operations
-// come from the document. The backend is the Function App: the emulator answers on plain HTTP under
-// its own hostname (use https:// on real Azure).
-resource inventoryApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
-  parent: apim
-  name: apiId
-  properties: {
-    displayName: 'Inventory API'
-    description: 'Stock levels served by an Azure Function App and published through Azure API Management.'
-    path: apiPath
-    protocols: [
-      'https'
-    ]
-    subscriptionRequired: true
-    serviceUrl: '${backendScheme}://${functionApp.properties.defaultHostName}/api'
-    format: 'openapi+json'
-    value: loadTextContent('../apim/openapi.json')
-  }
-}
-
-// Policies are validated when they are saved, and this one references the named value, so the
-// named value has to exist first.
-resource inventoryApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = {
-  parent: inventoryApi
-  name: 'policy'
-  properties: {
-    format: 'rawxml'
-    value: loadTextContent('../apim/inventory-api-policy.xml')
-  }
-  dependsOn: [
-    backendSecretNamedValue
-  ]
-}
-
-resource partnersProduct 'Microsoft.ApiManagement/service/products@2024-05-01' = {
-  parent: apim
-  name: productId
-  properties: {
-    displayName: 'Inventory Partners'
-    description: 'Partners reading stock levels through the Inventory API'
-    subscriptionRequired: true
-    approvalRequired: false
-    state: 'published'
-  }
-}
-
-resource partnersProductApi 'Microsoft.ApiManagement/service/products/apis@2024-05-01' = {
-  parent: partnersProduct
-  name: inventoryApi.name
-}
-
-// The subscription's key is what clients present. Its scope is the product, so the key opens every
-// API the product contains and nothing else.
-resource partnerSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-05-01' = {
-  parent: apim
-  name: apimSubscriptionId
-  properties: {
-    displayName: 'Partner subscription'
-    scope: partnersProduct.id
-    state: 'active'
+    backendSecret: backendSecret
+    // The backend is the Function App: the emulator answers on plain HTTP under its own hostname (use https:// on real
+    // Azure)
+    serviceUrl: '${backendScheme}://${functionApp.outputs.defaultHostName}/api'
+    openApiDocument: loadTextContent('../apim/openapi.json')
+    apiPolicy: loadTextContent('../apim/inventory-api-policy.xml')
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -210,9 +193,11 @@ resource partnerSubscription 'Microsoft.ApiManagement/service/subscriptions@2024
 //********************************************
 
 output resourceGroupName string = resourceGroup().name
-output functionAppName string = functionApp.name
-output functionAppHostName string = functionApp.properties.defaultHostName
-output apimName string = apim.name
-output gatewayUrl string = apim.properties.gatewayUrl
-output apiPath string = apiPath
-output subscriptionName string = partnerSubscription.name
+output functionAppName string = functionApp.outputs.name
+output functionAppHostName string = functionApp.outputs.defaultHostName
+output apimName string = apiManagement.outputs.name
+output gatewayUrl string = apiManagement.outputs.gatewayUrl
+output apiPath string = apiManagement.outputs.apiPath
+output subscriptionName string = apiManagement.outputs.subscriptionName
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

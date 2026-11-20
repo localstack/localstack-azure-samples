@@ -63,6 +63,23 @@ param firewallEndIp string = '255.255.255.255'
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes them to the resource-specific MySqlAuditLogs and MySqlSlowLogs tables that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
+
+@description('Specifies whether the server writes its audit log, whose records the MySqlAuditLogs category of the diagnostic settings sends to the workspace. Azure turns it off by default.')
+@allowed([
+  'ON'
+  'OFF'
+])
+param auditLogEnabled string = 'ON'
+
+@description('Specifies the comma-separated types of the events that the audit log records: CONNECTION for the connections to the server.')
+param auditLogEvents string = 'CONNECTION'
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {}
 
@@ -140,6 +157,8 @@ resource database 'Microsoft.DBforMySQL/flexibleServers/databases@2023-12-30' = 
   }
 }
 
+// Azure runs one operation at a time on a flexible server ("ServerIsBusy" otherwise), so the firewall rule
+// waits for the database instead of being created in parallel with it.
 resource firewallRule 'Microsoft.DBforMySQL/flexibleServers/firewallRules@2023-12-30' = {
   parent: server
   name: firewallRuleName
@@ -147,6 +166,35 @@ resource firewallRule 'Microsoft.DBforMySQL/flexibleServers/firewallRules@2023-1
     startIpAddress: firewallStartIp
     endIpAddress: firewallEndIp
   }
+  dependsOn: [
+    database
+  ]
+}
+
+// Audit logging is off by default, and the MySqlAuditLogs category of the diagnostic settings has records only once the
+// server writes them. Each parameter waits for the operation before it, because Azure runs one at a time on the server.
+resource auditLogEnabledConfiguration 'Microsoft.DBforMySQL/flexibleServers/configurations@2023-12-30' = {
+  parent: server
+  name: 'audit_log_enabled'
+  properties: {
+    value: auditLogEnabled
+    source: 'user-override'
+  }
+  dependsOn: [
+    firewallRule
+  ]
+}
+
+resource auditLogEventsConfiguration 'Microsoft.DBforMySQL/flexibleServers/configurations@2023-12-30' = {
+  parent: server
+  name: 'audit_log_events'
+  properties: {
+    value: auditLogEvents
+    source: 'user-override'
+  }
+  dependsOn: [
+    auditLogEnabledConfiguration
+  ]
 }
 
 resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
@@ -154,6 +202,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: server
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
     logs: logs
     metrics: metrics
   }

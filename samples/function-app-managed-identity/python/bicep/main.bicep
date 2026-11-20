@@ -24,7 +24,7 @@ param location string = resourceGroup().location
   'WorkflowStandard'
   'FlexConsumption'
 ])
-param skuTier string = 'Standard'
+param skuTier string = 'Basic'
 
 @description('Specifies the SKU name for the hosting plan.')
 @allowed([
@@ -66,7 +66,7 @@ param skuTier string = 'Standard'
   'WS3'
   'FC1'
 ])
-param skuName string = 'S1'
+param skuName string = 'B1'
 
 @description('Specifies the kind of the hosting plan.')
 @allowed([
@@ -99,17 +99,10 @@ param runtimeName string
 @description('Specifies the target language version used by the Azure Functions App.')
 param runtimeVersion string
 
-@description('Specifies the kind of the hosting plan.')
+@description('Specifies the kind of the Azure Function App.')
 @allowed([
-  'app'                                    // Windows Web app
-  'app,linux'                              // Linux Web app
-  'app,linux,container'                    // Linux Container Web app
-  'hyperV'                                 // Windows Container Web App
-  'app,container,windows'                  // Windows Container Web App
-  'app,linux,kubernetes'                   // Linux Web App on ARC
-  'app,linux,container,kubernetes'         // Linux Container Web App on ARC
   'functionapp'                            // Function Code App
-  'functionapp,linux'                      // Linux Consumption Function app
+  'functionapp,linux'                      // Linux Function App
   'functionapp,linux,container,kubernetes' // Function Container App on ARC
   'functionapp,linux,kubernetes'           // Function Code App on ARC
 ])
@@ -162,150 +155,171 @@ param outputContainerName string = 'output'
 ])
 param managedIdentityType string = 'SystemAssigned'
 
+@description('Specifies the name of the diagnostic settings of the function app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the function app send to the Log Analytics workspace.')
+param logCategories array = [
+  'FunctionAppLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the function app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+//********************************************
+// Variables
+//********************************************
 var functionAppName = '${prefix}-functionapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
 var managedIdentityName = '${prefix}-identity-${suffix}'
-var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
 
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (managedIdentityType == 'UserAssigned') {
-  name: managedIdentityName
-  location: location
-  tags: tags
-}
+// The ids of the Storage Blob Data Contributor and Storage Queue Data Contributor built-in roles
+var storageBlobDataContributorRoleDefinitionId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var storageQueueDataContributorRoleDefinitionId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
 
-resource storageBlobDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-  scope: subscription()
-}
-
-resource storageQueueDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-  scope: subscription()
-}
-
-resource storageBlobDataContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, functionApp.id, storageBlobDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageBlobDataContributorRoleDefinition.id
-    principalId: managedIdentityType == 'SystemAssigned' ? functionApp.identity.principalId : managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
+//********************************************
+// Modules
+//********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
   }
 }
 
-resource storageQueueDataContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, functionApp.id, storageQueueDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageQueueDataContributorRoleDefinition.id
-    principalId: managedIdentityType == 'SystemAssigned' ? functionApp.identity.principalId : managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
-  name: storageAccountName
-  location: location
-  tags: tags
-  sku: {
-    name: storageAccountSku
+// The Functions host keeps its own data in the blobs, queues and tables of the storage account (AzureWebJobsStorage),
+// so the three services have diagnostic settings
+module storageAccount 'modules/storage-account.bicep' = {
+  name: 'storageAccount'
+  params: {
+    name: storageAccountName
+    location: location
+    skuName: storageAccountSku
+    containerNames: [
+      inputContainerName
+      outputContainerName
+    ]
+    diagnosticServices: [
+      'blob'
+      'queue'
+      'table'
+    ]
+    diagnosticSettingsName: diagnosticSettingsName
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  kind: 'StorageV2'
-  properties: {
-    accessTier: 'Hot'
+}
+
+module managedIdentity 'modules/managed-identity.bicep' = if (managedIdentityType == 'UserAssigned') {
+  name: 'managedIdentity'
+  params: {
+    name: managedIdentityName
+    location: location
+    tags: tags
   }
 }
 
-resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
-resource inputContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
-  parent: blobServices
-  name: inputContainerName
-}
-
-resource outputContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
-  parent: blobServices
-  name: outputContainerName
-}
-
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  tags: tags
-  kind: appServicePlanKind
-  sku: {
-    tier: skuTier
-    name: skuName
-  }
-  properties: {
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuTier: skuTier
+    skuName: skuName
+    kind: appServicePlanKind
     reserved: reserved
     zoneRedundant: zoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    diagnosticSettingsName: diagnosticSettingsName
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: functionAppName
-  location: location
-  tags: tags
-  kind: functionAppKind
-  properties: {
+module functionApp 'modules/function-app.bicep' = {
+  name: 'functionApp'
+  params: {
+    name: functionAppName
+    location: location
+    kind: functionAppKind
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
     httpsOnly: httpsOnly
-    reserved: true
-    serverFarmId: appServicePlan.id
-    virtualNetworkSubnetId: null
-    siteConfig: {
-      alwaysOn: alwaysOn
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      minTlsVersion: minTlsVersion
-      ftpsState: 'FtpsOnly'
-      publicNetworkAccess: publicNetworkAccess
+    alwaysOn: alwaysOn
+    minTlsVersion: minTlsVersion
+    publicNetworkAccess: publicNetworkAccess
+    identityType: managedIdentityType
+    managedIdentityId: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.id : ''
+    hostingPlanName: appServicePlan.outputs.name
+    storageAccountName: storageAccount.outputs.name
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      ENABLE_ORYX_BUILD: 'true'
+      STORAGE_ACCOUNT_CONNECTION_STRING__blobServiceUri: storageAccount.outputs.blobEndpoint
+      STORAGE_ACCOUNT_CONNECTION_STRING__queueServiceUri: storageAccount.outputs.queueEndpoint
+      STORAGE_ACCOUNT_CONNECTION_STRING__tableServiceUri: storageAccount.outputs.tableEndpoint
+      INPUT_STORAGE_CONTAINER_NAME: inputContainerName
+      OUTPUT_STORAGE_CONTAINER_NAME: outputContainerName
+      AZURE_CLIENT_ID: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
+      // The Python worker sends its own telemetry through OpenTelemetry, which host.json turns on, instead of the host
+      // forwarding its log records, and only the records of the function's logger
+      PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY: 'true'
+      PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME: 'function_app'
     }
-  }
-  identity: {
-    type: managedIdentityType
-    userAssignedIdentities  : managedIdentityType == 'SystemAssigned' ? null : {
-      '${managedIdentity.id}': {}
-    } 
-  }
-}
-
-resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
-  parent: functionApp
-  name: 'appsettings'
-  properties: {
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    ENABLE_ORYX_BUILD: 'true'
-    AzureWebJobsStorage: storageAccountConnectionString
-    FUNCTIONS_WORKER_RUNTIME: runtimeName
-    FUNCTIONS_EXTENSION_VERSION: '~4'
-    STORAGE_ACCOUNT_CONNECTION_STRING__blobServiceUri: storageAccount.properties.primaryEndpoints.blob
-    STORAGE_ACCOUNT_CONNECTION_STRING__queueServiceUri: storageAccount.properties.primaryEndpoints.queue
-    STORAGE_ACCOUNT_CONNECTION_STRING__tableServiceUri: storageAccount.properties.primaryEndpoints.table
-    INPUT_STORAGE_CONTAINER_NAME: inputContainer.name
-	  OUTPUT_STORAGE_CONTAINER_NAME: outputContainer.name
-    AZURE_CLIENT_ID: managedIdentityType == 'SystemAssigned' ? '' : managedIdentity.properties.clientId
-  }
-  dependsOn: [
-    storageBlobDataContributorRoleAssignment
-  ]
-}
-
-resource functionAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
-  name: 'web'
-  parent: functionApp
-  properties: {
     repoUrl: repoUrl
-    branch: 'master'
-    isManualIntegration: true
+    diagnosticSettingsName: diagnosticSettingsName
+    logCategories: logCategories
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-output appServicePlanName string = appServicePlan.name
-output functionAppName string = functionApp.name
-output functionAppUrl string = functionApp.properties.defaultHostName
-output storageAccountName string = storageAccountName
+// The function app's identity reads the input blobs, writes the output blobs and reads the queue of the blob trigger:
+// the system-assigned identity exists only once the function app does, so the roles are assigned after it's created.
+module storageBlobDataContributorRoleAssignment 'modules/storage-account-role-assignment.bicep' = {
+  name: 'storageBlobDataContributorRoleAssignment'
+  params: {
+    storageAccountName: storageAccount.outputs.name
+    roleDefinitionId: storageBlobDataContributorRoleDefinitionId
+    principalId: managedIdentityType == 'SystemAssigned' ? functionApp.outputs.principalId : managedIdentity!.outputs.principalId
+  }
+}
+
+module storageQueueDataContributorRoleAssignment 'modules/storage-account-role-assignment.bicep' = {
+  name: 'storageQueueDataContributorRoleAssignment'
+  params: {
+    storageAccountName: storageAccount.outputs.name
+    roleDefinitionId: storageQueueDataContributorRoleDefinitionId
+    principalId: managedIdentityType == 'SystemAssigned' ? functionApp.outputs.principalId : managedIdentity!.outputs.principalId
+  }
+}
+
+//********************************************
+// Outputs
+//********************************************
+output appServicePlanName string = appServicePlan.outputs.name
+output functionAppName string = functionApp.outputs.name
+output functionAppUrl string = functionApp.outputs.defaultHostName
+output storageAccountName string = storageAccount.outputs.name
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

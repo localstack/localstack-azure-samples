@@ -10,6 +10,13 @@ terraform {
       source  = "hashicorp/random"
       version = "=3.9.0"
     }
+
+    # Absorbs the propagation delay of the deploying principal's Key Vault role assignment before the secrets are
+    # written (see modules/key_vault)
+    time = {
+      source  = "hashicorp/time"
+      version = "=0.14.1"
+    }
   }
 }
 

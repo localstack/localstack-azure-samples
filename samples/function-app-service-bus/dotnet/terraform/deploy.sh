@@ -6,6 +6,8 @@ SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="functionapp.zip"
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -45,11 +47,13 @@ if [[ -z "$RESOURCE_GROUP_NAME" || -z "$FUNCTION_APP_NAME" || -z "$SERVICE_BUS_N
 	exit 1
 fi
 
-# Print the application settings of the function app
-echo "Retrieving application settings for function app [$FUNCTION_APP_NAME]..."
+# Print the names of the application settings of the function app, never their values, which hold secrets
+echo "Retrieving the names of the application settings of the function app [$FUNCTION_APP_NAME]..."
 az functionapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME"
+	--name "$FUNCTION_APP_NAME" \
+	--query "[].name" \
+	--output tsv
 
 # CD into the function app directory
 cd ../src || exit
@@ -74,12 +78,72 @@ cd ./publish || exit
 zip -r "../$ZIPFILE" .
 cd ..
 
-# Deploy the function app
-echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-if az functionapp deployment source config-zip \
+# Get the tier of the hosting plan of the function app and the host name of its deployment site. The Azure CLI shows
+# them under properties since version 2.93.0, and at the top level before it
+FUNCTION_APP_SKU=$(az functionapp show \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--name "$FUNCTION_APP_NAME" \
-	--src "$ZIPFILE" 1>/dev/null; then
+	--query "properties.sku || sku" \
+	--output tsv)
+
+if [[ $? != 0 || -z "$FUNCTION_APP_SKU" ]]; then
+	echo "Failed to retrieve the hosting plan of function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
+
+SCM_HOST_NAME=$(az functionapp show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$FUNCTION_APP_NAME" \
+	--query "(properties.hostNameSslStates || hostNameSslStates)[?hostType=='Repository'] | [0].name" \
+	--output tsv)
+
+if [[ $? != 0 || -z "$SCM_HOST_NAME" ]]; then
+	echo "Failed to retrieve the host name of the deployment site of function app [$FUNCTION_APP_NAME]."
+	exit 1
+fi
+
+# Deploy the function app
+echo "Deploying function app [$FUNCTION_APP_NAME] on the [$FUNCTION_APP_SKU] plan with zip file [$ZIPFILE]..."
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deployment source config-zip \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src "$ZIPFILE" 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	# On the Flex Consumption plan, config-zip ends with a health check that accepts the default host name of the app
+	# only without a port. LocalStack's carries one, so there the check fails after the deployment succeeded: the status
+	# of the deployment itself decides (4 is success)
+	if [[ "$FUNCTION_APP_SKU" == "FlexConsumption" ]]; then
+		DEPLOYMENT_STATUS=$(az rest \
+			--method get \
+			--url "https://$SCM_HOST_NAME/api/deployments/latest" \
+			--resource "$(az cloud show --query endpoints.appServiceResourceId --output tsv)" \
+			--query status \
+			--output tsv \
+			--only-show-errors)
+
+		if [[ "$DEPLOYMENT_STATUS" == "4" ]]; then
+			echo "The deployment to function app [$FUNCTION_APP_NAME] succeeded; only the health check that ends config-zip failed."
+			DEPLOYED=1
+			break
+		fi
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
 else
 	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."

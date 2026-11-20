@@ -9,7 +9,8 @@ from database import SqlHelper
 from datetime import datetime
 
 # Configure logging
-logger = logging.getLogger(__name__)
+# A child of the application's logger, so that the Microsoft OpenTelemetry Distro sends its records too
+logger = logging.getLogger("webapp.activities")
 logger.setLevel(logging.INFO)
 
 

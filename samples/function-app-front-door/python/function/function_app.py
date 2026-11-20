@@ -7,10 +7,28 @@ the catalog sets a ``Cache-Control`` Front Door can honour, everything else says
 """
 
 import json
+import logging
 import os
 from urllib.parse import urlparse
 
 import azure.functions as func
+from opentelemetry import metrics
+
+logging.basicConfig(level=logging.INFO)
+
+# The logger of the functions. With the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, telemetryMode set to
+# OpenTelemetry in host.json and PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY set to true, the Python worker sends to
+# Application Insights the records of the logger that PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME names (traces), the
+# exceptions it logs, the custom event and the custom metric below.
+LOGGER_NAME = "function_app"
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+
+# The custom metric: the number of catalog items each origin served, so the split between the two Function Apps that
+# Front Door's origin selection produces shows up in Application Insights (customMetrics table)
+catalog_items_served = metrics.get_meter(LOGGER_NAME).create_counter(
+    "catalog_items_served", unit="{item}", description="The number of catalog items the origin served."
+)
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -69,6 +87,7 @@ def whoami(req: func.HttpRequest) -> func.HttpResponse:
     headers = {
         name: value for name, value in req.headers.items() if name.lower() in FRONT_DOOR_HEADERS
     }
+    logger.info("Origin %s answered /whoami for %s", ORIGIN_NAME, origin_path(req))
     return json_response(
         {
             "origin": ORIGIN_NAME,
@@ -82,6 +101,7 @@ def whoami(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="status", methods=["GET"])
 def status(req: func.HttpRequest) -> func.HttpResponse:
     """The target of the sample's second, more specific route."""
+    logger.info("Origin %s answered the status route for %s", ORIGIN_NAME, origin_path(req))
     return json_response({"origin": ORIGIN_NAME, "path": origin_path(req), "status": "ok"})
 
 
@@ -91,7 +111,19 @@ def catalog(req: func.HttpRequest) -> func.HttpResponse:
     wanted = req.route_params.get("item")
     item = CATALOG.get(wanted)
     if item is None:
+        logger.warning("Origin %s has no catalog item %s", ORIGIN_NAME, wanted)
         return json_response({"error": f"No catalog item {wanted}"}, status_code=404)
+    # A custom event (customEvents table): the worker sends a log record that carries the microsoft.custom_event.name
+    # attribute as a custom event named after its value, with the other attributes as its custom dimensions
+    logger.info(
+        f"CatalogItemServed: {item['sku']}",
+        extra={
+            "microsoft.custom_event.name": "CatalogItemServed",
+            "catalog.sku": item["sku"],
+            "origin.name": ORIGIN_NAME,
+        },
+    )
+    catalog_items_served.add(1, {"origin": ORIGIN_NAME})
     return json_response(
         {"origin": ORIGIN_NAME, "path": origin_path(req), "item": item},
         cache_control="public, max-age=300",

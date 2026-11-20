@@ -23,7 +23,7 @@ provider "azurerm" {
   # Neither the metadata host nor the subscription is pinned here, so this one configuration
   # deploys to both targets:
   #
-  #   * emulator - deploy.sh exports ARM_METADATA_HOSTNAME=localhost.localstack.cloud:4566 and
+  #   * emulator - deploy.sh exports ARM_METADATA_HOSTNAME=azure.localhost.localstack.cloud:4566 and
   #     ARM_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000000 when `az account show` reports the
   #     LocalStack cloud, which is what points the provider at the emulator and stops it calling the
   #     real Azure endpoints;

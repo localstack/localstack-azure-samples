@@ -56,6 +56,9 @@ param publicNetworkAccess string = 'Enabled'
 @description('Specifies whether HTTPS is enforced for the Azure Web App.')
 param httpsOnly bool = true
 
+@description('Specifies the connection string of the Application Insights resource the app sends its telemetry to.')
+param applicationInsightsConnectionString string
+
 @description('Specifies the name of the hosting plan.')
 param hostingPlanName string
 
@@ -181,6 +184,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     COSMOSDB_COLLECTION_NAME: collectionName
     WEBSITES_PORT: '8000'
     LOGIN_NAME: username
+    APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString
   }
 }
 

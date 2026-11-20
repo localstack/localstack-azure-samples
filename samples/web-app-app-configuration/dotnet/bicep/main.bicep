@@ -250,6 +250,9 @@ param keyVaultPrivateEndpointGroupIds array = [
 @description('Specifies the name of the Azure Log Analytics resource.')
 param logAnalyticsName string = ''
 
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
 @description('Specifies the service tier of the workspace.')
 @allowed(['Free','Standalone','PerNode','PerGB2018'])
 param logAnalyticsSku string = 'PerNode'
@@ -322,6 +325,16 @@ module workspace 'modules/log-analytics.bicep' = {
     tags: tags
     sku: logAnalyticsSku
     retentionInDays: logAnalyticsRetentionInDays
+  }
+}
+
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
@@ -514,6 +527,7 @@ module webApp 'modules/web-app.bicep' = {
     managedIdentityId: managedIdentity.outputs.id
     managedIdentityClientId: managedIdentity.outputs.clientId
     appConfigurationEndpoint: appConfiguration.outputs.endpoint
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     username: username
     websitesPort: websitesPort
     workspaceId: workspace.outputs.id
@@ -535,3 +549,5 @@ output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.vaultUri
 output managedIdentityName string = managedIdentity.outputs.name
 output managedIdentityClientId string = managedIdentity.outputs.clientId
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

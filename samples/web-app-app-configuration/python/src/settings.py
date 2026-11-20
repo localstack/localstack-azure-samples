@@ -25,7 +25,8 @@ from azure.appconfiguration import AzureAppConfigurationClient, SecretReferenceC
 from azure.appconfiguration.provider import SettingSelector, load
 from azure.identity import DefaultAzureCredential
 
-logger = logging.getLogger(__name__)
+# A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
+logger = logging.getLogger(f"webapp.{__name__}")
 logger.setLevel(logging.INFO)
 
 ENDPOINT_SETTING = "Endpoints__AppConfiguration"

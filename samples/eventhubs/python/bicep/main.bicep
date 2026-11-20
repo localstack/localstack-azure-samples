@@ -46,6 +46,17 @@ param fraudAmountThreshold int = 5000
 @description('More than this many payments for one account inside the window is flagged.')
 param fraudVelocityCount int = 5
 
+@description('Specifies the object id of the deploying principal, granted Key Vault Secrets Officer on the vault so that deploy.sh can write the secrets (empty skips the assignment).')
+param deployerPrincipalId string = ''
+
+@description('Specifies the type of the deploying principal.')
+@allowed([
+  'User'
+  'ServicePrincipal'
+  'Group'
+])
+param deployerPrincipalType string = 'User'
+
 @description('Specifies the tags for all resources.')
 param tags object = {
   sample: 'eventhubs-fraud-detection'
@@ -90,6 +101,7 @@ module storage 'modules/storage.bicep' = {
     location: location
     captureContainerName: captureContainerName
     tags: tags
+    workspaceId: monitoring.outputs.workspaceId
   }
 }
 
@@ -113,6 +125,7 @@ module eventHubs 'modules/event-hubs.bicep' = {
     captureIntervalInSeconds: captureIntervalInSeconds
     schemaGroupName: schemaGroupName
     tags: tags
+    workspaceId: monitoring.outputs.workspaceId
   }
 }
 
@@ -122,6 +135,9 @@ module keyVault 'modules/key-vault.bicep' = {
     keyVaultName: keyVaultName
     location: location
     tags: tags
+    workspaceId: monitoring.outputs.workspaceId
+    deployerPrincipalId: deployerPrincipalId
+    deployerPrincipalType: deployerPrincipalType
   }
 }
 
@@ -143,6 +159,7 @@ module workloads 'modules/workloads.bicep' = {
     fraudAmountThreshold: fraudAmountThreshold
     fraudVelocityCount: fraudVelocityCount
     tags: tags
+    workspaceId: monitoring.outputs.workspaceId
   }
 }
 

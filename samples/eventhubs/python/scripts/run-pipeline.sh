@@ -11,10 +11,11 @@
 #   5. wait for Capture to flush, then decode an Avro archive from Blob Storage
 #
 # Every step is an assertion, not a narration: the script exits non-zero the
-# moment the pipeline stops behaving, and prints the function container's logs
-# so the reason is in the output. A clean exit means the whole pipeline ran.
+# moment the pipeline stops behaving and, on the emulator, prints the function
+# container's logs so the reason is in the output. A clean exit means the whole
+# pipeline ran.
 #
-# Run scripts/deploy.sh first. Everything is local to the emulator.
+# Run scripts/deploy.sh first. It runs against LocalStack for Azure and Azure alike.
 # =============================================================================
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -35,9 +36,11 @@ native_path() {
 # Capture flushes on the interval configured in deploy.sh (60s); allow for the scan cycle.
 CAPTURE_WAIT_SECONDS="${CAPTURE_WAIT_SECONDS:-150}"
 PROCESSING_WAIT_SECONDS="${PROCESSING_WAIT_SECONDS:-420}"
-# A redeploy replaces the container, so the host starts cold and downloads its extension
-# bundle again before the first invocation.
+# After the restart the host starts cold and can download its extension bundle again before
+# the first invocation.
 RESTART_WAIT_SECONDS="${RESTART_WAIT_SECONDS:-600}"
+# The function's Azure Monitor OpenTelemetry Distro exports its metrics once a minute.
+METRIC_EXPORT_WAIT_SECONDS="${METRIC_EXPORT_WAIT_SECONDS:-75}"
 
 # How many payments each protocol publishes, and the total the payments hub must grow by.
 # --burst-account makes producer_amqp.py add a fixed card-testing burst on top of --count.
@@ -208,22 +211,18 @@ ALERTS_BEFORE=$(count_total "$ALERT_HUB_NAME") ||
 	fail "the alerts hub '$ALERT_HUB_NAME' could not be read"
 echo "Alerts before restart: $ALERTS_BEFORE"
 
-# Redeploying the same package restarts the host and is the portable way to do it: the
-# emulator does not implement 'az functionapp restart' (it answers NOT IMPLEMENTED), and a
-# redeploy exercises the same recovery path - the processor comes back and has to decide
+# A restart can drop what the processor aggregated since the distro last exported its metrics,
+# so the payments_screened counts of the payments above get one export first.
+echo "Waiting ${METRIC_EXPORT_WAIT_SECONDS}s for the processor to export its metrics..."
+sleep "$METRIC_EXPORT_WAIT_SECONDS"
+
+# Restarting the function app restarts its host: the processor comes back and has to decide
 # where to resume from.
-echo "Restarting the processor by redeploying the function package..."
-cd "$SRC_DIR/functions" || fail "missing src/functions"
-rm -f "$CURRENT_DIR/fraud_function.zip"
-zip -r "$(native_path "$CURRENT_DIR/fraud_function.zip")" function_app.py host.json requirements.txt 1>/dev/null
-cd "$CURRENT_DIR" || fail "could not return to the scripts directory"
-az functionapp deploy \
+echo "Restarting the processor..."
+az functionapp restart \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path fraud_function.zip \
-	--type zip 1>/dev/null ||
-	fail "the function package could not be redeployed, so the restart never happened"
-rm -f "$CURRENT_DIR/fraud_function.zip"
+	--name "$FUNCTION_APP_NAME" 1>/dev/null ||
+	fail "the function app could not be restarted"
 
 echo "Publishing $RESTART_COUNT more payments while the processor comes back..."
 cd "$SRC_DIR/producers" || fail "missing src/producers"

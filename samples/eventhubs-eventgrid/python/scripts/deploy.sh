@@ -43,11 +43,16 @@ FUNCTION_APP_NAME="${PREFIX}-ehgrid-processor"
 APP_SERVICE_PLAN_NAME="${PREFIX}-ehgrid-plan"
 CAPTURE_CONSUMER_GROUP='capture-processor'
 TEMPERATURE_LIMIT=80
+LOG_ANALYTICS_NAME="${PREFIX}-ehgrid-log-analytics"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-ehgrid-insights"
+DIAGNOSTIC_SETTINGS_NAME='default'
 
 SEND_RULE_NAME='telemetry-send'
 LISTEN_RULE_NAME='pipeline-listen'
 
 FUNCTION_ZIP='capture_processor.zip'
+DEPLOY_RETRY_COUNT=10
+DEPLOY_RETRY_SLEEP=60
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$CURRENT_DIR/../src" && pwd)"
@@ -75,14 +80,50 @@ step() {
 }
 
 # -----------------------------------------------------------------------------
-step "[1/9] Resource group"
+step "[1/11] Resource group"
 # -----------------------------------------------------------------------------
 az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
 	--only-show-errors 1>/dev/null || fail "could not create the resource group"
 echo "Resource group [$RESOURCE_GROUP_NAME] ready."
 
 # -----------------------------------------------------------------------------
-step "[2/9] Storage account for Capture archives"
+step "[2/11] Log Analytics workspace and Application Insights"
+# -----------------------------------------------------------------------------
+if ! az monitor log-analytics workspace show --workspace-name "$LOG_ANALYTICS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	az monitor log-analytics workspace create \
+		--workspace-name "$LOG_ANALYTICS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the Log Analytics workspace"
+	echo "Created Log Analytics workspace [$LOG_ANALYTICS_NAME]."
+else
+	echo "Log Analytics workspace [$LOG_ANALYTICS_NAME] already exists."
+fi
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show --workspace-name "$LOG_ANALYTICS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --query id -o tsv --only-show-errors)
+[[ -n "$LOG_ANALYTICS_ID" ]] || fail "could not read the Log Analytics workspace id"
+
+# A workspace-based Application Insights resource: the function app's telemetry lands in the workspace
+if ! az monitor app-insights component show --app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	az monitor app-insights component create \
+		--app "$APPLICATION_INSIGHTS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--application-type web \
+		--workspace "$LOG_ANALYTICS_ID" \
+		--only-show-errors 1>/dev/null || fail "could not create the Application Insights resource"
+	echo "Created Application Insights resource [$APPLICATION_INSIGHTS_NAME]."
+else
+	echo "Application Insights resource [$APPLICATION_INSIGHTS_NAME] already exists."
+fi
+APPLICATION_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show --app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" --query connectionString -o tsv --only-show-errors)
+[[ -n "$APPLICATION_INSIGHTS_CONNECTION_STRING" ]] || fail "could not read the Application Insights connection string"
+
+# -----------------------------------------------------------------------------
+step "[3/11] Storage account for Capture archives"
 # -----------------------------------------------------------------------------
 if ! az storage account show --name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
@@ -118,7 +159,7 @@ az storage container create --name "$CAPTURE_CONTAINER_NAME" \
 echo "Blob container [$CAPTURE_CONTAINER_NAME] ready for Capture archives."
 
 # -----------------------------------------------------------------------------
-step "[3/9] Event Hubs namespace (Standard tier - Capture needs it)"
+step "[4/11] Event Hubs namespace (Standard tier - Capture needs it)"
 # -----------------------------------------------------------------------------
 if ! az eventhubs namespace show --name "$EVENTHUB_NAMESPACE_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
@@ -139,7 +180,7 @@ STORAGE_ACCOUNT_ID=$(az storage account show --name "$STORAGE_ACCOUNT_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" --query id -o tsv --only-show-errors)
 
 # -----------------------------------------------------------------------------
-step "[4/9] Three hubs: telemetry (with Capture), notifications, curated"
+step "[5/11] Three hubs: telemetry (with Capture), notifications, curated"
 # -----------------------------------------------------------------------------
 if ! az eventhubs eventhub show --name "$TELEMETRY_HUB_NAME" \
 	--namespace-name "$EVENTHUB_NAMESPACE_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
@@ -186,7 +227,7 @@ for hub_spec in "$NOTIFICATION_HUB_NAME:$NOTIFICATION_PARTITION_COUNT" "$CURATED
 done
 
 # -----------------------------------------------------------------------------
-step "[5/9] Consumer group for the processor"
+step "[6/11] Consumer group for the processor"
 # -----------------------------------------------------------------------------
 if ! az eventhubs eventhub consumer-group show \
 	--consumer-group-name "$CAPTURE_CONSUMER_GROUP" --eventhub-name "$NOTIFICATION_HUB_NAME" \
@@ -204,7 +245,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-step "[6/9] Least-privilege authorization rules"
+step "[7/11] Least-privilege authorization rules"
 # -----------------------------------------------------------------------------
 # Producers may only Send to the telemetry hub.
 if ! az eventhubs eventhub authorization-rule show --name "$SEND_RULE_NAME" \
@@ -243,7 +284,7 @@ NAMESPACE_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 [[ -n "$NAMESPACE_CONNECTION" ]] || fail "could not read the namespace connection string"
 
 # -----------------------------------------------------------------------------
-step "[7/9] Event Grid system topic on the namespace"
+step "[8/11] Event Grid system topic on the namespace"
 # -----------------------------------------------------------------------------
 # A system topic is how a subscriber reaches the events an Azure resource raises about itself.
 # Its source is the namespace, and Event Hubs raises Microsoft.EventHub.CaptureFileCreated to it.
@@ -284,7 +325,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-step "[8/9] Function App (Event Hubs trigger -> archive processor)"
+step "[9/11] Function App (Event Hubs trigger -> archive processor)"
 # -----------------------------------------------------------------------------
 if ! az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
 	--only-show-errors &>/dev/null; then
@@ -296,6 +337,7 @@ if ! az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE
 		--runtime python \
 		--runtime-version 3.12 \
 		--functions-version 4 \
+		--app-insights "$APPLICATION_INSIGHTS_NAME" \
 		--os-type Linux \
 		--only-show-errors 1>/dev/null || fail "could not create the function app"
 	echo "Created function app [$FUNCTION_APP_NAME]."
@@ -322,6 +364,7 @@ az functionapp config appsettings set \
 	"CURATED_HUB_NAME=$CURATED_HUB_NAME" \
 	"CAPTURE_CONSUMER_GROUP=$CAPTURE_CONSUMER_GROUP" \
 	"TEMPERATURE_LIMIT=$TEMPERATURE_LIMIT" \
+	"APPLICATIONINSIGHTS_CONNECTION_STRING=$APPLICATION_INSIGHTS_CONNECTION_STRING" \
 	--only-show-errors 1>/dev/null || fail "could not set function app settings"
 echo "Configured function app settings."
 
@@ -331,16 +374,118 @@ zip -r "$(native_path "$CURRENT_DIR/$FUNCTION_ZIP")" function_app.py host.json r
 cd "$CURRENT_DIR" || exit 1
 
 echo "Deploying the processor (the first run pulls the build image and can take a few minutes)..."
-az functionapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path "$FUNCTION_ZIP" \
-	--type zip 1>/dev/null || fail "could not deploy the function app"
+# The function app runs on a Linux Consumption plan, which has no companion deployment site: Azure answers
+# az functionapp deploy with "This API isn't available in this environment yet!". Zip deployment with a remote build,
+# which installs requirements.txt, deploys it (Learn, "Deployment technologies in Azure Functions"). On Azure the first
+# deployment to a new function app can time out, and its deployment endpoint can answer 503 (Site Unavailable) for
+# several minutes after the app is created, so a failed attempt is retried for about ten minutes
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deployment source config-zip \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src "$FUNCTION_ZIP" \
+		--build-remote true 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+[[ $DEPLOYED == 1 ]] || fail "could not deploy the function app"
 rm -f "$FUNCTION_ZIP"
 echo "Deployed the capture processor."
 
 # -----------------------------------------------------------------------------
-step "[9/9] Connection details"
+step "[10/11] Diagnostic settings"
+# -----------------------------------------------------------------------------
+# Create the diagnostic settings of a resource that sends its resource logs and its platform metrics to the workspace,
+# unless they already exist
+# $1: the resource id
+# $2: the resource description
+# $3...: the arguments of az monitor diagnostic-settings create that pick the logs and the metrics
+diagnostic_settings() {
+	local resource_id=$1
+	local description=$2
+	shift 2
+	if az monitor diagnostic-settings show --name "$DIAGNOSTIC_SETTINGS_NAME" --resource "$resource_id" \
+		--only-show-errors &>/dev/null; then
+		echo "Diagnostic settings of the $description already exist."
+		return
+	fi
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$resource_id" \
+		--workspace "$LOG_ANALYTICS_ID" \
+		"$@" \
+		--only-show-errors 1>/dev/null || fail "could not create the diagnostic settings of the $description"
+	echo "Created the diagnostic settings of the $description."
+}
+
+STORAGE_ACCOUNT_ID=$(az storage account show -n "$STORAGE_ACCOUNT_NAME" -g "$RESOURCE_GROUP_NAME" \
+	--query id -o tsv --only-show-errors)
+FUNCTION_APP_ID=$(az functionapp show -n "$FUNCTION_APP_NAME" -g "$RESOURCE_GROUP_NAME" \
+	--query id -o tsv --only-show-errors)
+# The Consumption plan az functionapp create made for the app, whose name Azure picks
+FUNCTION_PLAN_ID=$(az functionapp show -n "$FUNCTION_APP_NAME" -g "$RESOURCE_GROUP_NAME" \
+	--query appServicePlanId -o tsv --only-show-errors)
+SYSTEM_TOPIC_ID=$(az eventgrid system-topic show -n "$SYSTEM_TOPIC_NAME" -g "$RESOURCE_GROUP_NAME" \
+	--query id -o tsv --only-show-errors)
+[[ -n "$STORAGE_ACCOUNT_ID" && -n "$FUNCTION_APP_ID" && -n "$FUNCTION_PLAN_ID" && -n "$SYSTEM_TOPIC_ID" ]] ||
+	fail "could not read the resource ids"
+
+# The storage account offers metrics only; its services send the logs of their requests and their metrics
+diagnostic_settings "$STORAGE_ACCOUNT_ID" "[$STORAGE_ACCOUNT_NAME] storage account" \
+	--metrics '[{"category": "Capacity", "enabled": true}, {"category": "Transaction", "enabled": true}]'
+for SERVICE in blob queue table; do
+	diagnostic_settings "$STORAGE_ACCOUNT_ID/${SERVICE}Services/default" "$SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account" \
+		--logs '[{"category": "StorageRead", "enabled": true}, {"category": "StorageWrite", "enabled": true}, {"category": "StorageDelete", "enabled": true}]' \
+		--metrics '[{"category": "Capacity", "enabled": true}, {"category": "Transaction", "enabled": true}]'
+done
+
+# The namespace writes its operational logs to the resource-specific AZMSOperationalLogs table; its other categories
+# have AzureDiagnostics only. ArchiveLogs records the Capture archives; the runtime audit logs are left out, since
+# Event Hubs writes them only in the Premium and Dedicated tiers.
+diagnostic_settings "$NAMESPACE_ID" "[$EVENTHUB_NAMESPACE_NAME] Event Hubs namespace" \
+	--export-to-resource-specific true \
+	--logs '[
+		{"category": "ArchiveLogs", "enabled": true},
+		{"category": "OperationalLogs", "enabled": true},
+		{"category": "AutoScaleLogs", "enabled": true},
+		{"category": "KafkaCoordinatorLogs", "enabled": true},
+		{"category": "KafkaUserErrorLogs", "enabled": true},
+		{"category": "EventHubVNetConnectionEvent", "enabled": true},
+		{"category": "CustomerManagedKeyUserLogs", "enabled": true},
+		{"category": "ApplicationMetricsLogs", "enabled": true},
+		{"category": "DiagnosticErrorLogs", "enabled": true},
+		{"category": "DataDRLogs", "enabled": true}
+	]' \
+	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+# The deliveries the subscription failed to make (AegDeliveryFailureLogs) and the metrics of the topic
+diagnostic_settings "$SYSTEM_TOPIC_ID" "[$SYSTEM_TOPIC_NAME] system topic" \
+	--logs '[{"category": "DeliveryFailures", "enabled": true}]' \
+	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+diagnostic_settings "$FUNCTION_APP_ID" "[$FUNCTION_APP_NAME] function app" \
+	--logs '[{"category": "FunctionAppLogs", "enabled": true}]' \
+	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+diagnostic_settings "$FUNCTION_PLAN_ID" "plan of the [$FUNCTION_APP_NAME] function app" \
+	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+# The workspace audits the queries run on it (Audit, table LAQueryLogs)
+diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace" \
+	--logs '[{"category": "Audit", "enabled": true}]' \
+	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+# -----------------------------------------------------------------------------
+step "[11/11] Connection details"
 # -----------------------------------------------------------------------------
 cat >"$CURRENT_DIR/.deployment-env" <<EOF
 export RESOURCE_GROUP_NAME='$RESOURCE_GROUP_NAME'

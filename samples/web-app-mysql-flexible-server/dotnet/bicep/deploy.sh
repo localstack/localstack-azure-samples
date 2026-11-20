@@ -270,11 +270,13 @@ else
 	exit 1
 fi
 
-# Print the application settings of the web app
-echo "Retrieving application settings for web app [$WEB_APP_NAME]..."
+# Print the names of the application settings of the web app, never their values, which hold secrets
+echo "Retrieving the names of the application settings of the web app [$WEB_APP_NAME]..."
 az webapp config appsettings list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME"
+	--name "$WEB_APP_NAME" \
+	--query "[].name" \
+	--output tsv
 
 # Change current directory to source folder
 cd "../src" || exit

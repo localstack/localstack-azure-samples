@@ -60,9 +60,10 @@ public sealed class MongoActivityStore : IActivityStore
 
     public async Task AddAsync(string text, CancellationToken cancellationToken)
     {
+        var id = ActivityId.Create(_options.Username, text);
         var document = new BsonDocument
         {
-            ["_id"] = ActivityId.Create(_options.Username, text),
+            ["_id"] = id,
             ["username"] = _options.Username,
             ["activity"] = text,
             ["timestamp"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss.ffffff"),
@@ -73,6 +74,7 @@ public sealed class MongoActivityStore : IActivityStore
             _options.CollectionName,
             document.ToJson(Indented)
         );
+        ActivityTelemetry.Track(_logger, "ActivityAdded", "add", id);
     }
 
     public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
@@ -88,6 +90,7 @@ public sealed class MongoActivityStore : IActivityStore
             id,
             _options.CollectionName
         );
+        ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
@@ -102,6 +105,7 @@ public sealed class MongoActivityStore : IActivityStore
             id,
             _options.CollectionName
         );
+        ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

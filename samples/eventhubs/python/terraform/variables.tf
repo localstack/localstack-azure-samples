@@ -118,6 +118,18 @@ variable "python_version" {
   default     = "3.12"
 }
 
+variable "deployer_object_id" {
+  description = "Object id of the principal that runs terraform apply. It gets Key Vault Secrets Officer on the vault, which azurerm_key_vault_secret needs to write the secrets through the data plane; with an empty value the role must already be assigned."
+  type        = string
+  default     = ""
+}
+
+variable "deployer_principal_type" {
+  description = "Type of the principal that runs terraform apply: User or ServicePrincipal."
+  type        = string
+  default     = "User"
+}
+
 variable "tags" {
   description = "Tags applied to every resource."
   type        = map(string)

@@ -112,7 +112,7 @@ variable "zone_balancing_enabled" {
 variable "sku_tier" {
   description = "(Optional) Specifies the tier name for the hosting plan."
   type        = string
-  default     = "Standard"
+  default     = "Basic"
 
   validation {
     condition = contains([
@@ -135,7 +135,7 @@ variable "sku_tier" {
 variable "sku_name" {
   description = "(Optional) Specifies the SKU name for the hosting plan."
   type        = string
-  default     = "S1"
+  default     = "B1"
 
   validation {
     condition = contains([
@@ -246,4 +246,24 @@ variable "tags" {
     environment = "test"
     iac         = "terraform"
   }
+}
+
+variable "diagnostic_settings_name" {
+  description = "(Optional) Specifies the name of the diagnostic settings of the function app and of the App Service plan."
+  type        = string
+  default     = "default"
+}
+
+variable "log_categories" {
+  description = "(Optional) Specifies the log categories that the diagnostic settings of the function app send to the Log Analytics workspace."
+  type        = list(string)
+  default = [
+    "FunctionAppLogs",
+  ]
+}
+
+variable "metric_categories" {
+  description = "(Optional) Specifies the metric categories that the diagnostic settings of the function app and of the App Service plan send to the Log Analytics workspace."
+  type        = list(string)
+  default     = ["AllMetrics"]
 }

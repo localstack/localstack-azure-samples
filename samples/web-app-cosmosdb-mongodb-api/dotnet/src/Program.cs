@@ -1,7 +1,28 @@
 using System.Diagnostics;
+using Microsoft.OpenTelemetry;
+using MongoDB.Driver;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using VacationPlanner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+// Distro sends to Application Insights the requests the app serves, its calls to Azure Cosmos DB for MongoDB, its log records
+// (traces), the exceptions it logs, and the custom events and the custom metric of ActivityTelemetry.
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    // The distro exports the custom metrics of the meters it's told about, and the traces of the
+    // activity source with which the MongoDB driver traces its commands
+    builder.Services.ConfigureOpenTelemetryMeterProvider(
+        (_, meterProvider) => meterProvider.AddMeter(ActivityTelemetry.MeterName));
+    builder.Services.ConfigureOpenTelemetryTracerProvider(
+        (_, tracerProvider) => tracerProvider.AddSource(MongoTelemetry.ActivitySourceName));
+    builder.UseMicrosoftOpenTelemetry(options =>
+    {
+        options.Exporters = ExportTarget.AzureMonitor;
+    });
+}
 
 // Code deployments built by Oryx export ASPNETCORE_URLS; custom images and local runs only set PORT.
 if (Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is null

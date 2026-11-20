@@ -6,6 +6,7 @@
     <RootNamespace>VacationPlanner</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.OpenTelemetry" Version="1.2.0" />
     <PackageReference Include="MongoDB.Driver" Version="3.11.1" />
   </ItemGroup>
 </Project>

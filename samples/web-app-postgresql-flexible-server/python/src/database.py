@@ -20,7 +20,8 @@ import time
 import psycopg2
 from psycopg2.errors import OperationalError
 
-logger = logging.getLogger(__name__)
+# A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
+logger = logging.getLogger(f"webapp.{__name__}")
 logger.setLevel(logging.INFO)
 
 

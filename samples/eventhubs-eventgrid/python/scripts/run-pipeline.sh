@@ -10,10 +10,10 @@
 #   5. read the curated hub and show the summaries
 #
 # Every step is an assertion: the script exits non-zero the moment the chain
-# breaks, and prints the processor's container logs so the reason is visible.
-# A clean exit means the whole pipeline ran.
+# breaks and, on the emulator, prints the processor's container logs so the
+# reason is visible. A clean exit means the whole pipeline ran.
 #
-# Run scripts/deploy.sh first. Everything is local to the emulator.
+# Run scripts/deploy.sh first. It runs against LocalStack for Azure and Azure alike.
 # =============================================================================
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -2,25 +2,86 @@
 
 # Variables
 PREFIX="${PREFIX:-local}"
-SUFFIX='test'
+SUFFIX="${SUFFIX:-test}"
 LOCATION='westeurope'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEBAPP_ZIPFILE="linklet_webapp.zip"
 WORKER_ZIPFILE="linklet_worker.zip"
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Resolve the object id of the deploying principal. azurerm_key_vault_secret writes through the Key Vault
+# data plane, so on Azure the principal running terraform apply needs Key Vault Secrets Officer on the
+# vault; the configuration assigns it when the id is known. The lookup goes through Microsoft Graph; when
+# it fails the assignment is skipped and the role becomes a prerequisite (see the README).
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
+
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
+else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
+fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid
+# claim of the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the Key Vault Secrets Officer role on the key vault must already be assigned to it"
+	DEPLOYER_OBJECT_ID=""
+fi
+
 # Initialize Terraform
 echo "Initializing Terraform..."
 terraform init -upgrade
+
+# A deployment made with the earlier version of this sample already has the storage account's [default] diagnostic
+# setting, which that version's deploy.sh created with the Azure CLI and which the storage_account module now manages.
+# Import it into the state, so that the plan updates it instead of failing to create a setting that already exists.
+STORAGE_DIAGNOSTIC_SETTING_ADDRESS='module.storage_account.azurerm_monitor_diagnostic_setting.storage_account'
+STATE_JSON=$(terraform show -json 2>/dev/null)
+
+if [[ -n $STATE_JSON ]] && ! jq -e --arg address "$STORAGE_DIAGNOSTIC_SETTING_ADDRESS" \
+	'[.. | objects | select(.address? == $address)] | length > 0' <<<"$STATE_JSON" >/dev/null; then
+	STORAGE_ACCOUNT_ID=$(jq -r '[.. | objects | select(.type? == "azurerm_storage_account" and .mode? == "managed") | .values.id] | first // empty' <<<"$STATE_JSON")
+
+	if [[ -n $STORAGE_ACCOUNT_ID ]] && az monitor diagnostic-settings show --name default --resource "$STORAGE_ACCOUNT_ID" --output none --only-show-errors 2>/dev/null; then
+		echo "Importing the [default] diagnostic setting of the storage account, which the earlier version of this sample created with the Azure CLI..."
+		terraform import \
+			-var "prefix=$PREFIX" \
+			-var "suffix=$SUFFIX" \
+			-var "location=$LOCATION" \
+			-var "deployer_object_id=$DEPLOYER_OBJECT_ID" \
+			-var "deployer_principal_type=$DEPLOYER_PRINCIPAL_TYPE" \
+			"$STORAGE_DIAGNOSTIC_SETTING_ADDRESS" "$STORAGE_ACCOUNT_ID|default"
+
+		if [[ $? != 0 ]]; then
+			echo "Terraform import failed. Exiting."
+			exit 1
+		fi
+	fi
+fi
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
 terraform plan -out=tfplan \
 	-var "prefix=$PREFIX" \
 	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION"
+	-var "location=$LOCATION" \
+	-var "deployer_object_id=$DEPLOYER_OBJECT_ID" \
+	-var "deployer_principal_type=$DEPLOYER_PRINCIPAL_TYPE"
 
 if [[ $? != 0 ]]; then
 	echo "Terraform plan failed. Exiting."
@@ -38,8 +99,6 @@ fi
 
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
-STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
-LOG_ANALYTICS_NAME=$(terraform output -raw log_analytics_workspace_name)
 WEB_APP_NAME=$(terraform output -raw web_app_name)
 FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
 
@@ -56,32 +115,6 @@ POSTGRES_ADMIN_PASSWORD=$(terraform output -raw postgres_password)
 POSTGRES_HOST=$(terraform output -raw postgres_host)
 POSTGRES_PORT=$(terraform output -raw postgres_port)
 EOF
-
-# Attach diagnostic settings for the storage account to the Log Analytics workspace
-echo "Attaching diagnostic settings for [$STORAGE_ACCOUNT_NAME] to [$LOG_ANALYTICS_NAME]..."
-STORAGE_ACCOUNT_ID=$(az storage account show \
-	--name "$STORAGE_ACCOUNT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query id \
-	--output tsv)
-LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--workspace-name "$LOG_ANALYTICS_NAME" \
-	--query id \
-	--output tsv)
-az monitor diagnostic-settings create \
-	--name default \
-	--resource "$STORAGE_ACCOUNT_ID" \
-	--workspace "$LOG_ANALYTICS_ID" \
-	--metrics '[{"category":"Transaction","enabled":true}]' \
-	--output none
-
-if [ $? -eq 0 ]; then
-	echo "Diagnostic settings successfully attached."
-else
-	# Best-effort: validate.sh step 8 fails the run if diagnostics are missing.
-	echo "Failed to attach diagnostic settings."
-fi
 
 # Change current directory to the web app source folder
 cd "$CURRENT_DIR/../src" || exit
@@ -130,14 +163,29 @@ zip -r "$WORKER_ZIPFILE" function_app.py host.json requirements.txt
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$WORKER_ZIPFILE]..."
-az functionapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$FUNCTION_APP_NAME" \
-	--src-path "$WORKER_ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$FUNCTION_APP_NAME" \
+		--src-path "$WORKER_ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
 
-if [ $? -eq 0 ]; then
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully."
 else
 	echo "Failed to deploy function app [$FUNCTION_APP_NAME]."

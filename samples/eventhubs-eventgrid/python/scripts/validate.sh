@@ -19,6 +19,8 @@ STORAGE_ACCOUNT_NAME="${PREFIX}ehgrid${SUFFIX:0:4}"
 SYSTEM_TOPIC_NAME="${PREFIX}-ehns-systopic"
 SUBSCRIPTION_NAME='capture-to-eventhub'
 FUNCTION_APP_NAME="${PREFIX}-ehgrid-processor"
+LOG_ANALYTICS_NAME="${PREFIX}-ehgrid-log-analytics"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-ehgrid-insights"
 SEND_RULE_NAME='telemetry-send'
 LISTEN_RULE_NAME='pipeline-listen'
 TELEMETRY_PARTITION_COUNT=4
@@ -151,6 +153,13 @@ check_output "it is configured with the notifications hub" \
 check_output "it is configured with the curated hub" \
 	"az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"[?name=='CURATED_HUB_NAME'].value\" -o tsv" \
 	"$CURATED_HUB_NAME"
+# The name of the telemetry app setting only, never its value
+check_output "it sends its telemetry to Application Insights" \
+	"az functionapp config appsettings list --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME --query \"[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING'].name\" -o tsv" \
+	"APPLICATIONINSIGHTS_CONNECTION_STRING"
+check_output "the Application Insights resource stores its telemetry in the workspace" \
+	"az monitor app-insights component show --app $APPLICATION_INSIGHTS_NAME --resource-group $RESOURCE_GROUP_NAME --query workspaceResourceId -o tsv" \
+	"$LOG_ANALYTICS_NAME"
 echo ""
 
 echo "[7] Storage"

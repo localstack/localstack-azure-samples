@@ -69,6 +69,13 @@ param maxIntervalInSeconds int = 300
 @description('Specifies the resource id of the Log Analytics workspace.')
 param workspaceId string
 
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes them to the resource-specific CDBDataPlaneRequests and CDBMongoRequests tables that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
+
 @description('Specifies the tags to be applied to the resources.')
 param tags object = {}
 
@@ -200,6 +207,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: account
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
     logs: logs
     metrics: metrics
   }

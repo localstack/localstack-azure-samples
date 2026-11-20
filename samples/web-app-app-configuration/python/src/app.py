@@ -9,7 +9,20 @@ import logging
 import os
 from typing import List, Tuple
 
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application
+LOGGER_NAME = "webapp"
+
+# When App Service passes the connection string of the Application Insights resource, the Microsoft OpenTelemetry
+# Distro sends to Application Insights the requests the app serves, its calls to PostgreSQL and to App Configuration,
+# the records of the application's logger (traces), the exceptions it logs, the custom events and the custom metric
+# below. It runs before Flask and psycopg2 are imported, so that its instrumentations wrap them.
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
 from flask import Flask, flash, redirect, render_template, request, url_for
+from opentelemetry import metrics
 
 from database import PostgresClient
 from settings import load_settings
@@ -24,8 +37,24 @@ logging.basicConfig(
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("werkzeug").setLevel(logging.INFO)
 logging.getLogger("azure").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(LOGGER_NAME)
 logger.setLevel(logging.INFO)
+
+# The custom metric: the number of activities added, updated and deleted, by operation (customMetrics table)
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    """Send a custom event (customEvents table) and count the operation in the custom metric."""
+    # The Microsoft OpenTelemetry Distro sends a log record that carries the microsoft.custom_event.name attribute as a
+    # custom event named after its value, with the other attributes as its custom dimensions.
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
 
 
 def make_activity_id(username: str, activity: str) -> str:
@@ -44,12 +73,15 @@ if not username or not username.strip():
 activities: List[Tuple[str, str]] = []
 
 
-def reload_activities() -> None:
+def reload_activities() -> bool:
+    """Read the activities of the user from the database. Return whether it succeeded."""
     activities.clear()
     try:
         activities.extend(db_client.list_activities(username))
-    except Exception as exc:
-        logger.error("Failed to load activities: %s", exc)
+        return True
+    except Exception:
+        logger.exception("Failed to load activities.")
+        return False
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -64,18 +96,23 @@ def index():
                         raise ValueError("Row ID cannot be empty")
                     if db_client.update_activity(row_id, activity):
                         logger.info("Activity updated: %s", row_id)
+                        track_activity_event("ActivityUpdated", "update", row_id)
                         flash("Activity updated!")
                 else:
                     activity_id = make_activity_id(username, activity)
                     db_client.insert_activity(activity_id, username, activity)
                     logger.info("Activity added: %s", activity)
+                    track_activity_event("ActivityAdded", "add", activity_id)
                     flash("Activity added!")
-            except (ConnectionError, ValueError) as e:
-                logger.error("Error writing activity: %s", e)
+            except Exception:
+                # The distro sends a log record that carries an exception to Application Insights as an exception
+                logger.exception("Error writing activity.")
+                flash("Failed to save the activity.")
 
         return redirect(url_for("index"))
 
-    reload_activities()
+    if not reload_activities():
+        flash("Failed to load the activities.")
     return render_template("index.html", activities=activities, username=username)
 
 
@@ -88,9 +125,14 @@ def favicon():
 def delete(activity_id: str):
     # The template posts the database id of the row, so the delete does not depend on the position of the
     # activity in the last rendered list (which differs between requests and gunicorn workers).
-    if activity_id.strip() and db_client.delete_activity(activity_id):
-        logger.info("Activity deleted: %s", activity_id)
-        flash("Activity deleted.")
+    try:
+        if activity_id.strip() and db_client.delete_activity(activity_id):
+            logger.info("Activity deleted: %s", activity_id)
+            track_activity_event("ActivityDeleted", "delete", activity_id)
+            flash("Activity deleted.")
+    except Exception:
+        logger.exception("Error deleting activity %s.", activity_id)
+        flash("Failed to delete the activity.")
     return redirect(url_for("index"))
 
 

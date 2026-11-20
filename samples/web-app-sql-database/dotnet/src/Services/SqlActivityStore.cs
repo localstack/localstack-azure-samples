@@ -68,6 +68,7 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         command.Parameters.AddWithValue("@activity", text);
         var id = await command.ExecuteScalarAsync(cancellationToken);
         logger.LogInformation("Activity created: {Id}", id);
+        ActivityTelemetry.Track(logger, "ActivityAdded", "add", Convert.ToString(id) ?? "");
     }
 
     public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
@@ -85,6 +86,7 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         }
 
         logger.LogInformation("Updated activity with ID: {Id}", id);
+        ActivityTelemetry.Track(logger, "ActivityUpdated", "update", id);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
@@ -100,6 +102,7 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         }
 
         logger.LogInformation("Deleted activity with ID: {Id}", id);
+        ActivityTelemetry.Track(logger, "ActivityDeleted", "delete", id);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

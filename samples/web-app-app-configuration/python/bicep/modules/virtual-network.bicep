@@ -109,6 +109,26 @@ param vnetMetricCategories array = [
   'AllMetrics'
 ]
 
+@description('Specifies the log categories that the diagnostic settings of the public IP prefix of the NAT Gateway send to the Log Analytics workspace.')
+param publicIpPrefixLogCategories array = [
+  'DDoSProtectionNotifications'
+  'DDoSMitigationFlowLogs'
+  'DDoSMitigationReports'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the public IP prefix of the NAT Gateway send to the Log Analytics workspace.')
+param publicIpPrefixMetricCategories array = [
+  'AllMetrics'
+]
+
+@description('Specifies the log categories that the diagnostic settings of the NAT Gateway send to the Log Analytics workspace. A Standard NAT Gateway has none: flow logs (NatGatewayFlowlogsV1) are only available for a StandardV2 one.')
+param natGatewayLogCategories array = []
+
+@description('Specifies the metric categories that the diagnostic settings of the NAT Gateway send to the Log Analytics workspace.')
+param natGatewayMetricCategories array = [
+  'AllMetrics'
+]
+
 @description('Specifies the resource tags.')
 param tags object
 
@@ -124,6 +144,22 @@ var vnetLogs = [for category in vnetLogCategories: {
   enabled: true
 }]
 var vnetMetrics = [for category in vnetMetricCategories: {
+  category: category
+  enabled: true
+}]
+var publicIpPrefixLogs = [for category in publicIpPrefixLogCategories: {
+  category: category
+  enabled: true
+}]
+var publicIpPrefixMetrics = [for category in publicIpPrefixMetricCategories: {
+  category: category
+  enabled: true
+}]
+var natGatewayLogs = [for category in natGatewayLogCategories: {
+  category: category
+  enabled: true
+}]
+var natGatewayMetrics = [for category in natGatewayMetricCategories: {
   category: category
   enabled: true
 }]
@@ -258,6 +294,26 @@ resource vnetDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-0
     workspaceId: workspaceId
     logs: vnetLogs
     metrics: vnetMetrics
+  }
+}
+
+resource natGatewayPublicIpPrefixDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(workspaceId)) {
+  name: diagnosticSettingsName
+  scope: natGatewayPublicIpPrefix
+  properties: {
+    workspaceId: workspaceId
+    logs: publicIpPrefixLogs
+    metrics: publicIpPrefixMetrics
+  }
+}
+
+resource natGatewayDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(workspaceId)) {
+  name: diagnosticSettingsName
+  scope: natGateway
+  properties: {
+    workspaceId: workspaceId
+    logs: natGatewayLogs
+    metrics: natGatewayMetrics
   }
 }
 

@@ -317,6 +317,28 @@ param startIpAddress string = '0.0.0.0'
 @description('Specifies the username for the application.')
 param username string = 'paolo'
 
+//
+// Observability
+//
+@description('Specifies the name of the Azure Log Analytics resource.')
+param logAnalyticsName string = ''
+
+@description('Specifies the name of the Azure Application Insights resource.')
+param applicationInsightsName string = ''
+
+@description('Specifies the service tier of the workspace.')
+@allowed(['Free','Standalone','PerNode','PerGB2018'])
+param logAnalyticsSku string = 'PerNode'
+
+@description('Specifies the workspace data retention in days.')
+param logAnalyticsRetentionInDays int = 60
+
+@description('Specifies the object id of the principal that runs the deployment, which deploy.sh resolves: the key vault gives it the certificate permissions deploy.sh needs to create the certificate of the web app. Empty gives it no access policy.')
+param deployerPrincipalId string = ''
+
+//********************************************
+// Variables
+//********************************************
 var sqlServerName = '${prefix}-sqlserver-${suffix}'
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
@@ -328,58 +350,64 @@ var sqlConnectionStringSecretName = '${prefix}-secret-${suffix}'
 var sqlServerIdentityName = '${prefix}-tde-identity-${suffix}'
 var tdeKeyName = '${prefix}-tde-key-${suffix}'
 
-resource sqlServerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: sqlServerIdentityName
-  location: location
-  tags: tags
+//********************************************
+// Modules and Resources
+//********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: empty(logAnalyticsName) ? toLower('${prefix}-log-analytics-${suffix}') : logAnalyticsName
+    location: location
+    tags: tags
+    sku: logAnalyticsSku
+    retentionInDays: logAnalyticsRetentionInDays
+  }
 }
 
-resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
-  name: sqlServerName
-  location: location
-  tags: tags
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${sqlServerIdentity.id}': {}
-    }
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: empty(applicationInsightsName) ? toLower('${prefix}-insights-${suffix}') : applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  properties: {
+}
+
+module sqlServerIdentity 'modules/managed-identity.bicep' = {
+  name: 'sqlServerIdentity'
+  params: {
+    name: sqlServerIdentityName
+    location: location
+    tags: tags
+  }
+}
+
+module sqlServer 'modules/sql-server.bicep' = {
+  name: 'sqlServer'
+  params: {
+    name: sqlServerName
+    location: location
     administratorLogin: administratorLogin
     administratorLoginPassword: administratorLoginPassword
-    administrators: union({ administratorType: 'ActiveDirectory' }, administrators ?? {})
-    federatedClientId: federatedClientId
+    administrators: administrators
+    minimalTlsVersion: minimalTlsVersion
     isIPv6Enabled: isIPv6Enabled
     version: version
-    minimalTlsVersion: minimalTlsVersion
-    primaryUserAssignedIdentityId: sqlServerIdentity.id
     publicNetworkAccess: publicNetworkAccess
     restrictOutboundNetworkAccess: restrictOutboundNetworkAccess
-  }
-}
-
-resource firewallRule 'Microsoft.Sql/servers/firewallRules@2024-11-01-preview' = {
-  name: sqlFirewallRuleName
-  parent: sqlServer
-  properties: {
-    endIpAddress: endIpAddress
+    managedIdentityId: sqlServerIdentity.outputs.id
+    firewallRuleName: sqlFirewallRuleName
     startIpAddress: startIpAddress
-  }
-}
-
-resource sqlDatabase 'Microsoft.Sql/servers/databases@2024-11-01-preview' = {
-  parent: sqlServer
-  name: sqlDatabaseName
-  location: location
-  tags: tags
-  sku: sku
-  properties: {
+    endIpAddress: endIpAddress
+    databaseName: sqlDatabaseName
+    sku: sku
     autoPauseDelay: autoPauseDelay
-    availabilityZone: availabilityZone != -1 ? string(availabilityZone) : 'NoPreference'
+    availabilityZone: availabilityZone
     catalogCollation: catalogCollation
     collation: collation
     createMode: createMode
-    elasticPoolId: elasticPoolResourceId
+    elasticPoolResourceId: elasticPoolResourceId
     federatedClientId: federatedClientId
     freeLimitExhaustionBehavior: freeLimitExhaustionBehavior
     highAvailabilityReplicaCount: highAvailabilityReplicaCount
@@ -388,167 +416,116 @@ resource sqlDatabase 'Microsoft.Sql/servers/databases@2024-11-01-preview' = {
     longTermRetentionBackupResourceId: longTermRetentionBackupResourceId
     maintenanceConfigurationId: maintenanceConfigurationId
     manualCutover: manualCutover
-    minCapacity: !empty(minCapacity) ? json(minCapacity) : 0
+    minCapacity: minCapacity
     performCutover: performCutover
     preferredEnclaveType: preferredEnclaveType
     readScale: readScale
-    recoverableDatabaseId: recoverableDatabaseResourceId
-    recoveryServicesRecoveryPointId: recoveryServicesRecoveryPointResourceId
+    recoverableDatabaseResourceId: recoverableDatabaseResourceId
+    recoveryServicesRecoveryPointResourceId: recoveryServicesRecoveryPointResourceId
     requestedBackupStorageRedundancy: requestedBackupStorageRedundancy
-    restorableDroppedDatabaseId: restorableDroppedDatabaseResourceId
+    restorableDroppedDatabaseResourceId: restorableDroppedDatabaseResourceId
     restorePointInTime: restorePointInTime
     sampleName: sampleName
     secondaryType: secondaryType
     sourceDatabaseDeletionDate: sourceDatabaseDeletionDate
-    sourceDatabaseId: sourceDatabaseResourceId
+    sourceDatabaseResourceId: sourceDatabaseResourceId
     sourceResourceId: sourceResourceId
     useFreeLimit: useFreeLimit
     zoneRedundant: sqlDatabaseZoneRedundant
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  tags: tags
-  kind: appServicePlanKind
-  sku: {
-    tier: skuTier
-    name: skuName
-  }
-  properties: {
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuName: skuName
+    skuTier: skuTier
+    kind: appServicePlanKind
     reserved: reserved
     zoneRedundant: appServicePlanZoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource webApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: webAppName
-  location: location
-  tags: tags
-  kind: webAppKind
-  properties: {
+module webApp 'modules/web-app.bicep' = {
+  name: 'webApp'
+  params: {
+    name: webAppName
+    location: location
+    kind: webAppKind
     httpsOnly: httpsOnly
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      minTlsVersion: minTlsVersion
-      publicNetworkAccess: publicNetworkAccess
-    }
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-}
-
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: keyVaultName
-  location: location
-  tags: tags
-  properties: {
-    tenantId: subscription().tenantId
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    accessPolicies: [
-      {
-        tenantId: subscription().tenantId
-        objectId: webApp.identity.principalId
-        permissions: {
-          secrets: [
-            'get'
-            'list'
-          ]
-          certificates: [
-            'get'
-          ]
-        }
-      }
-      {
-        tenantId: subscription().tenantId
-        objectId: sqlServerIdentity.properties.principalId
-        permissions: {
-          keys: [
-            'get'
-            'wrapKey'
-            'unwrapKey'
-          ]
-        }
-      }
-    ]
-    enableRbacAuthorization: false
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 7
-    enablePurgeProtection: true
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
+    minTlsVersion: minTlsVersion
+    publicNetworkAccess: publicNetworkAccess
+    repoUrl: repoUrl
+    hostingPlanName: appServicePlan.outputs.name
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource tdeKey 'Microsoft.KeyVault/vaults/keys@2024-11-01' = {
-  parent: keyVault
-  name: tdeKeyName
-  properties: {
-    kty: 'RSA'
-    keySize: 2048
-    keyOps: [
-      'wrapKey'
-      'unwrapKey'
-    ]
+// The vault comes after the web app and the identity of the SQL server: its access policies name both principals.
+module keyVault 'modules/key-vault.bicep' = {
+  name: 'keyVault'
+  params: {
+    name: keyVaultName
+    location: location
+    webAppPrincipalId: webApp.outputs.principalId
+    sqlServerIdentityPrincipalId: sqlServerIdentity.outputs.principalId
+    tdeKeyName: tdeKeyName
+    sqlConnectionStringSecretName: sqlConnectionStringSecretName
+    sqlServerFqdn: sqlServer.outputs.fullyQualifiedDomainName
+    sqlDatabaseName: sqlServer.outputs.databaseName
+    sqlDatabaseUsername: sqlDatabaseUsername
+    sqlDatabasePassword: sqlDatabasePassword
+    deployerPrincipalId: deployerPrincipalId
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
 module transparentDataEncryption 'modules/transparent-data-encryption.bicep' = {
   name: 'transparentDataEncryption'
   params: {
-    sqlServerName: sqlServer.name
-    keyVaultName: keyVault.name
-    keyName: tdeKey.name
-    keyUri: tdeKey.properties.keyUriWithVersion
+    sqlServerName: sqlServer.outputs.name
+    keyVaultName: keyVault.outputs.name
+    keyName: keyVault.outputs.tdeKeyName
+    keyUri: keyVault.outputs.tdeKeyUriWithVersion
   }
 }
 
-resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
-  parent: keyVault
-  name: sqlConnectionStringSecretName
-  properties: {
-    value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${sqlDatabaseName};User ID=${sqlDatabaseUsername};Password=${sqlDatabasePassword};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
+module webAppSettings 'modules/web-app-settings.bicep' = {
+  name: 'webAppSettings'
+  params: {
+    webAppName: webApp.outputs.name
+    keyVaultName: keyVault.outputs.name
+    keyVaultUri: keyVault.outputs.vaultUri
+    secretName: keyVault.outputs.sqlConnectionStringSecretName
+    certificateName: certificateName
+    username: username
+    applicationInsightsConnectionString: applicationInsights.outputs.connectionString
   }
 }
 
-resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
-  parent: webApp
-  name: 'appsettings'
-  properties: {
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    ENABLE_ORYX_BUILD: 'true'
-    //Pass Key Vault name and secret name as app settings.
-    //The .NET SDK will retrieve the actual connection string value from Key Vault
-    KEY_VAULT_NAME: keyVaultName
-    SECRET_NAME: sqlConnectionStringSecretName
-    LOGIN_NAME: username
-    KEYVAULT_URI: keyVault.properties.vaultUri
-    CERT_NAME: certificateName
-  }
-}
-
-resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
-  name: 'web'
-  parent: webApp
-  properties: {
-    repoUrl: repoUrl
-    branch: 'master'
-    isManualIntegration: true
-  }
-}
-
-output appServicePlanName string = appServicePlan.name
-output webAppName string = webApp.name
-output webAppUrl string = webApp.properties.defaultHostName
-output sqlServerName string = sqlServer.name
-output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
-output sqlDatabaseName string = sqlDatabase.name
-output keyVaultName string = keyVault.name
-output keyVaultUrl string = keyVault.properties.vaultUri
+//********************************************
+// Outputs
+//********************************************
+output appServicePlanName string = appServicePlan.outputs.name
+output webAppName string = webApp.outputs.name
+output webAppUrl string = webApp.outputs.defaultHostName
+output sqlServerName string = sqlServer.outputs.name
+output sqlServerFqdn string = sqlServer.outputs.fullyQualifiedDomainName
+output sqlDatabaseName string = sqlServer.outputs.databaseName
+output keyVaultName string = keyVault.outputs.name
+output keyVaultUrl string = keyVault.outputs.vaultUri
 output certificateName string = certificateName
-output sqlConnectionStringSecretUri string = sqlConnectionStringSecret.properties.secretUri
+output sqlConnectionStringSecretUri string = keyVault.outputs.sqlConnectionStringSecretUri
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

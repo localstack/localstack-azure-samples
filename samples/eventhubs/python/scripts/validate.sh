@@ -227,29 +227,34 @@ echo ""
 # =============================================================================
 
 echo "[10] Application group with a throttling policy"
-# Emulator-only: real Azure offers application groups on the Premium and Dedicated tiers
-# only, so this check cannot pass against the Standard namespace this sample deploys.
-# Bumping the tier for one bonus check is not worth it, so the deviation is documented.
-# https://learn.microsoft.com/en-us/azure/event-hubs/resource-governance-overview
-# The identifier names a namespace-level SAS key, which is what the property expects.
-if az eventhubs namespace application-group create \
-	--name "$APPLICATION_GROUP_NAME" \
-	--namespace-name "$EVENTHUB_NAMESPACE_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--client-app-group-identifier "NamespaceSASKeyName=RootManageSharedAccessKey" \
-	--is-enabled true \
-	--throttling-policy-config name=limit-ingress metric-id=IncomingMessages rate-limit-threshold=10000 \
-	--only-show-errors &>/dev/null; then
-	pass "created with a ThrottlingPolicy"
+# On Azure the check is skipped: see the comment below
+if [[ "$(az cloud show --query name --output tsv --only-show-errors)" != "LocalStack" ]]; then
+	echo "  SKIP: on Azure, application groups need the Premium or Dedicated tier, and this sample deploys a Standard namespace"
 else
-	fail "could not create the application group"
+	# Emulator-only: real Azure offers application groups on the Premium and Dedicated tiers
+	# only, so this check cannot pass against the Standard namespace this sample deploys.
+	# Bumping the tier for one bonus check is not worth it, so the deviation is documented.
+	# https://learn.microsoft.com/en-us/azure/event-hubs/resource-governance-overview
+	# The identifier names a namespace-level SAS key, which is what the property expects.
+	if az eventhubs namespace application-group create \
+		--name "$APPLICATION_GROUP_NAME" \
+		--namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--client-app-group-identifier "NamespaceSASKeyName=RootManageSharedAccessKey" \
+		--is-enabled true \
+		--throttling-policy-config name=limit-ingress metric-id=IncomingMessages rate-limit-threshold=10000 \
+		--only-show-errors &>/dev/null; then
+		pass "created with a ThrottlingPolicy"
+	else
+		fail "could not create the application group"
+	fi
+	check_output "the throttling policy is readable" \
+		"az eventhubs namespace application-group show --name $APPLICATION_GROUP_NAME --namespace-name $EVENTHUB_NAMESPACE_NAME --resource-group $RESOURCE_GROUP_NAME --query 'policies[0].type' -o tsv" \
+		"ThrottlingPolicy"
+	az eventhubs namespace application-group delete \
+		--name "$APPLICATION_GROUP_NAME" --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null
 fi
-check_output "the throttling policy is readable" \
-	"az eventhubs namespace application-group show --name $APPLICATION_GROUP_NAME --namespace-name $EVENTHUB_NAMESPACE_NAME --resource-group $RESOURCE_GROUP_NAME --query 'policies[0].type' -o tsv" \
-	"ThrottlingPolicy"
-az eventhubs namespace application-group delete \
-	--name "$APPLICATION_GROUP_NAME" --namespace-name "$EVENTHUB_NAMESPACE_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null
 echo ""
 
 echo "[11] Geo-disaster recovery pairing"

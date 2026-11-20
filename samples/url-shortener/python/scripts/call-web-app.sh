@@ -13,7 +13,7 @@ null_device() {
 
 # Variables
 PREFIX="${PREFIX:-local}"
-SUFFIX='test'
+SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 

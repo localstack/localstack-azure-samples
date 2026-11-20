@@ -31,6 +31,13 @@ param location string = resourceGroup().location
 @description('Specifies the resource tags.')
 param tags object
 
+@description('Specifies where the diagnostic settings write the logs in the workspace: Dedicated writes them to the resource-specific AZMSOperationalLogs and AZMSRunTimeAuditLogs tables that Microsoft recommends, AzureDiagnostics to the shared AzureDiagnostics table.')
+@allowed([
+  'AzureDiagnostics'
+  'Dedicated'
+])
+param logAnalyticsDestinationType string = 'Dedicated'
+
 // Variables
 var diagnosticSettingsName = 'diagnosticSettings'
 var logCategories = [
@@ -96,6 +103,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
   scope: namespace
   properties: {
     workspaceId: workspaceId
+    logAnalyticsDestinationType: logAnalyticsDestinationType
     logs: logs
     metrics: metrics
   }

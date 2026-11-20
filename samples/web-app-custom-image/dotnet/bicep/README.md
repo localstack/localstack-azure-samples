@@ -38,7 +38,7 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 In this phase, the [acr.bicep](acr.bicep) template deploys:
 
 1. [Azure Container Registry](https://learn.microsoft.com/azure/container-registry/container-registry-intro): A fully-managed container registry service based on the open-source [Docker platform](https://docs.docker.com/get-started/docker-overview/) used to hold the container image used by the web app.
-2. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview): Centralizes diagnostic logs and metrics from all resources in the solution.
+2. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview), with a diagnostic setting that sends the audit records of the queries run on the workspace to the workspace itself.
 
 ## Container Image Push
 After the first Bicep deployment, the script builds the container image locally from the `src/Dockerfile` and pushes it to the Azure Container Registry.
@@ -55,7 +55,8 @@ The [main.bicep](main.bicep) template deploys the remaining resources:
 5. [Azure Network Security Group](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): Enforces inbound and outbound traffic rules across the virtual network's subnets.
 6. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans): The underlying compute tier that hosts the web application.
 7. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/overview): Assigned the [AcrPull](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/containers#acrpull) role on the Azure Container Registry, enabling the Web App to pull the container image without storing credentials.
-8. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the ASP.NET Core application from the custom container image stored in the Azure Container Registry.
+8. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Runs the ASP.NET Core application from the custom container image stored in the Azure Container Registry. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
+9. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that collects the requests, the log records, the exceptions, the custom events and the custom metric of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting.
 
 The provisioning process assigns the user-defined managed identity to the web app and uses its credentials to access the Azure Container Registry to pull the container image. The [AcrPull](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/containers#acrpull) role is assigned to the managed identity with the Azure Container Registry as the scope.
 
@@ -154,6 +155,7 @@ PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
 NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 PIP_PREFIX_NAME="${PREFIX}-nat-gateway-pip-prefix-${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -264,6 +266,15 @@ az monitor log-analytics workspace show \
 	--output table \
 	--only-show-errors
 
+# Check Application Insights component
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
+	--output table \
+	--only-show-errors
+
 echo -e "\nResources in [$RESOURCE_GROUP_NAME]:\n"
 az resource list \
 	--resource-group "$RESOURCE_GROUP_NAME" \
@@ -283,6 +294,17 @@ az group list --output table
 ```
 
 This will remove all Azure resources created by the Bicep deployment script.
+
+## Telemetry, logs and metrics
+
+Once the web app is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
 
 ## Related Documentation
 

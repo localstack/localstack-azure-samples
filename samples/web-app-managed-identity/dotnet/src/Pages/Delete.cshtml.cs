@@ -13,9 +13,18 @@ public class DeleteModel(IActivityStore store, ILogger<DeleteModel> logger) : Pa
     {
         if (!string.IsNullOrWhiteSpace(id))
         {
-            await store.DeleteAsync(id, cancellationToken);
-            logger.LogInformation("Activity deleted: {Id}", id);
-            TempData["Flash"] = "Activity deleted successfully.";
+            try
+            {
+                await store.DeleteAsync(id, cancellationToken);
+                logger.LogInformation("Activity deleted: {Id}", id);
+                TempData["Flash"] = "Activity deleted successfully.";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The distro sends a log record that carries an exception to Application Insights as an exception
+                logger.LogError(ex, "Failed to delete the activity {Id}.", id);
+                TempData["Flash"] = "Failed to delete the activity.";
+            }
         }
 
         return RedirectToPage("/Index");

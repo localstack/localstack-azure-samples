@@ -1,17 +1,18 @@
 locals {
-  prefix                 = lower(var.prefix)
-  suffix                 = lower(var.suffix)
-  resource_group_name    = "${var.prefix}-rg"
-  log_analytics_name     = "${local.prefix}-log-analytics-${local.suffix}"
-  virtual_network_name   = "${local.prefix}-vnet-${local.suffix}"
-  nat_gateway_name       = "${local.prefix}-nat-gateway-${local.suffix}"
-  webapp_subnet_nsg_name = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
-  pe_subnet_nsg_name     = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
-  mysql_server_name      = "${local.prefix}-mysqlflex-${local.suffix}"
-  private_endpoint_name  = "${local.prefix}-mysql-pe-${local.suffix}"
-  app_service_plan_name  = "${local.prefix}-app-service-plan-${local.suffix}"
-  web_app_name           = "${local.prefix}-webapp-${local.suffix}"
-  private_dns_zone_name  = "privatelink.mysql.database.azure.com"
+  prefix                    = lower(var.prefix)
+  suffix                    = lower(var.suffix)
+  resource_group_name       = "${var.prefix}-rg"
+  log_analytics_name        = "${local.prefix}-log-analytics-${local.suffix}"
+  application_insights_name = "${local.prefix}-insights-${local.suffix}"
+  virtual_network_name      = "${local.prefix}-vnet-${local.suffix}"
+  nat_gateway_name          = "${local.prefix}-nat-gateway-${local.suffix}"
+  webapp_subnet_nsg_name    = "${local.prefix}-webapp-subnet-nsg-${local.suffix}"
+  pe_subnet_nsg_name        = "${local.prefix}-pe-subnet-nsg-${local.suffix}"
+  mysql_server_name         = "${local.prefix}-mysqlflex-${local.suffix}"
+  private_endpoint_name     = "${local.prefix}-mysql-pe-${local.suffix}"
+  app_service_plan_name     = "${local.prefix}-app-service-plan-${local.suffix}"
+  web_app_name              = "${local.prefix}-webapp-${local.suffix}"
+  private_dns_zone_name     = "privatelink.mysql.database.azure.com"
 
   # The MySQL flexible-server emulator embeds the LS-side TCP-proxy port directly in
   # `fullyQualifiedDomainName` (e.g. "<srv>.mysql.database.localhost.localstack.cloud:4515").
@@ -37,6 +38,17 @@ module "log_analytics_workspace" {
   resource_group_name = azurerm_resource_group.example.name
   tags                = var.tags
 }
+# Create the workspace-based Application Insights component that collects the web app's requests, dependencies, logs,
+# exceptions, custom events and custom metrics
+module "application_insights" {
+  source              = "./modules/application_insights"
+  name                = local.application_insights_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  workspace_id        = module.log_analytics_workspace.id
+  tags                = var.tags
+}
+
 
 # VNet with two subnets:
 #   * app-subnet     — delegated to Microsoft.Web/serverFarms for the Web App's regional
@@ -105,7 +117,8 @@ module "nat_gateway" {
   subnet_ids = {
     (var.webapp_subnet_name) = module.virtual_network.subnet_ids[var.webapp_subnet_name]
   }
-  tags = var.tags
+  tags                       = var.tags
+  log_analytics_workspace_id = module.log_analytics_workspace.id
 }
 
 module "private_dns_zone" {
@@ -149,6 +162,11 @@ module "private_endpoint" {
   subresource_name               = "mysqlServer"
   private_dns_zone_group_name    = "private-dns-zone-group"
   private_dns_zone_group_ids     = [module.private_dns_zone.id]
+
+  # Azure runs one operation at a time on a flexible server and refuses the others with ServerIsBusy. The
+  # private endpoint's connection is one of them, so it waits for the server's database, firewall rule and
+  # other settings instead of being created in parallel with them.
+  depends_on = [module.mysql_flexible_server]
 }
 
 module "app_service_plan" {
@@ -186,13 +204,14 @@ module "web_app" {
   tags                          = var.tags
 
   app_settings = {
-    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
-    ENABLE_ORYX_BUILD              = "true"
-    MYSQL_HOST                     = local.mysql_host
-    MYSQL_PORT                     = local.mysql_port
-    MYSQL_DATABASE                 = module.mysql_flexible_server.database_name
-    MYSQL_SSL                      = "true"
-    LOGIN_NAME                     = var.login_name
-    WEBSITES_PORT                  = var.websites_port
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "true"
+    ENABLE_ORYX_BUILD                     = "true"
+    MYSQL_HOST                            = local.mysql_host
+    MYSQL_PORT                            = local.mysql_port
+    MYSQL_DATABASE                        = module.mysql_flexible_server.database_name
+    MYSQL_SSL                             = "true"
+    LOGIN_NAME                            = var.login_name
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
+    WEBSITES_PORT                         = var.websites_port
   }
 }

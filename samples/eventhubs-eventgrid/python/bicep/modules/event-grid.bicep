@@ -25,6 +25,12 @@ param notificationHubId string
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the resource id of the Log Analytics workspace the diagnostic settings send to.')
+param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
 resource systemTopic 'Microsoft.EventGrid/systemTopics@2024-06-01-preview' = {
   name: systemTopicName
   location: location
@@ -48,6 +54,27 @@ resource captureSubscription 'Microsoft.EventGrid/systemTopics/eventSubscription
       }
     }
     eventDeliverySchema: 'EventGridSchema'
+  }
+}
+
+// The deliveries the subscription failed to make (AegDeliveryFailureLogs) and the metrics of the topic
+resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: systemTopic
+  properties: {
+    workspaceId: workspaceId
+    logs: [
+      {
+        category: 'DeliveryFailures'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
   }
 }
 

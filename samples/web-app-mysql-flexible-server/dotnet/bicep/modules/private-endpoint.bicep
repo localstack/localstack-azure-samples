@@ -7,9 +7,6 @@ param name string
 @description('Specifies the location.')
 param location string = resourceGroup().location
 
-@description('Specifies the resource ID of the virtual network where private endpoints will be created.')
-param vnetId string
-
 @description('Specifies the resource ID of the subnet where private endpoints will be created.')
 param subnetId string
 

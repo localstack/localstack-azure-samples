@@ -3,33 +3,41 @@ output "resource_group_name" {
 }
 
 output "sql_server_name" {
-  value = azurerm_mssql_server.example.name
+  value = module.sql_server.name
 }
 
 output "sql_database_name" {
-  value = azurerm_mssql_database.example.name
+  value = module.sql_server.database_name
 }
 
 output "app_service_plan_name" {
-  value = azurerm_service_plan.example.name
+  value = module.app_service_plan.name
 }
 
 output "web_app_name" {
-  value = azurerm_linux_web_app.example.name
+  value = module.web_app.name
 }
 
 output "web_app_url" {
-  value = azurerm_linux_web_app.example.default_hostname
+  value = module.web_app.default_hostname
 }
 
 output "key_vault_name" {
-  value = azurerm_key_vault.example.name
+  value = module.key_vault.name
 }
 
 output "key_vault_url" {
-  value = azurerm_key_vault.example.vault_uri
+  value = module.key_vault.vault_uri
 }
 
 output "sql_connection_string_secret_uri" {
-  value = azurerm_key_vault_secret.sql_connection_string.id
+  value = module.key_vault.secret_id
+}
+
+output "log_analytics_name" {
+  value = module.log_analytics_workspace.name
+}
+
+output "application_insights_name" {
+  value = module.application_insights.name
 }

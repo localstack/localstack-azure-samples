@@ -21,7 +21,8 @@ import time
 import pymysql
 from pymysql.err import InterfaceError, OperationalError
 
-logger = logging.getLogger(__name__)
+# A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
+logger = logging.getLogger(f"webapp.{__name__}")
 logger.setLevel(logging.INFO)
 
 

@@ -102,6 +102,9 @@ param managedIdentityClientId string
 @description('Specifies the endpoint of the App Configuration store the app loads its settings from.')
 param appConfigurationEndpoint string
 
+@description('Specifies the connection string of the Application Insights resource the app sends its telemetry to.')
+param applicationInsightsConnectionString string
+
 @description('Specifies the name of the virtual network.')
 param virtualNetworkName string
 
@@ -215,6 +218,7 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     AZURE_CLIENT_ID: managedIdentityClientId
     WEBSITES_PORT: string(websitesPort)
     LOGIN_NAME: username
+    APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString
   }
 }
 

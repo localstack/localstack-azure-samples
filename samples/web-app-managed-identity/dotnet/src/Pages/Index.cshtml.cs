@@ -20,7 +20,16 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        Activities = await store.ListAsync(cancellationToken);
+        try
+        {
+            Activities = await store.ListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The distro sends a log record that carries an exception to Application Insights as an exception
+            logger.LogError(ex, "Failed to read the activities.");
+            TempData["Flash"] = "Failed to read the activities.";
+        }
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
@@ -31,15 +40,31 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
         {
             if (!string.IsNullOrEmpty(id))
             {
-                await store.UpdateAsync(id, text, cancellationToken);
-                logger.LogInformation("Activity updated: {Id}", id);
-                TempData["Flash"] = "Activity updated successfully.";
+                try
+                {
+                    await store.UpdateAsync(id, text, cancellationToken);
+                    logger.LogInformation("Activity updated: {Id}", id);
+                    TempData["Flash"] = "Activity updated successfully.";
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Failed to update the activity {Id}.", id);
+                    TempData["Flash"] = "Failed to update the activity.";
+                }
             }
             else
             {
-                await store.AddAsync(text, cancellationToken);
-                logger.LogInformation("Activity added: {Activity}", text);
-                TempData["Flash"] = "Activity added successfully.";
+                try
+                {
+                    await store.AddAsync(text, cancellationToken);
+                    logger.LogInformation("Activity added: {Activity}", text);
+                    TempData["Flash"] = "Activity added successfully.";
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Failed to add the activity.");
+                    TempData["Flash"] = "Failed to add the activity.";
+                }
             }
         }
 

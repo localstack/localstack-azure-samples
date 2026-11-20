@@ -34,12 +34,37 @@ resource "azurerm_mysql_flexible_server_firewall_rule" "allow_all" {
   server_name         = azurerm_mysql_flexible_server.this.name
   start_ip_address    = var.firewall_start_ip
   end_ip_address      = var.firewall_end_ip
+
+  # Azure runs one operation at a time on a flexible server ("ServerIsBusy" otherwise), so the firewall
+  # rule waits for the database instead of being created in parallel with it.
+  depends_on = [azurerm_mysql_flexible_database.this]
+}
+
+# Audit logging is off by default, and the MySqlAuditLogs category of the diagnostic setting has records only once the
+# server writes them. Each parameter waits for the operation before it, because Azure runs one at a time on the server.
+resource "azurerm_mysql_flexible_server_configuration" "audit_log_enabled" {
+  name                = "audit_log_enabled"
+  resource_group_name = var.resource_group_name
+  server_name         = azurerm_mysql_flexible_server.this.name
+  value               = var.audit_log_enabled
+
+  depends_on = [azurerm_mysql_flexible_server_firewall_rule.allow_all]
+}
+
+resource "azurerm_mysql_flexible_server_configuration" "audit_log_events" {
+  name                = "audit_log_events"
+  resource_group_name = var.resource_group_name
+  server_name         = azurerm_mysql_flexible_server.this.name
+  value               = var.audit_log_events
+
+  depends_on = [azurerm_mysql_flexible_server_configuration.audit_log_enabled]
 }
 
 resource "azurerm_monitor_diagnostic_setting" "this" {
-  name                       = "DiagnosticsSettings"
-  target_resource_id         = azurerm_mysql_flexible_server.this.id
-  log_analytics_workspace_id = var.log_analytics_workspace_id
+  name                           = "DiagnosticsSettings"
+  target_resource_id             = azurerm_mysql_flexible_server.this.id
+  log_analytics_workspace_id     = var.log_analytics_workspace_id
+  log_analytics_destination_type = var.log_analytics_destination_type
 
   enabled_log {
     category = "MySqlSlowLogs"

@@ -13,6 +13,9 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 RUNTIME="dotnetcore"
 RUNTIME_VERSION="10.0"
 CONTAINER_NAME='activities'
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+DIAGNOSTIC_SETTINGS_NAME="default"
 ZIPFILE="webapp_app.zip"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 SUBSCRIPTION_ID=$(az account show --query id --output tsv)
@@ -81,7 +84,7 @@ STORAGE_ACCOUNT_KEY=$(az storage account keys list \
 	--output tsv)
 
 if [ -n "$STORAGE_ACCOUNT_KEY" ]; then
-	echo "Storage account key retrieved successfully: [$STORAGE_ACCOUNT_KEY]"
+	echo "Storage account key retrieved successfully."
 else
 	echo "Failed to retrieve storage account key."
 	exit 1
@@ -123,12 +126,86 @@ az storage container create \
 	--name $CONTAINER_NAME \
 	--account-name $STORAGE_ACCOUNT_NAME \
 	--account-key "$STORAGE_ACCOUNT_KEY" \
-	--public-access blob 1>/dev/null
+	--public-access off 1>/dev/null
 
 if [ $? -eq 0 ]; then
 	echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
 else
 	echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
+	exit 1
+fi
+
+# Check if the Log Analytics workspace already exists
+echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$LOG_ANALYTICS_NAME] Log Analytics workspace exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the Log Analytics workspace that the Application Insights component sends its telemetry to
+	az monitor log-analytics workspace create \
+		--name "$LOG_ANALYTICS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
+# Check if the Application Insights component already exists
+echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create a workspace-based Application Insights component that sends its data to the Log Analytics workspace
+	az monitor app-insights component create \
+		--app "$APPLICATION_INSIGHTS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--application-type web \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
+# Get the connection string of the Application Insights component
+echo "Getting the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component..."
+APPLICATION_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query connectionString \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APPLICATION_INSIGHTS_CONNECTION_STRING ]]; then
+	echo "Connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component retrieved successfully."
+else
+	echo "Failed to retrieve the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component."
 	exit 1
 fi
 
@@ -164,8 +241,8 @@ fi
 echo "Checking if [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
 
 az identity show \
-	--name"$MANAGED_IDENTITY_NAME" \
-	--resource-group $"$RESOURCE_GROUP_NAME" &>/dev/null
+	--name "$MANAGED_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" &>/dev/null
 
 if [[ $? != 0 ]]; then
 	echo "No [$MANAGED_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group"
@@ -276,14 +353,17 @@ else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 	echo "Creating role assignment: assigning [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]..."
 	ATTEMPT=1
+	ASSIGNED=0
 	while [ $ATTEMPT -le $RETRY_COUNT ]; do
 		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
 		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
+			--assignee-object-id "$PRINCIPAL_ID" \
+			--assignee-principal-type ServicePrincipal \
 			--role "$ROLE" \
 			--scope "$STORAGE_ACCOUNT_RESOURCE_ID" 1>/dev/null
 
 		if [[ $? == 0 ]]; then
+			ASSIGNED=1
 			break
 		else
 			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
@@ -294,7 +374,7 @@ else
 		fi
 	done
 
-	if [[ $? == 0 ]]; then
+	if [[ $ASSIGNED == 1 ]]; then
 		echo "Successfully assigned [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
 	else
 		echo "Failed to assign [$ROLE] role to managed identity on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -313,6 +393,7 @@ az webapp config appsettings set \
 	AZURE_CLIENT_ID="$CLIENT_ID" \
 	AZURE_STORAGE_ACCOUNT_URL="$AZURE_STORAGE_ACCOUNT_URL" \
 	CONTAINER_NAME="$CONTAINER_NAME" \
+	APPLICATIONINSIGHTS_CONNECTION_STRING="$APPLICATION_INSIGHTS_CONNECTION_STRING" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -320,6 +401,229 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to set web app settings for [$WEB_APP_NAME]."
 	exit 1
+fi
+
+# Get the resource id of the web app
+echo "Retrieving the resource id of the [$WEB_APP_NAME] web app..."
+WEB_APP_ID=$(az webapp show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $WEB_APP_ID ]]; then
+	echo "Resource id [$WEB_APP_ID] of the [$WEB_APP_NAME] web app successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$WEB_APP_NAME] web app"
+	exit 1
+fi
+
+# Get the resource id of the App Service plan
+echo "Retrieving the resource id of the [$APP_SERVICE_PLAN_NAME] App Service plan..."
+APP_SERVICE_PLAN_ID=$(az appservice plan show \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APP_SERVICE_PLAN_ID ]]; then
+	echo "Resource id [$APP_SERVICE_PLAN_ID] of the [$APP_SERVICE_PLAN_NAME] App Service plan successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$APP_SERVICE_PLAN_NAME] App Service plan"
+	exit 1
+fi
+
+# Check whether the diagnostic settings of the web app already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$WEB_APP_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app..."
+
+	# Create the diagnostic settings that send the logs and the platform metrics of the web app to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$WEB_APP_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "AppServiceHTTPLogs", "enabled": true},
+			{"category": "AppServiceConsoleLogs", "enabled": true},
+			{"category": "AppServiceAppLogs", "enabled": true},
+			{"category": "AppServiceAuditLogs", "enabled": true},
+			{"category": "AppServiceIPSecAuditLogs", "enabled": true},
+			{"category": "AppServicePlatformLogs", "enabled": true},
+			{"category": "AppServiceAuthenticationLogs", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist"
+fi
+
+# Check whether the diagnostic settings of the App Service plan already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$APP_SERVICE_PLAN_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan..."
+
+	# Create the diagnostic settings that send the platform metrics of the App Service plan to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$APP_SERVICE_PLAN_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist"
+fi
+
+# Get the resource id of the Log Analytics workspace
+echo "Retrieving the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID ]]; then
+	echo "Resource id [$LOG_ANALYTICS_ID] of the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Check whether the diagnostic settings of the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
+fi
+
+# Check whether the diagnostic settings of the storage account already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+	# Create the diagnostic settings that send the capacity and transaction metrics of the storage account to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "Capacity", "enabled": true},
+			{"category": "Transaction", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+fi
+
+# Check whether the diagnostic settings of the blob service of the storage account already exist
+BLOB_SERVICE_RESOURCE_ID="$STORAGE_ACCOUNT_RESOURCE_ID/blobServices/default"
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$BLOB_SERVICE_RESOURCE_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+	# Create the diagnostic settings that send the logs of the requests to the blobs (StorageBlobLogs) and the capacity and transaction metrics of the blob service to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$BLOB_SERVICE_RESOURCE_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "StorageRead", "enabled": true},
+			{"category": "StorageWrite", "enabled": true},
+			{"category": "StorageDelete", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "Capacity", "enabled": true},
+			{"category": "Transaction", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the blob service of the [$STORAGE_ACCOUNT_NAME] storage account already exist"
 fi
 
 # CD into the web app directory

@@ -59,6 +59,30 @@ param fraudVelocityWindowSeconds int = 60
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the resource id of the Log Analytics workspace the diagnostic settings send to.')
+param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the web app send to the workspace.')
+param webAppLogCategories array = [
+  'AppServiceHTTPLogs'
+  'AppServiceConsoleLogs'
+  'AppServiceAppLogs'
+  'AppServiceAuditLogs'
+  'AppServiceIPSecAuditLogs'
+  'AppServicePlatformLogs'
+  'AppServiceAuthenticationLogs'
+]
+
+var allMetrics = [
+  {
+    category: 'AllMetrics'
+    enabled: true
+  }
+]
+
 resource functionPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: functionPlanName
   location: location
@@ -90,10 +114,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'python'
-        }
-        {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(functionAppName)
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -129,6 +149,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
+// Created after the Linux Consumption plan, as the scripts do: created alongside this Standard plan, the Consumption
+// plan was refused on Azure ("Requested features 'Dynamic SKU, Linux Worker' not available in resource group")
 resource webPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: webPlanName
   location: location
@@ -140,6 +162,9 @@ resource webPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   properties: {
     reserved: true
   }
+  dependsOn: [
+    functionPlan
+  ]
 }
 
 resource webApp 'Microsoft.Web/sites@2023-12-01' = {
@@ -152,7 +177,9 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'PYTHON|${pythonVersion}'
-      appCommandLine: 'gunicorn --config gunicorn.conf.py app:app'
+      // No custom startup command: App Service starts Gunicorn for the Flask app in app.py, and Gunicorn reads
+      // gunicorn.conf.py from the app folder. With a custom command, the container that starts before the package
+      // is deployed exits at once ('gunicorn.conf.py' doesn't exist)
       appSettings: [
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
@@ -187,7 +214,57 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
+// The records the Functions host writes for each invocation (FunctionAppLogs) and the platform metrics of the function
+// app, of the web app and of their plans; the requests, console output and platform events of the web app
+resource functionPlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionPlan
+  properties: {
+    workspaceId: workspaceId
+    metrics: allMetrics
+  }
+}
+
+resource functionAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionApp
+  properties: {
+    workspaceId: workspaceId
+    logs: [
+      {
+        category: 'FunctionAppLogs'
+        enabled: true
+      }
+    ]
+    metrics: allMetrics
+  }
+}
+
+resource webPlanDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: webPlan
+  properties: {
+    workspaceId: workspaceId
+    metrics: allMetrics
+  }
+}
+
+resource webAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: webApp
+  properties: {
+    workspaceId: workspaceId
+    logs: [for category in webAppLogCategories: {
+      category: category
+      enabled: true
+    }]
+    metrics: allMetrics
+  }
+}
+
+output functionAppId string = functionApp.id
 output functionAppName string = functionApp.name
+output webAppId string = webApp.id
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output storageAccountUsed string = storageAccountName

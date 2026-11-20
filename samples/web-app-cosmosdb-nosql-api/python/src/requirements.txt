@@ -4,3 +4,4 @@ azure-cosmos==4.15.0
 gunicorn==26.0.0
 python-dotenv==1.2.2
 setuptools==84.1.0
+microsoft-opentelemetry==1.6.0

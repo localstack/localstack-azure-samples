@@ -26,6 +26,9 @@ KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 CERT_NAME="${PREFIX}-cert-${SUFFIX}"
 TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+DIAGNOSTIC_SETTINGS_NAME='default'
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -40,6 +43,100 @@ if [ $? -eq 0 ]; then
 	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
 else
 	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	exit 1
+fi
+
+# Check if the Log Analytics workspace already exists
+echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the Log Analytics workspace that receives the telemetry of Application Insights and the logs and metrics
+	# of the diagnostic settings
+	az monitor log-analytics workspace create \
+		--name "$LOG_ANALYTICS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--query-access "Enabled" \
+		--retention-time 30 \
+		--sku "PerNode" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+else
+	echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group"
+fi
+
+# Get the resource id of the Log Analytics workspace
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $LOG_ANALYTICS_ID ]]; then
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Check if the Application Insights component already exists
+echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create a workspace-based Application Insights component that stores the telemetry of the web app in the Log
+	# Analytics workspace
+	az monitor app-insights component create \
+		--app "$APPLICATION_INSIGHTS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--application-type web \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
+# Get the connection string of the Application Insights component
+echo "Getting the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component..."
+APPLICATION_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query connectionString \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APPLICATION_INSIGHTS_CONNECTION_STRING ]]; then
+	echo "Connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component retrieved successfully."
+else
+	echo "Failed to retrieve the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component."
 	exit 1
 fi
 
@@ -83,7 +180,7 @@ az sql server show \
 	--only-show-errors &>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "[$SQL_SERVER_NAME] sql server already exists in the [$RESOURCE_GROUP_NAME] resource group. Exiting script."
+	echo "[$SQL_SERVER_NAME] sql server already exists in the [$RESOURCE_GROUP_NAME] resource group."
 else
 	echo "[$SQL_SERVER_NAME] sql server does not exist in the [$RESOURCE_GROUP_NAME] resource group. Proceeding to create it."
 	echo "Creating [$SQL_SERVER_NAME] sql server in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -120,7 +217,7 @@ az sql server firewall-rule create \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Firewall rule [AllowLocalNetwork] created successfully"
+	echo "Firewall rule [$FIREWALL_RULE_NAME] created successfully"
 else
 	echo "Failed to create firewall rule"
 	exit 1
@@ -154,6 +251,89 @@ else
 		echo "Failed to create [$SQL_DATABASE_NAME] with Provisioned compute model database in the [$SQL_SERVER_NAME] sql server"
 		exit 1
 	fi
+fi
+
+# Get the resource id of the database
+SQL_DATABASE_ID=$(az sql db show \
+	--name "$SQL_DATABASE_NAME" \
+	--server "$SQL_SERVER_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z "$SQL_DATABASE_ID" ]]; then
+	echo "Failed to retrieve the resource id of the [$SQL_DATABASE_NAME] database"
+	exit 1
+fi
+
+# Check whether the diagnostic settings for the database already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$SQL_DATABASE_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database..."
+
+	# Create the diagnostic settings for the database to send its resource logs and platform metrics to the Log
+	# Analytics workspace. The database writes its logs to the AzureDiagnostics table: none of its categories has a
+	# resource-specific table. The audit category (SQLSecurityAuditEvents) gets a diagnostic setting of its own below.
+	# Its metrics come in three categories, all enabled: Basic, InstanceAndAppAdvanced, and WorkloadManagement, which
+	# groups the metrics of dedicated SQL pools and so exports none for this database.
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$SQL_DATABASE_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "SQLInsights", "enabled": true},
+			{"category": "AutomaticTuning", "enabled": true},
+			{"category": "QueryStoreRuntimeStatistics", "enabled": true},
+			{"category": "QueryStoreWaitStatistics", "enabled": true},
+			{"category": "Errors", "enabled": true},
+			{"category": "DatabaseWaitStatistics", "enabled": true},
+			{"category": "Timeouts", "enabled": true},
+			{"category": "Blocks", "enabled": true},
+			{"category": "Deadlocks", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "Basic", "enabled": true},
+			{"category": "InstanceAndAppAdvanced", "enabled": true},
+			{"category": "WorkloadManagement", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$SQL_DATABASE_NAME] database already exist"
+fi
+
+# Turn on the auditing of the database with Azure Monitor as its target. The Azure CLI keeps the audit category
+# (SQLSecurityAuditEvents) in a diagnostic setting of its own, named SQLSecurityAuditEvents_<id>, which it creates the
+# first time and updates afterwards: the records of each batch run on the database and of each sign-in reach the
+# workspace.
+echo "Enabling the auditing of the [$SQL_DATABASE_NAME] database to the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+az sql db audit-policy update \
+	--name "$SQL_DATABASE_NAME" \
+	--server "$SQL_SERVER_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--state Enabled \
+	--log-analytics-target-state Enabled \
+	--log-analytics-workspace-resource-id "$LOG_ANALYTICS_ID" \
+	--only-show-errors 1>/dev/null
+
+if [[ $? == 0 ]]; then
+	echo "Auditing of the [$SQL_DATABASE_NAME] database to the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully enabled"
+else
+	echo "Failed to enable the auditing of the [$SQL_DATABASE_NAME] database"
+	exit 1
 fi
 
 # Retrieve the fullyQualifiedDomainName of the SQL server
@@ -381,6 +561,56 @@ else
 	exit 1
 fi
 
+# Get the resource id of the key vault
+KEY_VAULT_ID=$(az keyvault show \
+	--name "$KEY_VAULT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z "$KEY_VAULT_ID" ]]; then
+	echo "Failed to retrieve the resource id of the [$KEY_VAULT_NAME] key vault"
+	exit 1
+fi
+
+# Check whether the diagnostic settings for the key vault already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$KEY_VAULT_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault..."
+
+	# Create the diagnostic settings for the key vault to send logs to the Log Analytics workspace, in the
+	# resource-specific AZKVAuditLogs and AZKVPolicyEvaluationDetailsLogs tables rather than AzureDiagnostics
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$KEY_VAULT_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--export-to-resource-specific true \
+		--logs '[
+			{"category": "AuditEvent", "enabled": true},
+			{"category": "AzurePolicyEvaluationDetails", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault already exist"
+fi
+
 # Assign access policy to Web App managed identity
 echo "Assigning Key Vault access policy to Web App..."
 az keyvault set-policy \
@@ -536,6 +766,7 @@ az webapp config appsettings set \
 	LOGIN_NAME="$LOGIN_NAME" \
 	KEYVAULT_URI="$KEYVAULT_URI" \
 	CERT_NAME="$CERT_NAME" \
+	APPLICATIONINSIGHTS_CONNECTION_STRING="$APPLICATION_INSIGHTS_CONNECTION_STRING" \
 	--only-show-errors 1>/dev/null
 
 if [ $? -eq 0 ]; then
@@ -543,6 +774,130 @@ if [ $? -eq 0 ]; then
 else
 	echo "Failed to set web app settings for [$WEB_APP_NAME]."
 	exit 1
+fi
+
+# Get the resource ids of the web app and of its App Service plan
+WEB_APP_ID=$(az webapp show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+APP_SERVICE_PLAN_ID=$(az appservice plan show \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $WEB_APP_ID || -z $APP_SERVICE_PLAN_ID ]]; then
+	echo "Failed to retrieve the resource ids of the [$WEB_APP_NAME] web app and of its App Service plan"
+	exit 1
+fi
+
+# Check whether the diagnostic settings for the web app already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$WEB_APP_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app..."
+
+	# Create the diagnostic settings for the web app to send its logs and metrics to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$WEB_APP_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "AppServiceHTTPLogs", "enabled": true},
+			{"category": "AppServiceConsoleLogs", "enabled": true},
+			{"category": "AppServiceAppLogs", "enabled": true},
+			{"category": "AppServiceAuditLogs", "enabled": true},
+			{"category": "AppServiceIPSecAuditLogs", "enabled": true},
+			{"category": "AppServicePlatformLogs", "enabled": true},
+			{"category": "AppServiceAuthenticationLogs", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$WEB_APP_NAME] web app already exist"
+fi
+
+# Check whether the diagnostic settings for the App Service plan already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$APP_SERVICE_PLAN_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan..."
+
+	# Create the diagnostic settings for the App Service plan to send its metrics to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$APP_SERVICE_PLAN_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist"
+fi
+
+# Check whether the diagnostic settings for the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
 fi
 
 if [[ $DEPLOY_APP -eq 0 ]]; then

@@ -4,6 +4,12 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "=5.1.0"
     }
+    # time_sleep waits for the deploying principal's Key Vault role assignment to propagate before the secrets are
+    # written
+    time = {
+      source  = "hashicorp/time"
+      version = "=0.14.1"
+    }
   }
 }
 

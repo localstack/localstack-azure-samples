@@ -14,6 +14,8 @@ The following diagram illustrates the architecture of the solution:
 - **Azure SQL Database**: Stores activity data in a relational table, encrypted at rest with TDE
 - **Azure Key Vault**: Stores the database connection string, the certificate used to secure HTTPS traffic, and the RSA key that serves as the TDE protector of the SQL server
 - **User-Assigned Managed Identity**: The identity the SQL server uses to wrap and unwrap its database encryption keys with the Key Vault key
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the resource logs and platform metrics that the diagnostic settings of the web app, the App Service plan, the database, the key vault and the workspace itself send to it. See [Logs and metrics](#logs-and-metrics).
+- **Azure Application Insights**: A workspace-based resource that collects the requests, the calls to Azure SQL Database and Key Vault, the log records, the exceptions, the custom events and the custom metric of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting. See [Application Insights](#application-insights).
 
 ## Prerequisites
 
@@ -139,6 +141,82 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 2. **Via localhost and host port mapped to the container's port**: Use `127.0.0.1` with the host port mapped to the container's port `80`.
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the web app from the Docker host machine.
 4. **Via the default hostname**: Call the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
+
+## Application Insights
+
+The web app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` workspace. The three deployment methods set the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource, and the application turns on the [Microsoft OpenTelemetry Distro](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=python) when the setting is present. The distro instruments no ODBC driver, so the application also wraps `pyodbc.connect` with the OpenTelemetry instrumentation of the Python DB-API (`opentelemetry-instrumentation-dbapi`), which turns the statements it runs on Azure SQL Database into dependencies. The application sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each activity it adds, updates or deletes, counts these operations in the `activities` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), and logs the exceptions it catches:
+
+```python
+from microsoft.opentelemetry import use_microsoft_opentelemetry
+
+# The logger of the application: the loggers of the other modules are its children
+LOGGER_NAME = "webapp"
+
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    use_microsoft_opentelemetry(enable_azure_monitor=True, logger_name=LOGGER_NAME)
+
+    import pyodbc
+    from opentelemetry.instrumentation.dbapi import trace_integration
+
+    trace_integration(pyodbc, "connect", "mssql")
+
+from flask import Flask
+from opentelemetry import metrics
+
+activity_counter = metrics.get_meter(LOGGER_NAME).create_counter(
+    "activities", unit="{activity}", description="The number of activities added, updated and deleted."
+)
+
+
+def track_activity_event(event_name: str, operation: str, activity_id: str) -> None:
+    logger.info(
+        f"{event_name}: {activity_id}",
+        extra={"microsoft.custom_event.name": event_name, "activity.id": activity_id},
+    )
+    activity_counter.add(1, {"operation": operation})
+```
+
+The distro starts before the application imports Flask, so that its instrumentation wraps it, and it collects the records of the `webapp` logger and of its children `webapp.activities`, `webapp.database` and `webapp.certificates`.
+
+The workspace keeps the telemetry in these tables:
+
+| Table             | What the web app sends                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`     | The requests it serves, such as `GET /`                                                                                  |
+| `AppDependencies` | Its calls to Azure SQL Database and to Key Vault                                                                         |
+| `AppTraces`       | The records of its loggers                                                                                               |
+| `AppEvents`       | The `ActivityAdded`, `ActivityUpdated` and `ActivityDeleted` custom events, with the id of the activity in `activity.id` |
+| `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
+| `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to the database or to Key Vault fails                        |
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+
+## Logs and metrics
+
+The web app, its App Service plan, the database, the key vault and the workspace each have a diagnostic setting that sends their resource logs, their platform metrics or both to the `<prefix>-log-analytics-<suffix>` Log Analytics workspace; the workspace's sends the audit records of the queries run on it (`Audit`, table `LAQueryLogs`). The Application Insights resource has none: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The logical server has none either: Microsoft documents no platform metrics for it, and auditing at the server level goes through the diagnostic settings of its `master` database. The managed identity offers no diagnostic settings. Three of the resources record what the application does:
+
+| Resource     | Log categories                                                                                                                                                                               | Tables in the workspace                            | What the application leaves there                                                                          |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Web App      | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs`, `AppServiceAppLogs`, `AppServiceAuditLogs`, `AppServiceIPSecAuditLogs`, `AppServiceAuthenticationLogs`              | One table per category, named after it             | The requests it serves, its console output and the start of its container                                  |
+| SQL database | `SQLInsights`, `AutomaticTuning`, `QueryStoreRuntimeStatistics`, `QueryStoreWaitStatistics`, `Errors`, `DatabaseWaitStatistics`, `Timeouts`, `Blocks`, `Deadlocks`, `SQLSecurityAuditEvents` | `AzureDiagnostics`                                 | The audit records of the batches the app runs and of its sign-ins, and the statements the database refuses |
+| Key vault    | `AuditEvent`, `AzurePolicyEvaluationDetails`                                                                                                                                                 | `AZKVAuditLogs`, `AZKVPolicyEvaluationDetailsLogs` | The reads of the connection string secret and of the certificate                                           |
+
+Their platform metrics land in the `AzureMetrics` table. A database names three metric categories instead of `AllMetrics`, and its setting enables all of them: `Basic` (connections, CPU, storage, sessions and workers), `InstanceAndAppAdvanced` (the CPU and memory of the SQL instance and the `tempdb` files) and `WorkloadManagement`, which groups the metrics of dedicated SQL pools and so exports none for this database. None of the database's log categories has a resource-specific table, so it writes them to `AzureDiagnostics`. The audit records come from the auditing policy of the database, which sends to Azure Monitor: the Azure CLI script turns it on with `az sql db audit-policy update`, which keeps the `SQLSecurityAuditEvents` category in a diagnostic setting of its own, named `SQLSecurityAuditEvents_<id>`, while the Bicep and Terraform deployments list the category in the database's setting. The key vault's setting writes to the resource-specific tables.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) shows the diagnostic settings, calls the web app and reads these tables back, retrying until their records arrive, then reads the same platform metrics from the Azure Monitor metrics API. On Azure the first records of a new diagnostic setting can take up to 90 minutes: raise `RETRY_COUNT` there. On Azure the script reads the exported platform metrics (`AzureMetrics`) only once: Azure exports them late and irregularly, so the script shows those that arrived and notes how many are still missing, without failing. To query the workspace yourself, add the `log-analytics` extension of the Azure CLI (`az extension add --name log-analytics`); the query API identifies a workspace by its workspace id (`customerId`):
+
+```bash
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AzureDiagnostics | where Category == 'SQLSecurityAuditEvents' | project TimeGenerated, action_name_s, statement_s | order by TimeGenerated desc | take 5" \
+  --output table
+```
 
 ## SQL Server Tooling
 

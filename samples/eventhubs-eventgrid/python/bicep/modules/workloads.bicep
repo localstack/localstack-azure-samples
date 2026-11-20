@@ -34,6 +34,15 @@ param temperatureLimit int
 @description('Specifies the tags for all resources.')
 param tags object = {}
 
+@description('Specifies the resource id of the Log Analytics workspace the diagnostic settings send to.')
+param workspaceId string
+
+@description('Specifies the name of the diagnostic settings.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the connection string of the Application Insights resource the function app sends its telemetry to.')
+param applicationInsightsConnectionString string
+
 resource functionPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: functionPlanName
   location: location
@@ -66,10 +75,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'python'
         }
-        {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(functionAppName)
-        }
         // The trigger and output bindings resolve these by name (see function_app.py).
         {
           name: 'NOTIFICATION_HUB_NAME'
@@ -87,9 +92,48 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'TEMPERATURE_LIMIT'
           value: string(temperatureLimit)
         }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: applicationInsightsConnectionString
+        }
       ]
     }
   }
 }
 
+resource planDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionPlan
+  properties: {
+    workspaceId: workspaceId
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
+}
+
+resource functionAppDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: diagnosticSettingsName
+  scope: functionApp
+  properties: {
+    workspaceId: workspaceId
+    logs: [
+      {
+        category: 'FunctionAppLogs'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
+}
+
 output functionAppName string = functionApp.name
+output functionAppId string = functionApp.id

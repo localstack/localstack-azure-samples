@@ -104,9 +104,10 @@ else
 	exit 1
 fi
 
-# Loop n times to check whether the function app processed the input file and generated the result file in the output container
-n=10
-seconds=5
+# Loop n times to check whether the function app processed the input file and generated the result file in the output container.
+# On Azure the blob trigger can take a minute or more to pick up a new blob: raise RETRY_COUNT there.
+n="${RETRY_COUNT:-36}"
+seconds="${SLEEP:-5}"
 
 for ((i=1; i<=n; i++)); do
 	echo "Checking for [$BLOB_NAME] file in the [$OUTPUT_CONTAINER_NAME] container (Attempt $i of $n)..."

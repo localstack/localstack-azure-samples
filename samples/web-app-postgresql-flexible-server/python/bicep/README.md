@@ -27,11 +27,12 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 3. [Azure Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) (group `postgresqlServer`).
 4. [Azure NAT Gateway](https://learn.microsoft.com/azure/nat-gateway/nat-overview).
 5. [Network Security Groups](https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview): one per subnet.
-6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview).
-7. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create psql bootstrap.
-8. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `sampledb` (UTF8 / `en_US.utf8`).
-9. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-10. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `PG_HOST`, `PG_PORT`, and `PG_DATABASE` on the Web App but **does not** set `PG_USER` or `PG_PASSWORD` — those are written by `deploy.sh` after psql creates the application role.
+6. [Azure Log Analytics Workspace](https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview), with a diagnostic setting that sends the audit records of the queries run on the workspace to the workspace itself.
+7. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
+8. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create psql bootstrap.
+9. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB` (UTF8 / `en_US.utf8`).
+10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
+11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `PG_HOST`, `PG_PORT`, and `PG_DATABASE` on the Web App but **does not** set `PG_USER` or `PG_PASSWORD` — those are written by `deploy.sh` after psql creates the application role. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 ## Configuration
 
@@ -44,7 +45,7 @@ param prefix = 'local'
 param suffix = 'test'
 param runtimeName = 'python'
 param runtimeVersion = '3.13'
-param databaseName = 'sampledb'
+param databaseName = 'PlannerDB'
 param username = 'paolo'
 
 param pgAdminLogin = 'pgadmin'
@@ -93,6 +94,17 @@ az postgres flexible-server show \
   --resource-group local-rg --name local-pgflex-test \
   --query fullyQualifiedDomainName --output tsv
 ```
+
+## Telemetry, logs and metrics
+
+Once the web app is deployed, read the telemetry it sent to Application Insights and the logs and metrics the diagnostic settings sent to the workspace. The scripts take the same `PREFIX` and `SUFFIX` as the deployment:
+
+```bash
+bash ../scripts/query-telemetry.sh
+bash ../scripts/query-logs-and-metrics.sh
+```
+
+See [Application Insights](../README.md#application-insights) and [Logs and metrics](../README.md#logs-and-metrics) for what they read.
 
 ## Related Documentation
 

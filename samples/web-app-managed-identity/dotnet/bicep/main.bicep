@@ -87,8 +87,8 @@ param appServicePlanZoneRedundant bool = false
 @description('Specifies the language runtime used by the Azure Web App.')
 @allowed([
   'dotnet'
-  'dotnet-isolated'
   'dotnetcore'
+  'dotnet-isolated'
   'python'
   'java'
   'node'
@@ -157,119 +157,150 @@ param containerName string = 'activities'
 ])
 param managedIdentityType string = 'SystemAssigned'
 
+@description('Specifies the name of the diagnostic settings of the web app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the web app send to the Log Analytics workspace.')
+param logCategories array = [
+  'AppServiceHTTPLogs'
+  'AppServiceConsoleLogs'
+  'AppServiceAppLogs'
+  'AppServiceAuditLogs'
+  'AppServiceIPSecAuditLogs'
+  'AppServicePlatformLogs'
+  'AppServiceAuthenticationLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the web app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+//********************************************
+// Variables
+//********************************************
 var webAppName = '${prefix}-webapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
 var managedIdentityName = '${prefix}-identity-${suffix}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
 
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (managedIdentityType == 'UserAssigned') {
-  name: managedIdentityName
-  location: location
-  tags: tags
-}
+// The id of the Storage Blob Data Contributor built-in role
+var storageBlobDataContributorRoleDefinitionId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 
-resource storageBlobDataContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
-  name: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-  scope: subscription()
-}
-
-resource storageBlobDataOwnerRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, webApp.id, storageBlobDataContributorRoleDefinition.id)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageBlobDataContributorRoleDefinition.id
-    principalId: managedIdentityType == 'SystemAssigned' ? webApp.identity.principalId : managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
+//********************************************
+// Modules
+//********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
   }
 }
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
-  name: storageAccountName
-  location: location
-  tags: tags
-  sku: {
-    name: storageAccountSku
-  }
-  kind: 'StorageV2'
-  properties: {
-    accessTier: 'Hot'
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
-  parent: blobServices
-  name: containerName
-}
-
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  tags: tags
-  kind: appServicePlanKind
-  sku: {
-    tier: skuTier
-    name: skuName
+module storageAccount 'modules/storage-account.bicep' = {
+  name: 'storageAccount'
+  params: {
+    name: storageAccountName
+    location: location
+    skuName: storageAccountSku
+    containerNames: [
+      containerName
+    ]
+    diagnosticSettingsName: diagnosticSettingsName
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  properties: {
+}
+
+module managedIdentity 'modules/managed-identity.bicep' = if (managedIdentityType == 'UserAssigned') {
+  name: 'managedIdentity'
+  params: {
+    name: managedIdentityName
+    location: location
+    tags: tags
+  }
+}
+
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuTier: skuTier
+    skuName: skuName
+    kind: appServicePlanKind
     reserved: reserved
     zoneRedundant: appServicePlanZoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    diagnosticSettingsName: diagnosticSettingsName
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource webApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: webAppName
-  location: location
-  tags: tags
-  kind: webAppKind
-  properties: {
+module webApp 'modules/web-app.bicep' = {
+  name: 'webApp'
+  params: {
+    name: webAppName
+    location: location
+    kind: webAppKind
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
     httpsOnly: httpsOnly
-    serverFarmId: appServicePlan.id
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      minTlsVersion: minTlsVersion
-      publicNetworkAccess: publicNetworkAccess
+    minTlsVersion: minTlsVersion
+    publicNetworkAccess: publicNetworkAccess
+    identityType: managedIdentityType
+    managedIdentityId: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.id : ''
+    hostingPlanName: appServicePlan.outputs.name
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
+      ENABLE_ORYX_BUILD: 'true'
+      CONTAINER_NAME: containerName
+      AZURE_STORAGE_ACCOUNT_URL: storageAccount.outputs.blobEndpoint
+      AZURE_CLIENT_ID: managedIdentityType == 'UserAssigned' ? managedIdentity!.outputs.clientId : ''
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
     }
-  }
-  identity: {
-    type: managedIdentityType
-    userAssignedIdentities  : managedIdentityType == 'SystemAssigned' ? null : {
-      '${managedIdentity.id}': {}
-    } 
-  }
-}
-
-resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
-  parent: webApp
-  name: 'appsettings'
-  properties: {
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    ENABLE_ORYX_BUILD: 'true'
-    CONTAINER_NAME: container.name
-    AZURE_STORAGE_ACCOUNT_URL: storageAccount.properties.primaryEndpoints.blob
-    AZURE_CLIENT_ID: managedIdentityType == 'SystemAssigned' ? '' : managedIdentity.properties.clientId
-  }
-  dependsOn: [
-    storageBlobDataOwnerRoleAssignment
-  ]
-}
-
-resource webAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
-  name: 'web'
-  parent: webApp
-  properties: {
     repoUrl: repoUrl
-    branch: 'master'
-    isManualIntegration: true
+    diagnosticSettingsName: diagnosticSettingsName
+    logCategories: logCategories
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-output appServicePlanName string = appServicePlan.name
-output webAppName string = webApp.name
-output webAppUrl string = webApp.properties.defaultHostName
-output storageAccountName string = storageAccountName
+// The web app's identity reads and writes the activities in the storage account: the system-assigned identity
+// exists only once the web app does, so the role is assigned after the web app is created.
+module storageBlobDataContributorRoleAssignment 'modules/storage-account-role-assignment.bicep' = {
+  name: 'storageBlobDataContributorRoleAssignment'
+  params: {
+    storageAccountName: storageAccount.outputs.name
+    roleDefinitionId: storageBlobDataContributorRoleDefinitionId
+    principalId: managedIdentityType == 'SystemAssigned' ? webApp.outputs.principalId : managedIdentity!.outputs.principalId
+  }
+}
+
+//********************************************
+// Outputs
+//********************************************
+output appServicePlanName string = appServicePlan.outputs.name
+output webAppName string = webApp.outputs.name
+output webAppUrl string = webApp.outputs.defaultHostName
+output storageAccountName string = storageAccount.outputs.name
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

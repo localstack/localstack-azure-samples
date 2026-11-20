@@ -9,3 +9,4 @@ azure-storage-queue==12.17.0
 psycopg2-binary==2.9.12
 azure-storage-blob==12.29.0
 qrcode==8.2
+microsoft-opentelemetry==1.6.0

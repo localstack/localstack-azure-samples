@@ -7,9 +7,14 @@
 # Vault reads with which the app loads its settings, the PostgreSQL server log and the exported platform metrics. It
 # ends with the same platform metrics read from the Azure Monitor metrics API.
 #
+# Before it reads the records of the key vault, it restarts the web app: on Azure the records of a new diagnostic
+# setting's first minutes, the secret reads of the app's start among them, can be lost.
+#
 # The records reach the workspace within seconds on the emulator, and the aggregated ones (App Configuration requests,
 # metrics) once their one-minute window is over. On Azure they take minutes, and the first records of a new
 # diagnostic setting can take up to 90 minutes, so every query is retried: raise RETRY_COUNT there.
+# The platform metrics are the exception on Azure, which exports them late and irregularly: there the script reads
+# them once, shows those that arrived and notes how many are still missing, without failing.
 
 # Variables (the same defaults and environment overrides as deploy.sh)
 PREFIX="${PREFIX:-local}"
@@ -20,10 +25,13 @@ APP_CONFIG_NAME="${PREFIX}-appconfig-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-keyvault-${SUFFIX}"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 POSTGRES_SERVER_NAME="${PREFIX}-pgflex-${SUFFIX}"
+NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
 WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
 RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
+# The active az cloud: LocalStack when az talks to the emulator (lstk az start-interception), AzureCloud on Azure
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
 
 # Run a KQL query on the Log Analytics workspace and print the records it returns as a table, retrying while the
 # records are still on their way to the workspace
@@ -75,6 +83,60 @@ query_workspace() {
 	EXIT_CODE=1
 }
 
+# Run a KQL query on the platform metrics that the diagnostic settings export to the workspace (AzureMetrics). The
+# emulator exports them once their one-minute window is over, so there the query waits for every record it expects, as
+# query_workspace does. Azure exports each resource's metrics late and irregularly, sometimes long after the diagnostic
+# setting was created, so on Azure the query runs once, prints the records that arrived and notes how many are still
+# missing, without failing the script.
+# $1: what the query reads
+# $2: the KQL query
+# $3: the JMESPath projection that names and orders the columns of the table
+# $4: the number of records the query expects (1 when not given)
+query_metrics() {
+	local description=$1
+	local query=$2
+	local columns=$3
+	local expected_records=${4:-1}
+	local records
+
+	if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+		query_workspace "$description" "$query" "$columns" "$expected_records"
+		return
+	fi
+
+	echo -e "\n$description:\n"
+	records=$(az monitor log-analytics query \
+		--workspace "$WORKSPACE_ID" \
+		--analytics-query "$query" \
+		--query "length(@)" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $? != 0 ]]; then
+		echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query"
+		EXIT_CODE=1
+		return
+	fi
+
+	if [[ $records -gt 0 ]]; then
+		az monitor log-analytics query \
+			--workspace "$WORKSPACE_ID" \
+			--analytics-query "$query" \
+			--query "$columns" \
+			--output table \
+			--only-show-errors
+
+		if [[ $? != 0 ]]; then
+			echo "ERROR: the [$LOG_ANALYTICS_NAME] Log Analytics workspace did not answer the query that shows the records"
+			EXIT_CODE=1
+		fi
+	fi
+
+	if [[ $records -lt $expected_records ]]; then
+		echo "NOTE: [$records] of the [$expected_records] records expected have arrived so far. Azure exports platform metrics late, sometimes long after a diagnostic setting is created: run the script again later to see the others."
+	fi
+}
+
 # Show the diagnostic settings of a resource with the log and metric categories they send to the workspace
 # $1: the resource id
 # $2: the resource description
@@ -119,6 +181,31 @@ show_metrics() {
 		echo "ERROR: failed to read the platform metrics of the $description"
 		EXIT_CODE=1
 	fi
+}
+
+# Wait until the web app answers at a URL: on Azure the asynchronous zip deployment can still be building the app, and a
+# web app that was just restarted can still be starting
+# $1: the URL to call
+wait_for_web_app() {
+	local url=$1
+	local status_code
+	local attempt=1
+	echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [$url]..."
+	while [ $attempt -le $RETRY_COUNT ]; do
+		status_code=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "$url")
+
+		if [[ $status_code == 200 ]]; then
+			echo "The [$WEB_APP_NAME] web app answered with status code [$status_code]"
+			return 0
+		fi
+		if [ $attempt -lt $RETRY_COUNT ]; then
+			echo "Attempt $attempt of $RETRY_COUNT: the [$WEB_APP_NAME] web app answered with status code [$status_code]. Waiting [$SLEEP] seconds before retry..."
+			sleep $SLEEP
+		fi
+		attempt=$((attempt + 1))
+	done
+	echo "ERROR: the [$WEB_APP_NAME] web app did not answer with status code [200] after $RETRY_COUNT attempts"
+	EXIT_CODE=1
 }
 
 # Check whether the log-analytics extension of the Azure CLI, which provides the az monitor log-analytics query
@@ -241,34 +328,47 @@ else
 	exit 1
 fi
 
-# Show where the diagnostic settings send the logs and metrics of the web app and of the three services it reads
+# Get the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP: a public IP prefix with
+# the scripts and Bicep, a public IP address with Terraform
+echo "Retrieving the resource ids of the [$LOG_ANALYTICS_NAME] Log Analytics workspace, of the [$NAT_GATEWAY_NAME] NAT Gateway and of its public IP..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+NAT_GATEWAY_PUBLIC_IP_ID=$(az network nat gateway show \
+	--name "$NAT_GATEWAY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "publicIpPrefixes[0].id || publicIpAddresses[0].id" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID && -n $NAT_GATEWAY_ID && -n $NAT_GATEWAY_PUBLIC_IP_ID ]]; then
+	echo "Resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP successfully retrieved"
+else
+	echo "Failed to retrieve the resource ids of the Log Analytics workspace, of the NAT Gateway and of its public IP"
+	exit 1
+fi
+
+# Show where the diagnostic settings send the logs and metrics of the web app, of the three services it reads, of the
+# network resources and of the workspace itself
 show_diagnostic_settings "$WEB_APP_ID" "[$WEB_APP_NAME] web app"
 show_diagnostic_settings "$APP_CONFIG_ID" "[$APP_CONFIG_NAME] App Configuration store"
 show_diagnostic_settings "$KEY_VAULT_ID" "[$KEY_VAULT_NAME] key vault"
 show_diagnostic_settings "$POSTGRES_SERVER_ID" "[$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
+show_diagnostic_settings "$NAT_GATEWAY_ID" "[$NAT_GATEWAY_NAME] NAT Gateway"
+show_diagnostic_settings "$NAT_GATEWAY_PUBLIC_IP_ID" "public IP of the [$NAT_GATEWAY_NAME] NAT Gateway"
+show_diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace"
 
 # Wait until the web app answers: on Azure the asynchronous zip deployment can still be building the app
-echo -e "\nWaiting for the [$WEB_APP_NAME] web app to answer at [https://$WEB_APP_HOST_NAME/]..."
-ATTEMPT=1
-while [ $ATTEMPT -le $RETRY_COUNT ]; do
-	STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "https://$WEB_APP_HOST_NAME/")
-
-	if [[ $STATUS_CODE == 200 ]]; then
-		echo "The [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]"
-		break
-	else
-		if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-			echo "Attempt $ATTEMPT of $RETRY_COUNT: the [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]. Waiting [$SLEEP] seconds before retry..."
-			sleep $SLEEP
-		fi
-		ATTEMPT=$((ATTEMPT + 1))
-	fi
-done
-
-if [[ $STATUS_CODE != 200 ]]; then
-	echo "ERROR: the [$WEB_APP_NAME] web app did not answer with status code [200] after $RETRY_COUNT attempts"
-	EXIT_CODE=1
-fi
+wait_for_web_app "https://$WEB_APP_HOST_NAME/"
 
 # Call the web app, so that the request logs and metrics hold the requests of this run
 echo "Calling the [$WEB_APP_NAME] web app [$WEB_APP_CALLS] times..."
@@ -304,6 +404,22 @@ query_workspace \
 	"AACHttpRequest | project TimeGenerated, Method, StatusCode, HitCount, ClientObjectId, RequestURI | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Method:Method,Status:StatusCode,Hits:HitCount,Caller:ClientObjectId,Uri:RequestURI}"
 
+# Azure can drop for good the records of a new diagnostic setting's first minutes, among them the secret reads of
+# the web app's start, so the web app is restarted and called again: it reads its secrets anew
+echo -e "\nRestarting the [$WEB_APP_NAME] web app, so that it reads its two secrets again..."
+az webapp restart \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors
+
+if [[ $? == 0 ]]; then
+	echo "[$WEB_APP_NAME] web app successfully restarted"
+else
+	echo "Failed to restart the [$WEB_APP_NAME] web app"
+	EXIT_CODE=1
+fi
+wait_for_web_app "https://$WEB_APP_HOST_NAME/"
+
 # The reads of the pg-user and pg-password secrets that resolved the two Key Vault references (AZKVAuditLogs)
 query_workspace \
 	"Secret reads in the [$KEY_VAULT_NAME] key vault (AZKVAuditLogs)" \
@@ -320,10 +436,17 @@ query_workspace \
 # The platform metrics the AllMetrics category of the diagnostic settings exports to the workspace (AzureMetrics), one
 # record per metric and minute, exported once the minute is over. On Azure each resource's metrics start arriving at
 # their own pace, so the query waits for the first of them and shows those that arrived.
-query_workspace \
+query_metrics \
 	"Platform metrics exported to the [$LOG_ANALYTICS_NAME] Log Analytics workspace (AzureMetrics)" \
 	"AzureMetrics | where MetricName in ('Requests', 'HttpIncomingRequestCount', 'ServiceApiHit', 'connections_succeeded') | summarize Total = sum(Total) by ResourceProvider, Resource, MetricName | order by ResourceProvider asc" \
 	"[].{Provider:ResourceProvider,Resource:Resource,Metric:MetricName,Total:Total}"
+
+# The audit records of the queries run on the workspace, among them the ones above (LAQueryLogs, from the diagnostic
+# setting of the workspace itself)
+query_workspace \
+	"Latest queries run on the [$LOG_ANALYTICS_NAME] Log Analytics workspace (LAQueryLogs)" \
+	"LAQueryLogs | project TimeGenerated, ResponseCode, Query = substring(QueryText, 0, 80) | order by TimeGenerated desc | take 5" \
+	"[].{Time:TimeGenerated,Response:ResponseCode,Query:Query}"
 
 # The same platform metrics, read from the Azure Monitor metrics API: they need no diagnostic setting
 show_metrics "$WEB_APP_ID" "[$WEB_APP_NAME] web app" Requests Http2xx Http4xx Http5xx BytesReceived BytesSent

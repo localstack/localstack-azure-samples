@@ -15,12 +15,13 @@ The solution is composed of the following Azure resources:
 4. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview) (RBAC mode): Holds the HMAC key that signs every short code and the PostgreSQL connection string; the app reads both at runtime through the managed identity.
 5. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): The `clicks` database receives one row per redirect (burstable `Standard_B1ms`, version 16).
 6. [Azure Service Bus](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview) (Standard): The *link-events* queue carries link-created events to the abuse-scan worker.
-7. [Azure Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-overview): Receives the storage account's transaction metrics through diagnostic settings.
+7. [Azure Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) of every resource that offers them send to it: the storage account and its blob, queue and table services, the key vault, the PostgreSQL server, the Service Bus namespace, the plan, the two apps and the workspace itself.
 8. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans) (Linux, B1): Hosts both compute components.
 9. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): The Flask UI/API. `POST /shorten` writes the link, signs the code with the Key Vault key, sends a Service Bus event and enqueues a QR job; `GET /l/<code>` bumps the hit counter, logs the click to PostgreSQL and redirects.
 10. [Azure Function App](https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview) (Python v2 model): Two event-driven workers that call back into the web app's token-protected internal API:
     - *AbuseScan* ([Service Bus trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus-trigger), identity-based connection): Applies a keyword heuristic and reports a `clean`/`flagged` verdict.
     - *QrGenerator* ([Queue Storage trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger)): Requests the QR SVG render for the short link.
+11. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that both apps send their telemetry to: the web app through the Microsoft OpenTelemetry Distro, the function app through OpenTelemetry. See [Application Insights](#application-insights).
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 80}}}%%
@@ -39,7 +40,8 @@ flowchart TB
     links[("links table<br/>(Storage Account)")]
     qrjobs[["qrjobs queue<br/>(Storage Account)"]]
     qrcodes[("qrcodes container<br/>(Storage Account, public read)")]
-    logs["Log Analytics"]
+    logs[("Log Analytics<br/>workspace")]
+    insights["Application Insights<br/>workspace-based"]
 
     subgraph functions["Function App (worker)"]
         abuse["AbuseScan<br/>(Service Bus trigger)"]
@@ -66,7 +68,10 @@ flowchart TB
     internal -->|"scan / qr status"| links
     internal -->|"QR SVG"| qrcodes
 
-    links -.->|"transaction metrics<br/>(diagnostic settings)"| logs
+    webapp -->|"requests · dependencies · traces<br/>errors · custom events · custom metrics"| insights
+    functions -->|"requests · traces · custom events<br/>custom metrics"| insights
+    insights -->|"stores its telemetry in"| logs
+    links -.->|"diagnostic settings: resource logs ·<br/>platform metrics of every resource"| logs
 
     style webapp fill:#ffffff,stroke:#999999,color:#333333
     style functions fill:#ffffff,stroke:#999999,color:#333333
@@ -140,6 +145,59 @@ bash scripts/call-web-app.sh
 `validate.sh` walks the full causal chain: web app health (Table Storage + Key Vault + PostgreSQL through the managed identity), shortening a benign and a suspicious URL, the AbuseScan verdicts arriving via the Service Bus trigger, the QR SVG rendered via the queue trigger and served from the public blob container, redirects logging click rows into PostgreSQL, hit counting in Table Storage, and the Log Analytics wiring. `call-web-app.sh` performs a quick user-level smoke test (home page, shorten, redirect).
 
 You can also open the web app in a browser — the URL is printed at the end of the deploy script.
+
+## Application Insights
+
+The two apps send their telemetry to `<prefix>-urlshort-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-urlshort-log-analytics-<suffix>` workspace; the `AppRoleName` column of each record names the app that sent it. The three deployment methods set the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting of both apps to the connection string of the resource:
+
+- The web app turns on the [Microsoft OpenTelemetry Distro](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=python) when the setting is present, before it imports Flask and psycopg2: its instrumentations trace the requests the app serves, its calls to Table Storage, Key Vault, Service Bus, Queue and Blob Storage (the Azure SDK) and its queries to PostgreSQL, and it collects the records of the `webapp` logger. The app sends a `LinkCreated` and a `LinkFollowed` [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) and counts both in the `links` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), by operation (`create`, `follow`). A click that PostgreSQL fails to record is logged with its exception.
+- The function app uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto): `host.json` sets `"telemetryMode": "OpenTelemetry"`, `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` and `PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME` app settings have the Python worker send the records of the `function_app` logger. The `AbuseScan` function sends a `LinkScanned` custom event and counts the links in the `link_scans` custom metric, by verdict, and logs a warning for a flagged link.
+
+The workspace keeps the telemetry in these tables:
+
+| Table             | What the two apps send                                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `AppRequests`     | The requests the web app serves, and the invocations of the `AbuseScan` and `QrGenerator` functions                             |
+| `AppDependencies` | The web app's calls to Table Storage, Key Vault, Service Bus, Queue and Blob Storage and PostgreSQL                             |
+| `AppTraces`       | The records of the `webapp` and `function_app` loggers                                                                          |
+| `AppEvents`       | The `LinkCreated`, `LinkFollowed` and `LinkScanned` custom events, with the code of the link in `link.code`                     |
+| `AppMetrics`      | The `links` custom metric, with the operation in `operation`, and the `link_scans` custom metric, with the verdict in `verdict` |
+| `AppExceptions`   | The exceptions the apps log with their stack trace, when a call fails                                                           |
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) shortens a link, follows it, waits until the workers scanned it and rendered its QR code, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
+
+## Logs and metrics
+
+Each resource that offers diagnostic settings has one that sends its resource logs, its platform metrics or both to the workspace:
+
+| Resource                       | Log categories                                                                         | Tables in the workspace                                                   | What the sample leaves there                                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web App                        | `AppServiceHTTPLogs`, `AppServiceConsoleLogs`, `AppServicePlatformLogs` and the others | One table per category, named after it                                    | The requests it serves, its console output and the start of its container                                                                             |
+| Function App                   | `FunctionAppLogs`                                                                      | `FunctionAppLogs`                                                         | The records the Functions host writes when an invocation of a function starts and completes                                                           |
+| App Service plan               | None: metrics only                                                                     | `AzureMetrics`                                                            | The CPU and memory use of its instances                                                                                                               |
+| Storage account                | None: metrics only                                                                     | `AzureMetrics`                                                            | The transactions of the account                                                                                                                       |
+| Blob, queue and table services | `StorageRead`, `StorageWrite`, `StorageDelete`                                         | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics` | The links the web app reads and writes and the QR jobs it sends, with its managed identity (`OAuth`), and the QR jobs the worker reads (`AccountKey`) |
+| Key Vault                      | `AuditEvent`, `AzurePolicyEvaluationDetails`                                           | `AZKVAuditLogs`, `AZKVPolicyEvaluationDetailsLogs`                        | The `SecretGet` of the link-signing key and of the PostgreSQL connection string                                                                       |
+| PostgreSQL flexible server     | `PostgreSQLLogs`                                                                       | `PGSQLServerLogs`                                                         | The connections of the web app that record the clicks                                                                                                 |
+| Service Bus namespace          | `OperationalLogs` and the others                                                       | `AZMSOperationalLogs`, `AzureMetrics`                                     | The management operations on the namespace and its messaging metrics                                                                                  |
+| Log Analytics workspace        | `Audit`                                                                                | `LAQueryLogs`, `AzureMetrics`                                             | The queries run on the workspace                                                                                                                      |
+
+The settings of the key vault, of the PostgreSQL server and of the Service Bus namespace write to the resource-specific tables, which Microsoft recommends over the shared `AzureDiagnostics` table. The setting of the namespace leaves out the runtime audit logs, which Service Bus writes [only in the Premium tier](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/azmsruntimeauditlogs). The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) shows the diagnostic settings, calls the web app and reads these tables back, retrying until their records arrive, then reads platform metrics from the Azure Monitor metrics API. On Azure the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): raise `RETRY_COUNT` there. On Azure the script reads the exported platform metrics (`AzureMetrics`) only once: Azure exports them late and irregularly, so the script shows those that arrived and notes how many are still missing, without failing. To query the workspace yourself, add the `log-analytics` extension of the Azure CLI (`az extension add --name log-analytics`) and pass the workspace id (`customerId`):
+
+```bash
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-urlshort-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppEvents | summarize Events = count() by AppRoleName, Name" \
+  --output table
+```
 
 ## Cleanup
 

@@ -27,7 +27,7 @@ param storageAccountSku string = 'Standard_LRS'
   'WorkflowStandard'
   'FlexConsumption'
 ])
-param skuTier string = 'Standard'
+param skuTier string = 'Basic'
 
 @description('Specifies the SKU name for the hosting plan.')
 @allowed([
@@ -69,7 +69,7 @@ param skuTier string = 'Standard'
   'WS3'
   'FC1'
 ])
-param skuName string = 'S1'
+param skuName string = 'B1'
 
 @description('Specifies the kind of the hosting plan.')
 @allowed([
@@ -102,17 +102,10 @@ param runtimeName string
 @description('Specifies the target language version used by the Azure Functions App.')
 param runtimeVersion string
 
-@description('Specifies the kind of the hosting plan.')
+@description('Specifies the kind of the Azure Function App.')
 @allowed([
-  'app'                                    // Windows Web app
-  'app,linux'                              // Linux Web app
-  'app,linux,container'                    // Linux Container Web app
-  'hyperV'                                 // Windows Container Web App
-  'app,container,windows'                  // Windows Container Web App
-  'app,linux,kubernetes'                   // Linux Web App on ARC
-  'app,linux,container,kubernetes'         // Linux Container Web App on ARC
   'functionapp'                            // Function Code App
-  'functionapp,linux'                      // Linux Consumption Function app
+  'functionapp,linux'                      // Linux Function App
   'functionapp,linux,container,kubernetes' // Function Container App on ARC
   'functionapp,linux,kubernetes'           // Function Code App on ARC
 ])
@@ -129,6 +122,9 @@ param httpsOnly bool = false
   '1.3'
 ])
 param minTlsVersion string = '1.2'
+
+@description('Specifies whether Always On is enabled for the Azure Functions App: on an App Service plan, the Functions runtime goes idle after a few minutes of inactivity, and only HTTP requests wake it up.')
+param alwaysOn bool = true
 
 @description('Specifies whether the public network access is enabled or disabled')
 @allowed([
@@ -173,69 +169,106 @@ param tags object = {
   iac: 'bicep'
 }
 
+@description('Specifies the name of the diagnostic settings of the function app and of the App Service plan.')
+param diagnosticSettingsName string = 'default'
+
+@description('Specifies the log categories that the diagnostic settings of the function app send to the Log Analytics workspace.')
+param logCategories array = [
+  'FunctionAppLogs'
+]
+
+@description('Specifies the metric categories that the diagnostic settings of the function app and of the App Service plan send to the Log Analytics workspace.')
+param metricCategories array = [
+  'AllMetrics'
+]
+
+//********************************************
+// Variables
+//********************************************
 var functionAppName = '${prefix}-functionapp-${suffix}'
 var appServicePlanName = '${prefix}-app-service-plan-${suffix}'
 var storageAccountName = '${prefix}storage${suffix}'
-var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+var logAnalyticsName = '${prefix}-log-analytics-${suffix}'
+var applicationInsightsName = '${prefix}-insights-${suffix}'
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-01-01' = {
-  name: storageAccountName
-  location: location
-  tags: tags
-  sku: {
-    name: storageAccountSku
-  }
-  kind: 'StorageV2'
-  properties: {
-    accessTier: 'Hot'
+//********************************************
+// Modules
+//********************************************
+module workspace 'modules/log-analytics.bicep' = {
+  name: 'workspace'
+  params: {
+    name: logAnalyticsName
+    location: location
+    tags: tags
   }
 }
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
-  name: appServicePlanName
-  location: location
-  tags: tags
-  kind: appServicePlanKind
-  sku: {
-    tier: skuTier
-    name: skuName
+module applicationInsights 'modules/application-insights.bicep' = {
+  name: 'applicationInsights'
+  params: {
+    name: applicationInsightsName
+    location: location
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
-  properties: {
+}
+
+// The functions use the blobs, the queues and the tables of the storage account, where the Functions host also keeps
+// its own data (AzureWebJobsStorage), so the three services have diagnostic settings. The functions create their
+// containers, queues and tables themselves when they start.
+module storageAccount 'modules/storage-account.bicep' = {
+  name: 'storageAccount'
+  params: {
+    name: storageAccountName
+    location: location
+    skuName: storageAccountSku
+    diagnosticServices: [
+      'blob'
+      'queue'
+      'table'
+    ]
+    diagnosticSettingsName: diagnosticSettingsName
+    workspaceId: workspace.outputs.id
+    tags: tags
+  }
+}
+
+module appServicePlan 'modules/app-service-plan.bicep' = {
+  name: 'appServicePlan'
+  params: {
+    name: appServicePlanName
+    location: location
+    skuTier: skuTier
+    skuName: skuName
+    kind: appServicePlanKind
     reserved: reserved
     zoneRedundant: zoneRedundant
-     maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    maximumElasticWorkerCount: skuTier == 'FlexConsumption' ? 1 : 20
+    diagnosticSettingsName: diagnosticSettingsName
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
-  name: functionAppName
-  location: location
-  tags: tags
-  kind: functionAppKind
-  properties: {
+module functionApp 'modules/function-app.bicep' = {
+  name: 'functionApp'
+  params: {
+    name: functionAppName
+    location: location
+    kind: functionAppKind
+    runtimeName: runtimeName
+    runtimeVersion: runtimeVersion
     httpsOnly: httpsOnly
-    reserved: true
-    serverFarmId: appServicePlan.id
-    virtualNetworkSubnetId: null
-    siteConfig: {
-      linuxFxVersion: toUpper('${runtimeName}|${runtimeVersion}')
-      minTlsVersion: minTlsVersion
-      ftpsState: 'FtpsOnly'
-      publicNetworkAccess: publicNetworkAccess
-    }
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-
-  resource configAppSettings 'config' = {
-    name: 'appsettings'
-    properties: {
-      SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-      AzureWebJobsStorage: storageAccountConnectionString
-	    WEBSITE_STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
-	    WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageAccountConnectionString
-      STORAGE_ACCOUNT_CONNECTION_STRING: storageAccountConnectionString
+    alwaysOn: alwaysOn
+    minTlsVersion: minTlsVersion
+    publicNetworkAccess: publicNetworkAccess
+    hostingPlanName: appServicePlan.outputs.name
+    storageAccountName: storageAccount.outputs.name
+    // The bindings of the functions connect to the storage account with the connection string of this setting
+    storageConnectionStringSettingName: 'STORAGE_ACCOUNT_CONNECTION_STRING'
+    appSettings: {
+      SCM_DO_BUILD_DURING_DEPLOYMENT: 'false'
       INPUT_STORAGE_CONTAINER_NAME: inputContainerName
       OUTPUT_STORAGE_CONTAINER_NAME: outputContainerName
       INPUT_QUEUE_NAME: inputQueueName
@@ -245,21 +278,22 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
       OUTPUT_TABLE_NAME: outputTableName
       PLAYER_NAMES: playerNames
       TIMER_SCHEDULE: timerSchedule
-      FUNCTIONS_WORKER_RUNTIME: runtimeName
+      APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.outputs.connectionString
     }
-  }
-}
-
-resource functionAppSourceControl 'Microsoft.Web/sites/sourcecontrols@2024-11-01' = if (contains(repoUrl,'http')){
-  name: 'web'
-  parent: functionApp
-  properties: {
     repoUrl: repoUrl
-    branch: 'main'
-    isManualIntegration: true
+    repoBranch: 'main'
+    diagnosticSettingsName: diagnosticSettingsName
+    logCategories: logCategories
+    metricCategories: metricCategories
+    workspaceId: workspace.outputs.id
+    tags: tags
   }
 }
 
-output functionAppName string = functionAppName
-output storageAccountName string = storageAccountName
-output storageAccountConnectionString string = storageAccountConnectionString
+//********************************************
+// Outputs
+//********************************************
+output functionAppName string = functionApp.outputs.name
+output storageAccountName string = storageAccount.outputs.name
+output logAnalyticsName string = workspace.outputs.name
+output applicationInsightsName string = applicationInsights.outputs.name

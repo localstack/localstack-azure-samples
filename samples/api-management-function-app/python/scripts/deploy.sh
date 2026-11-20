@@ -27,7 +27,12 @@ PRODUCT_ID='inventory-partners'
 PRODUCT_NAME='Inventory Partners'
 APIM_SUBSCRIPTION_ID='partner-subscription'
 NAMED_VALUE_ID='backend-secret'
+LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+DIAGNOSTIC_SETTINGS_NAME='default'
 FUNCTION_ZIPFILE='inventory_function.zip'
+DEPLOY_RETRY_COUNT=3
+DEPLOY_RETRY_SLEEP=30
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
@@ -73,6 +78,100 @@ if [[ $? != 0 ]]; then
 	fi
 else
 	echo "[$RESOURCE_GROUP_NAME] resource group already exists in the [$SUBSCRIPTION_NAME] subscription"
+fi
+
+# Check if the Log Analytics workspace already exists
+echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the Log Analytics workspace that receives the telemetry of Application Insights and the logs and metrics
+	# of the diagnostic settings
+	az monitor log-analytics workspace create \
+		--name "$LOG_ANALYTICS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--query-access "Enabled" \
+		--retention-time 30 \
+		--sku "PerNode" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$LOG_ANALYTICS_NAME] Log Analytics workspace in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+else
+	echo "[$LOG_ANALYTICS_NAME] Log Analytics workspace already exists in the [$RESOURCE_GROUP_NAME] resource group"
+fi
+
+# Get the resource id of the Log Analytics workspace
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $LOG_ANALYTICS_ID ]]; then
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Check if the Application Insights component already exists
+echo "Checking if [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$APPLICATION_INSIGHTS_NAME] Application Insights component exists in the [$RESOURCE_GROUP_NAME] resource group."
+	echo "Creating [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create a workspace-based Application Insights component that stores the telemetry of the web app in the Log
+	# Analytics workspace
+	az monitor app-insights component create \
+		--app "$APPLICATION_INSIGHTS_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--application-type web \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component created successfully in the [$RESOURCE_GROUP_NAME] resource group."
+	else
+		echo "Failed to create [$APPLICATION_INSIGHTS_NAME] Application Insights component in the [$RESOURCE_GROUP_NAME] resource group."
+		exit 1
+	fi
+else
+	echo "[$APPLICATION_INSIGHTS_NAME] Application Insights component already exists in the [$RESOURCE_GROUP_NAME] resource group."
+fi
+
+# Get the connection string of the Application Insights component
+echo "Getting the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component..."
+APPLICATION_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query connectionString \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APPLICATION_INSIGHTS_CONNECTION_STRING ]]; then
+	echo "Connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component retrieved successfully."
+else
+	echo "Failed to retrieve the connection string of the [$APPLICATION_INSIGHTS_NAME] Application Insights component."
+	exit 1
 fi
 
 # Check if the storage account already exists
@@ -140,6 +239,7 @@ if [[ $? != 0 ]]; then
 		--runtime $RUNTIME \
 		--runtime-version $RUNTIME_VERSION \
 		--functions-version $FUNCTIONS_VERSION \
+		--app-insights "$APPLICATION_INSIGHTS_NAME" \
 		--os-type Linux 1>/dev/null
 
 	if [[ $? == 0 ]]; then
@@ -239,16 +339,36 @@ else
 	fi
 fi
 
+# The Functions host keeps its locks and keys in the storage account. az functionapp create builds AzureWebJobsStorage
+# from the storage endpoint suffix of the current cloud, which carries a port on the emulator that the host can't
+# parse, so the setting is written again with the core.windows.net suffix, as on Azure
+echo "Getting the key of the [$STORAGE_ACCOUNT_NAME] storage account..."
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
+	--account-name $STORAGE_ACCOUNT_NAME \
+	--resource-group $RESOURCE_GROUP_NAME \
+	--query "[0].value" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $STORAGE_ACCOUNT_KEY ]]; then
+	echo "Failed to get the key of the [$STORAGE_ACCOUNT_NAME] storage account"
+	exit 1
+fi
+
 # Configure the function app settings: the same secret the gateway injects
 echo "Setting app settings for the [$FUNCTION_APP_NAME] function app..."
 az functionapp config appsettings set \
 	--name $FUNCTION_APP_NAME \
 	--resource-group $RESOURCE_GROUP_NAME \
 	--settings \
+	AzureWebJobsStorage="DefaultEndpointsProtocol=https;AccountName=$STORAGE_ACCOUNT_NAME;AccountKey=$STORAGE_ACCOUNT_KEY;EndpointSuffix=core.windows.net" \
 	FUNCTIONS_WORKER_RUNTIME="$RUNTIME" \
 	SCM_DO_BUILD_DURING_DEPLOYMENT='true' \
 	ENABLE_ORYX_BUILD='true' \
-	BACKEND_SECRET="$BACKEND_SECRET" 1>/dev/null
+	BACKEND_SECRET="$BACKEND_SECRET" \
+	APPLICATIONINSIGHTS_CONNECTION_STRING="$APPLICATION_INSIGHTS_CONNECTION_STRING" \
+	PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY='true' \
+	PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME='function_app' 1>/dev/null
 
 if [[ $? == 0 ]]; then
 	echo "App settings for the [$FUNCTION_APP_NAME] function app successfully set"
@@ -256,6 +376,243 @@ else
 	echo "Failed to set app settings for the [$FUNCTION_APP_NAME] function app"
 	exit 1
 fi
+
+# Get the resource id of the storage account
+echo "Retrieving the resource id of the [$STORAGE_ACCOUNT_NAME] storage account..."
+STORAGE_ACCOUNT_RESOURCE_ID=$(az storage account show \
+	--name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $STORAGE_ACCOUNT_RESOURCE_ID ]]; then
+	echo "Resource id [$STORAGE_ACCOUNT_RESOURCE_ID] of the [$STORAGE_ACCOUNT_NAME] storage account successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$STORAGE_ACCOUNT_NAME] storage account"
+	exit 1
+fi
+
+# Get the resource id of the function app
+echo "Retrieving the resource id of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show \
+	--name "$FUNCTION_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $FUNCTION_APP_ID ]]; then
+	echo "Resource id [$FUNCTION_APP_ID] of the [$FUNCTION_APP_NAME] function app successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$FUNCTION_APP_NAME] function app"
+	exit 1
+fi
+
+# Get the resource id of the App Service plan
+echo "Retrieving the resource id of the [$APP_SERVICE_PLAN_NAME] App Service plan..."
+APP_SERVICE_PLAN_ID=$(az appservice plan show \
+	--name "$APP_SERVICE_PLAN_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $APP_SERVICE_PLAN_ID ]]; then
+	echo "Resource id [$APP_SERVICE_PLAN_ID] of the [$APP_SERVICE_PLAN_NAME] App Service plan successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$APP_SERVICE_PLAN_NAME] App Service plan"
+	exit 1
+fi
+
+# Check whether the diagnostic settings of the function app already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$FUNCTION_APP_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app..."
+
+	# Create the diagnostic settings that send the logs of the Functions host and of the functions (FunctionAppLogs)
+	# and the platform metrics of the function app to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$FUNCTION_APP_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "FunctionAppLogs", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$FUNCTION_APP_NAME] function app already exist"
+fi
+
+# Check whether the diagnostic settings of the App Service plan already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$APP_SERVICE_PLAN_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan..."
+
+	# Create the diagnostic settings that send the platform metrics of the App Service plan to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$APP_SERVICE_PLAN_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$APP_SERVICE_PLAN_NAME] App Service plan already exist"
+fi
+
+# Get the resource id of the Log Analytics workspace
+echo "Retrieving the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--workspace-name "$LOG_ANALYTICS_NAME" \
+	--query id \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -n $LOG_ANALYTICS_ID ]]; then
+	echo "Resource id [$LOG_ANALYTICS_ID] of the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully retrieved"
+else
+	echo "Failed to retrieve the resource id of the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+	exit 1
+fi
+
+# Check whether the diagnostic settings of the Log Analytics workspace already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$LOG_ANALYTICS_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace..."
+
+	# Create the diagnostic settings that send the audit records of the queries run on the workspace (LAQueryLogs) and its platform metrics to the workspace itself
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$LOG_ANALYTICS_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--logs '[
+			{"category": "Audit", "enabled": true}
+		]' \
+		--metrics '[
+			{"category": "AllMetrics", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$LOG_ANALYTICS_NAME] Log Analytics workspace already exist"
+fi
+
+# Check whether the diagnostic settings of the storage account already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+	# Create the diagnostic settings that send the capacity and transaction metrics of the storage account to the Log Analytics workspace
+	az monitor diagnostic-settings create \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$STORAGE_ACCOUNT_RESOURCE_ID" \
+		--workspace "$LOG_ANALYTICS_NAME" \
+		--metrics '[
+			{"category": "Capacity", "enabled": true},
+			{"category": "Transaction", "enabled": true}
+		]' \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+fi
+
+# The Functions host keeps its own data in the blobs, queues and tables of the storage account (AzureWebJobsStorage):
+# each of the three services gets diagnostic settings that send the logs of its requests (StorageBlobLogs,
+# StorageQueueLogs, StorageTableLogs) and its capacity and transaction metrics to the Log Analytics workspace
+for SERVICE in blob queue table; do
+	SERVICE_RESOURCE_ID="$STORAGE_ACCOUNT_RESOURCE_ID/${SERVICE}Services/default"
+	echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist..."
+	az monitor diagnostic-settings show \
+		--name "$DIAGNOSTIC_SETTINGS_NAME" \
+		--resource "$SERVICE_RESOURCE_ID" \
+		--only-show-errors &>/dev/null
+
+	if [[ $? != 0 ]]; then
+		echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account actually exist"
+		echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account..."
+
+		az monitor diagnostic-settings create \
+			--name "$DIAGNOSTIC_SETTINGS_NAME" \
+			--resource "$SERVICE_RESOURCE_ID" \
+			--workspace "$LOG_ANALYTICS_NAME" \
+			--logs '[
+				{"category": "StorageRead", "enabled": true},
+				{"category": "StorageWrite", "enabled": true},
+				{"category": "StorageDelete", "enabled": true}
+			]' \
+			--metrics '[
+				{"category": "Capacity", "enabled": true},
+				{"category": "Transaction", "enabled": true}
+			]' \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account successfully created"
+		else
+			echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account"
+			exit 1
+		fi
+	else
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the $SERVICE service of the [$STORAGE_ACCOUNT_NAME] storage account already exist"
+	fi
+done
 
 # Create the zip package of the function app
 cd "$CURRENT_DIR/../function" || exit
@@ -267,14 +624,29 @@ zip -r "$FUNCTION_ZIPFILE" function_app.py host.json requirements.txt
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$FUNCTION_ZIPFILE]..."
-az functionapp deploy \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name $FUNCTION_APP_NAME \
-	--src-path "$FUNCTION_ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
+# attempt is retried
+DEPLOYED=0
+for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
+	az functionapp deploy \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--name $FUNCTION_APP_NAME \
+		--src-path "$FUNCTION_ZIPFILE" \
+		--type zip \
+		--async true 1>/dev/null
 
-if [[ $? == 0 ]]; then
+	if [[ $? == 0 ]]; then
+		DEPLOYED=1
+		break
+	fi
+
+	if [[ $ATTEMPT -lt $DEPLOY_RETRY_COUNT ]]; then
+		echo "Attempt $ATTEMPT of $DEPLOY_RETRY_COUNT to deploy function app [$FUNCTION_APP_NAME] failed. Waiting [$DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep $DEPLOY_RETRY_SLEEP
+	fi
+done
+
+if [[ $DEPLOYED == 1 ]]; then
 	echo "Function app [$FUNCTION_APP_NAME] deployed successfully"
 else
 	echo "Failed to deploy function app [$FUNCTION_APP_NAME]"
@@ -408,6 +780,54 @@ if [[ $? != 0 ]]; then
 	fi
 else
 	echo "[$APIM_SUBSCRIPTION_ID] subscription already exists in the [$APIM_NAME] API Management service"
+fi
+
+# Check whether the diagnostic settings of the API Management service already exist
+echo "Checking if [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service already exist..."
+az monitor diagnostic-settings show \
+	--name "$DIAGNOSTIC_SETTINGS_NAME" \
+	--resource "$APIM_ID" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service actually exist"
+	echo "Creating [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service..."
+
+	# The Consumption tier doesn't support the collection of resource logs: its diagnostic settings send the metrics of
+	# the service only. On the other tiers they also send the record of every request through the gateway (GatewayLogs)
+	# to the resource-specific ApiManagementGatewayLogs table.
+	if [[ $APIM_SKU == "Consumption" ]]; then
+		az monitor diagnostic-settings create \
+			--name "$DIAGNOSTIC_SETTINGS_NAME" \
+			--resource "$APIM_ID" \
+			--workspace "$LOG_ANALYTICS_NAME" \
+			--metrics '[
+				{"category": "AllMetrics", "enabled": true}
+			]' \
+			--only-show-errors 1>/dev/null
+	else
+		az monitor diagnostic-settings create \
+			--name "$DIAGNOSTIC_SETTINGS_NAME" \
+			--resource "$APIM_ID" \
+			--workspace "$LOG_ANALYTICS_NAME" \
+			--export-to-resource-specific true \
+			--logs '[
+				{"category": "GatewayLogs", "enabled": true}
+			]' \
+			--metrics '[
+				{"category": "AllMetrics", "enabled": true}
+			]' \
+			--only-show-errors 1>/dev/null
+	fi
+
+	if [[ $? == 0 ]]; then
+		echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service successfully created"
+	else
+		echo "Failed to create [$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service"
+		exit 1
+	fi
+else
+	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings of the [$APIM_NAME] API Management service already exist"
 fi
 
 # Where the gateway answers. The emulator also reports Azure's *.azure-api.net address in

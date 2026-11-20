@@ -18,10 +18,12 @@ The following diagram illustrates the architecture of the solution:
 ![Architecture Diagram](./images/architecture.png)
 
 - **Azure Functions App**: Hosts the serverless application that processes text blobs
-- **Azure App Service Plan**: Provides compute resources for the Functions app
+- **Azure App Service Plan**: Provides compute resources for the Functions app: a Linux plan of the Basic (B1) tier, with Always On turned on so that the blob trigger keeps running. The sample doesn't use the Linux Consumption plan, because Python 3.12 is the last Python version that it supports ([Supported languages in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages)).
 - **Azure Blob Storage**: Contains `input` and `output` containers for storing text blobs
 - **Managed Identity**: Enables secure access to Azure Storage without storing credentials
 - **Azure Entra ID**: Issues security tokens for the managed identity to authenticate with Azure Storage
+- **Azure Application Insights**: Collects the invocations, the log records, the exceptions, the custom events and the custom metric of the function, and the log records of the Functions host
+- **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, the logs and metrics that the diagnostic settings of the function app, of the App Service plan, of the storage account and of its blob, queue and table services send to it, and the audit records of the queries run on it
 
 ## Security
 
@@ -95,13 +97,33 @@ Once the resources and serverless application have been deployed, you can use th
 #!/bin/bash
 
 # Variables
-PREFIX='local'
-SUFFIX='test'
+PREFIX="${PREFIX:-local}"
+SUFFIX="${SUFFIX:-test}"
 FILE_PATH="input.txt"
 INPUT_CONTAINER_NAME="input"
 OUTPUT_CONTAINER_NAME="output"
 STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMP_OUTPUT_FILE=""
+
+# On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
+# (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
+# those shells provide, returns the C:/... form those programs can open; elsewhere the path is unchanged.
+native_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$1"
+	else
+		echo "$1"
+	fi
+}
+
+cleanup() {
+	if [ -n "$TEMP_OUTPUT_FILE" ] && [ -f "$TEMP_OUTPUT_FILE" ]; then
+		rm -f "$TEMP_OUTPUT_FILE"
+	fi
+}
+
+trap cleanup EXIT
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -178,9 +200,10 @@ else
 	exit 1
 fi
 
-# Loop n times to check whether the function app processed the input file and generated the result file in the output container
-n=10
-seconds=5
+# Loop n times to check whether the function app processed the input file and generated the result file in the output container.
+# On Azure the blob trigger can take a minute or more to pick up a new blob: raise RETRY_COUNT there.
+n="${RETRY_COUNT:-36}"
+seconds="${SLEEP:-5}"
 
 for ((i=1; i<=n; i++)); do
 	echo "Checking for [$BLOB_NAME] file in the [$OUTPUT_CONTAINER_NAME] container (Attempt $i of $n)..."
@@ -195,6 +218,24 @@ for ((i=1; i<=n; i++)); do
 
 	if [ "$BLOB_EXISTS" == "true" ]; then
 		echo "Processed file [$BLOB_NAME] found in the [$OUTPUT_CONTAINER_NAME] container."
+		TEMP_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/processed-output.XXXXXX")" || { echo "Failed to create temporary file." >&2; exit 1; }
+		TEMP_OUTPUT_FILE="$(native_path "$TEMP_OUTPUT_FILE")"
+
+		az storage blob download \
+			--container-name "$OUTPUT_CONTAINER_NAME" \
+			--name "$BLOB_NAME" \
+			--file "$TEMP_OUTPUT_FILE" \
+			--account-name "$STORAGE_ACCOUNT_NAME" \
+			--auth-mode login 1>/dev/null || { echo "Failed to download processed blob [$BLOB_NAME] from container [$OUTPUT_CONTAINER_NAME]." >&2; exit 1; }
+
+		echo "Input file [$FILE_PATH]:"
+		cat "$FILE_PATH"
+
+		echo ""
+		echo "Processed output file [$BLOB_NAME]:"
+		cat "$TEMP_OUTPUT_FILE"
+		echo ""
+
 		exit 0
 	fi
 
@@ -209,17 +250,118 @@ exit 1
 If everything works as expected, you should see output similar to the following:
 
 ```bash
-./test.sh 
+./test.sh
 Container [input] already exists.
 Container [output] already exists.
 Finished[#############################################################]  100.0000%
-[input-2025-12-03-10-58-54.txt] file uploaded successfully to the [input] container.
-Blob [input-2025-12-03-10-58-54.txt] exists in container [input]. Upload verified.
-Checking for [input-2025-12-03-10-58-54.txt] file in the [output] container (Attempt 1 of 10)...
+[input-2026-11-16-14-37-05.txt] file uploaded successfully to the [input] container.
+Blob [input-2026-11-16-14-37-05.txt] exists in container [input]. Upload verified.
+Checking for [input-2026-11-16-14-37-05.txt] file in the [output] container (Attempt 1 of 36)...
 Processed file not found yet. Waiting for 5 seconds before retrying...
-Checking for [input-2025-12-03-10-58-54.txt] file in the [output] container (Attempt 2 of 10)...
-Processed file [input-2025-12-03-10-58-54.txt] found in the [output] container.
+Checking for [input-2026-11-16-14-37-05.txt] file in the [output] container (Attempt 2 of 36)...
+Processed file [input-2026-11-16-14-37-05.txt] found in the [output] container.
+Finished[#############################################################]  100.0000%
+Input file [input.txt]:
+Hi mate, how are you?
+Processed output file [input-2026-11-16-14-37-05.txt]:
+HI MATE, HOW ARE YOU?
 ```
+
+## Application Insights
+
+The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting holds the connection string of the resource: the Azure CLI scripts pass `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and the Bicep and Terraform modules set it themselves. The app uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto):
+
+- `host.json` sets `"telemetryMode": "OpenTelemetry"`, so that the Functions host exports its own telemetry through OpenTelemetry.
+- `requirements.txt` adds `azure-monitor-opentelemetry`, and the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` app setting, set to `true`, has the Python worker send the telemetry of the function itself, instead of the host forwarding its log records.
+- The `PYTHON_APPLICATIONINSIGHTS_LOGGER_NAME` app setting, set to `function_app`, has the worker send the records of the function's logger only (the worker passes it to `configure_azure_monitor` as `logger_name`, see its [source](https://github.com/Azure/azure-functions-python-worker/blob/dev/workers/azure_functions_worker/dispatcher.py)). Without it the worker sends the records of every logger, its own and the OpenTelemetry exporter's HTTP requests included, and the exporter's startup messages about the optional instrumentations it can't import arrive as exceptions.
+
+The function sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each file it processes and counts the files in the `processed_blobs` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics). The worker sends a log record that carries the `microsoft.custom_event.name` attribute as a custom event named after its value, with the other attributes as its custom dimensions:
+
+```python
+processed_blobs = metrics.get_meter("function_app").create_counter(
+    "processed_blobs", unit="{blob}", description="The number of blobs the function processed."
+)
+
+logger.info(
+    "BlobProcessed: %s",
+    input_blob.name,
+    extra={
+        "microsoft.custom_event.name": "BlobProcessed",
+        "blob.name": input_blob.name,
+        "blob.size": input_blob.length or 0,
+    },
+)
+processed_blobs.add(1, {"container": output_container})
+```
+
+The workspace keeps the telemetry in these tables:
+
+| Table           | What the function app sends                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AppRequests`   | The invocations of the `ProcessTextFunction` function, one per processed blob                                                  |
+| `AppTraces`     | The log records of the function and of the Functions host, such as `Executed 'Functions.ProcessTextFunction'`                  |
+| `AppEvents`     | The `BlobProcessed` custom event of each processed file, with the name and the size of the blob in `blob.name` and `blob.size` |
+| `AppMetrics`    | The `processed_blobs` custom metric, with the output container in `container`                                                  |
+| `AppExceptions` | The exceptions the function logs with their stack trace, such as a file that isn't UTF-8 text                                  |
+
+The `az monitor log-analytics query` command of the `log-analytics` extension of the Azure CLI reads them, given the workspace id (`customerId`) of the workspace:
+
+```bash
+az extension add --name log-analytics
+
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group local-rg \
+  --workspace-name local-log-analytics-test \
+  --query customerId \
+  --output tsv)
+
+az monitor log-analytics query \
+  --workspace "$WORKSPACE_ID" \
+  --analytics-query "AppRequests | where Name == 'ProcessTextFunction' | project TimeGenerated, Name, Success, DurationMs | order by TimeGenerated desc | take 3" \
+  --output table
+```
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) runs `test.sh`, which uploads a text file that the function processes, then reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when `test.sh` fails, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+## Logs and metrics
+
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one named `default` that sends its resource logs and its platform metrics to the same workspace:
+
+| Resource                       | Log categories                                 | Tables in the workspace                                                   | What the function app leaves there                                                                                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function App                   | `FunctionAppLogs`                              | `FunctionAppLogs`                                                         | The records the Functions host writes when an invocation of a function starts and completes, whose category names the function (`Function.ProcessTextFunction`)                                                                         |
+| App Service plan               | None: metrics only                             | `AzureMetrics`                                                            | The CPU and memory use of its instances                                                                                                                                                                                                 |
+| Storage account                | None: metrics only                             | `AzureMetrics`                                                            | The transactions of the account                                                                                                                                                                                                         |
+| Blob, queue and table services | `StorageRead`, `StorageWrite`, `StorageDelete` | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics` | Each request to the blobs, the queues and the tables: the function reads the input files and writes the output files with its managed identity (`OAuth`), and the Functions host keeps its own data with the account key (`AccountKey`) |
+| Log Analytics workspace        | `Audit`                                        | `LAQueryLogs`, `AzureMetrics`                                             | The queries run on the workspace, such as the ones of the scripts below                                                                                                                                                                 |
+
+The Application Insights resource has no diagnostic setting: its telemetry is already in the workspace it's based on, and a diagnostic setting of a workspace-based Application Insights resource [can't send to that workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/app/export-telemetry#diagnostic-settings-based-export). The user-assigned managed identity offers no diagnostic settings.
+
+The platform metrics of the function app land in the `AzureMetrics` table too. On Azure these are its memory, I/O and HTTP metrics, such as `MemoryWorkingSet`, but not the executions of its functions (`FunctionExecutionCount`), which only the metrics API serves (observed on Azure on 2026-11-16). A few queries to try:
+
+```kusto
+// The records of the invocations of the function
+FunctionAppLogs
+| where Category == "Function.ProcessTextFunction"
+| project TimeGenerated, EventName, Level, Message
+
+// The memory the function app uses, minute by minute
+AzureMetrics
+| where MetricName == "MemoryWorkingSet"
+| project TimeGenerated, Average
+
+// The requests to the blobs: the function's, authenticated with its managed identity (OAuth), and the Functions host's (AccountKey)
+StorageBlobLogs
+| summarize Requests = count() by OperationName, AuthenticationType
+```
+
+The platform metrics need no diagnostic setting: the Azure Monitor metrics API serves them directly, for example with `az monitor metrics list --resource <function-app-id> --metrics FunctionExecutionCount --aggregation Total`.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) does all of this in one go: it lists the diagnostic settings of the function app, of the plan, of the storage account, of its services and of the workspace, runs `test.sh`, and reads until their records arrive the invocation records, the exported platform metrics of the function app and of the plan, the requests to the blobs and to the queues, the transaction metrics of the storage account and of its services, and the audit records of the queries run on the workspace. It ends with the executions of the function app and the transactions of the storage account read from the metrics API. It exits with a non-zero code in the same cases as `query-telemetry.sh`, except for the exported platform metrics on Azure (see below). On Azure an execution can be counted in the minute after the one in which it ran.
+
+### Delivery times
+
+On the emulator the records are queryable within seconds, and the platform metrics (`AzureMetrics`) once their one-minute window is over. On Azure the telemetry of Application Insights takes a few minutes, and the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): run the queries again later, or raise `RETRY_COUNT` for the scripts. The exported platform metrics (`AzureMetrics`) are the exception: Azure exports them late and irregularly, so on Azure `query-logs-and-metrics.sh` reads them once, shows those that arrived and notes how many are still missing, without failing. On Azure the records of what the app did while it started can be missing for good when its diagnostic setting was created shortly before: the scripts read the latest records, which their own calls produced.
 
 ## Storage Contents
 
@@ -241,6 +383,10 @@ You can use [Azure Storage Explorer](https://learn.microsoft.com/en-us/azure/sto
 - [What is Azure Blob storage?](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-overview)
 - [What is managed identities for Azure resources?](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview)
 - [How managed identities for Azure resources work with Azure virtual machines](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-managed-identities-work-vm)
+- [Application Insights overview](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview)
+- [Diagnostic settings in Azure Monitor](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings)
+- [Log Analytics workspace overview](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview)
+- [Monitor executions in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/functions-monitoring)
 - [LocalStack for Azure](https://docs.localstack.cloud/azure/)
 - [lstk CLI](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/)
 - [lstk GitHub repository](https://github.com/localstack/lstk)

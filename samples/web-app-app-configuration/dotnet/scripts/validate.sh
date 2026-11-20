@@ -5,6 +5,7 @@ PREFIX="${PREFIX:-local}"
 SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
+APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 WEB_APP_SUBNET_NSG_NAME="${PREFIX}-webapp-subnet-nsg-${SUFFIX}"
 PE_SUBNET_NSG_NAME="${PREFIX}-pe-subnet-nsg-${SUFFIX}"
 NAT_GATEWAY_NAME="${PREFIX}-nat-gateway-${SUFFIX}"
@@ -177,12 +178,13 @@ az webapp show \
 	--output table \
 	--only-show-errors
 
-# Check the app settings: the store endpoint and the identity client id are present, no PG_* setting is
+# Check the app settings: the store endpoint and the identity client id are present, no PG_* setting is. The listing
+# shows their names only: a value can be a connection string, such as the one of Application Insights.
 echo -e "\nApp settings of the [$WEB_APP_NAME] web app:\n"
 az webapp config appsettings list \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query "[?name!='AZURE_CLIENT_ID'].{Name:name,Value:value} | [?Name!='Endpoints__AppConfiguration'] | [].{Name:Name,Value:Value}" \
+	--query "[].{Name:name}" \
 	--output table \
 	--only-show-errors
 
@@ -249,6 +251,15 @@ az monitor log-analytics workspace show \
 	--resource-group "$RESOURCE_GROUP_NAME" \
 	--workspace-name "$LOG_ANALYTICS_NAME" \
 	--query '{Name:name,Location:location,ResourceGroup:resourceGroup}' \
+	--output table \
+	--only-show-errors
+
+# Check Application Insights component
+echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
+az monitor app-insights component show \
+	--app "$APPLICATION_INSIGHTS_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query '{Name:name,Location:location,ResourceGroup:resourceGroup,ApplicationType:applicationType,WorkspaceResourceId:workspaceResourceId}' \
 	--output table \
 	--only-show-errors
 

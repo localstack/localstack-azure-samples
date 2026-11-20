@@ -36,6 +36,9 @@ flowchart TB
         processor["CaptureProcessor<br/>(Event Hubs trigger)"]
     end
 
+    insights["Application Insights<br/>workspace-based"]
+    workspace[("Log Analytics<br/>workspace")]
+
     devices -->|"1: AMQP, partition key = device_id"| telemetry
     telemetry -->|"2: Capture (60 s window, Avro)"| archive
     telemetry -->|"3: Microsoft.EventHub.CaptureFileCreated"| topic
@@ -44,6 +47,9 @@ flowchart TB
     notifications -->|"5: trigger (capture-processor group)"| processor
     processor -->|"6: read archive (data.fileUrl)"| archive
     processor -->|"7: per-device summaries (output binding)"| curated
+    funcapp -->|"requests · traces · errors<br/>custom events · custom metrics"| insights
+    insights -->|"stores its telemetry in"| workspace
+    ehns -. "diagnostic settings: resource logs ·<br/>platform metrics of every resource" .-> workspace
 
     style ehns fill:#ffffff,stroke:#999999,color:#333333
     style storage fill:#ffffff,stroke:#999999,color:#333333
@@ -59,31 +65,31 @@ its own bookkeeping to avoid double-processing.
 
 Here the platform does the telling:
 
-| Concern | How the pipeline handles it |
-|---|---|
-| **When is a batch ready?** | Event Hubs says so — `CaptureFileCreated` carries the file URL, the partition, and the exact sequence range it contains |
+| Concern                                            | How the pipeline handles it                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **When is a batch ready?**                         | Event Hubs says so — `CaptureFileCreated` carries the file URL, the partition, and the exact sequence range it contains      |
 | **How does the notification reach the processor?** | Event Grid delivers it into an **event hub**, so there is no public webhook to expose and no HTTP endpoint to keep available |
-| **What if the processor is down?** | The notification sits in the hub for the retention window; the processor resumes from its checkpoint and catches up |
-| **Is the aggregation correct?** | Readings are keyed by device, so a device's readings share a partition — and therefore share an archive, in order |
-| **Can it be re-run?** | The archive is durable in Blob Storage; replaying is reading a file, not replaying a stream |
+| **What if the processor is down?**                 | The notification sits in the hub for the retention window; the processor resumes from its checkpoint and catches up          |
+| **Is the aggregation correct?**                    | Readings are keyed by device, so a device's readings share a partition — and therefore share an archive, in order            |
+| **Can it be re-run?**                              | The archive is durable in Blob Storage; replaying is reading a file, not replaying a stream                                  |
 
 That last column is what makes it a *cold* path: it runs on whole, closed windows rather than on
 whatever happened to be in the last batch.
 
 ## What it demonstrates
 
-| Capability | Where |
-|---|---|
-| **Event Hubs Capture** to Avro in Blob Storage | `deploy.sh` step 4, `bicep/modules/event-hubs.bicep` |
-| **`Microsoft.EventHub.CaptureFileCreated`** system event | Raised by Event Hubs; consumed in `src/functions/function_app.py` |
-| **Event Grid system topic** over a namespace | `deploy.sh` step 7, `bicep/modules/event-grid.bicep` |
-| **Event Grid subscription with an EventHub destination** | Same — this is what makes the notification a stream |
-| **Event Hubs trigger** with `Cardinality.MANY` | `function_app.py` — batched delivery |
-| **Event Hubs output binding** | `function_app.py` — writes the curated summaries |
-| **Partition keys for correctness** | `telemetry_producer.py` — a device's readings stay together |
-| **Consumer groups** | The processor reads the notifications hub with its own group |
-| **Least-privilege SAS** | Send-only for producers, namespace-wide Listen-only for the demo scripts |
-| **Avro decoding from Blob Storage** | `function_app.py` `_read_archive` |
+| Capability                                               | Where                                                                    |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Event Hubs Capture** to Avro in Blob Storage           | `deploy.sh` step 4, `bicep/modules/event-hubs.bicep`                     |
+| **`Microsoft.EventHub.CaptureFileCreated`** system event | Raised by Event Hubs; consumed in `src/functions/function_app.py`        |
+| **Event Grid system topic** over a namespace             | `deploy.sh` step 7, `bicep/modules/event-grid.bicep`                     |
+| **Event Grid subscription with an EventHub destination** | Same — this is what makes the notification a stream                      |
+| **Event Hubs trigger** with `Cardinality.MANY`           | `function_app.py` — batched delivery                                     |
+| **Event Hubs output binding**                            | `function_app.py` — writes the curated summaries                         |
+| **Partition keys for correctness**                       | `telemetry_producer.py` — a device's readings stay together              |
+| **Consumer groups**                                      | The processor reads the notifications hub with its own group             |
+| **Least-privilege SAS**                                  | Send-only for producers, namespace-wide Listen-only for the demo scripts |
+| **Avro decoding from Blob Storage**                      | `function_app.py` `_read_archive`                                        |
 
 ## Prerequisites
 
@@ -139,8 +145,8 @@ bash ../scripts/run-pipeline.sh
 
 ## The demo, step by step
 
-`scripts/run-pipeline.sh` asserts each stage rather than narrating it — it exits non-zero, and
-prints the processor's container logs, the moment the chain breaks:
+`scripts/run-pipeline.sh` asserts each stage rather than narrating it. It exits non-zero the
+moment the chain breaks and, on the emulator, prints the processor's container logs too:
 
 1. **Publish telemetry.** 120 readings across 6 devices, keyed by device id. One device
    (`DEV-0003` by default) also emits readings above the temperature limit.
@@ -182,6 +188,32 @@ Two details that are easy to get wrong, both commented in the code:
 - The handler annotates `List[func.EventHubEvent]` from `typing`. The builtin `list[...]` makes
   the Functions worker reject the function as an *"invalid non-type annotation"*, and it never
   loads at all.
+
+## Application Insights
+
+The function app sends its telemetry to `<prefix>-ehgrid-insights`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-ehgrid-log-analytics` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The three deployment methods set its `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource (`scripts/deploy.sh` passes `--app-insights` to `az functionapp create`), and the app uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto): `host.json` sets `"telemetryMode": "OpenTelemetry"`, `requirements.txt` adds `azure-monitor-opentelemetry`, and `function_app.py` calls `configure_azure_monitor(logger_name="function_app")`, so that the Azure Monitor OpenTelemetry Distro sends the records of the function's `function_app` logger. The app configures the distro itself, which works on every hosting plan: on the Linux Consumption plan this sample uses, the Python worker sent none of the app's telemetry when the `PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY` app setting asked it to.
+
+For each device summary the function sends a `DeviceSummarized` [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events), with the device, its readings and its excursions in `device.id`, `device.readings` and `device.excursions`, and counts the readings and the excursions in the `readings_processed` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), by `kind` (`reading`, `excursion`). The workspace keeps the telemetry in `AppRequests` (the invocations of `CaptureProcessor`), `AppTraces` (`CAPTURE_BATCH`, `DEVICE_SUMMARY` and the other records of the logger), `AppEvents`, `AppMetrics` and `AppExceptions` (an archive the function can't read).
+
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) reads these tables back, retrying until their records arrive: run it after `run-pipeline.sh`, which sends the readings that Capture archives. On Azure the telemetry takes a few minutes, on top of the 60-second Capture window: raise `RETRY_COUNT` there.
+
+## Logs and metrics
+
+Each resource that offers [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) has one that sends its resource logs, its platform metrics or both to the workspace:
+
+| Resource                       | Log categories                                                  | Tables in the workspace                                                   |
+| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Function App                   | `FunctionAppLogs`                                               | `FunctionAppLogs`                                                         |
+| App Service plan (Consumption) | None: metrics only                                              | `AzureMetrics`                                                            |
+| Storage account                | None: metrics only                                              | `AzureMetrics`                                                            |
+| Blob, queue and table services | `StorageRead`, `StorageWrite`, `StorageDelete`                  | `StorageBlobLogs`, `StorageQueueLogs`, `StorageTableLogs`, `AzureMetrics` |
+| Event Hubs namespace           | `ArchiveLogs`, `OperationalLogs` and the other eight categories | `AZMSOperationalLogs`, `AzureDiagnostics`, `AzureMetrics`                 |
+| Event Grid system topic        | `DeliveryFailures`                                              | `AegDeliveryFailureLogs`, `AzureMetrics`                                  |
+| Log Analytics workspace        | `Audit`                                                         | `LAQueryLogs`, `AzureMetrics`                                             |
+
+The namespace writes its operational logs to their resource-specific table, its other categories to `AzureDiagnostics`; its setting leaves out the runtime audit logs, which Event Hubs writes [only in the Premium and Dedicated tiers](https://learn.microsoft.com/azure/event-hubs/monitor-event-hubs), and `DeliveryFailures` records only the deliveries the subscription fails to make. The blob service records the Capture archives Event Hubs writes and the function reads.
+
+[`scripts/query-logs-and-metrics.sh`](./scripts/query-logs-and-metrics.sh) shows the diagnostic settings and reads back the invocation records, the requests to the blobs, the exported platform metrics and the audit records of the queries run on the workspace, then reads the executions of the function app, the transactions of the storage account and the messages and captures of the namespace from the Azure Monitor metrics API. On Azure the first records of a new diagnostic setting can take [up to 90 minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings#expected-latency-after-creating-a-diagnostic-setting): raise `RETRY_COUNT` there. On Azure the script reads the exported platform metrics (`AzureMetrics`) only once: Azure exports them late and irregularly, so the script shows those that arrived and notes how many are still missing, without failing.
 
 ## Notes
 
