@@ -9,8 +9,9 @@
 # read from the Azure Monitor metrics API. Run it after query-telemetry.sh or call-web-app.sh, which shorten and follow a
 # link.
 #
-# Before it reads the records of the key vault, it restarts the web app: on Azure the records of a new diagnostic
-# setting's first minutes, the secret reads of the app's start among them, can be lost.
+# Before it reads the records of the key vault, it restarts the web app, and before it reads the invocation records of
+# the functions, it shortens a link of its own: on Azure the records of a new diagnostic setting's first minutes, the
+# secret reads of the app's start and the first invocations of the functions among them, can be lost.
 #
 # The records reach the workspace within seconds on the emulator, and the platform metrics once their one-minute window
 # is over. On Azure they take minutes, and the first records of a new diagnostic setting can take up to 90 minutes, so
@@ -342,6 +343,22 @@ query_workspace \
 	"Latest platform events of the [$WEB_APP_NAME] web app (AppServicePlatformLogs)" \
 	"AppServicePlatformLogs | project TimeGenerated, Level, Message | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Level:Level,Message:Message}"
+
+# Shorten a link, so that the AbuseScan and QrGenerator functions of the worker run again: on Azure the records of a
+# new diagnostic setting's first minutes can be lost, the invocations that query-telemetry.sh or call-web-app.sh caused
+# among them
+echo "Shortening a link with the [$WEB_APP_NAME] web app, so that the functions of the worker run again..."
+CODE=$(curl --max-time 30 --silent --request POST \
+	--header "Content-Type: application/json" \
+	--data '{"url": "https://learn.microsoft.com/azure/azure-monitor/logs/log-analytics-overview"}' \
+	"http://$WEB_APP_HOST_NAME/shorten" | jq -r '.code // empty')
+
+if [[ -n $CODE ]]; then
+	echo "The [$WEB_APP_NAME] web app shortened the link to the [$CODE] code"
+else
+	echo "ERROR: the [$WEB_APP_NAME] web app shortened no link"
+	EXIT_CODE=1
+fi
 
 # The records the Functions host writes when an invocation of a function starts and completes, counted per function
 # (FunctionAppLogs): the AbuseScan and QrGenerator functions of the worker
