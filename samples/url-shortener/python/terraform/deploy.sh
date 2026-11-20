@@ -47,6 +47,33 @@ fi
 echo "Initializing Terraform..."
 terraform init -upgrade
 
+# A deployment made with the earlier version of this sample already has the storage account's [default] diagnostic
+# setting, which that version's deploy.sh created with the Azure CLI and which the storage_account module now manages.
+# Import it into the state, so that the plan updates it instead of failing to create a setting that already exists.
+STORAGE_DIAGNOSTIC_SETTING_ADDRESS='module.storage_account.azurerm_monitor_diagnostic_setting.storage_account'
+STATE_JSON=$(terraform show -json 2>/dev/null)
+
+if [[ -n $STATE_JSON ]] && ! jq -e --arg address "$STORAGE_DIAGNOSTIC_SETTING_ADDRESS" \
+	'[.. | objects | select(.address? == $address)] | length > 0' <<<"$STATE_JSON" >/dev/null; then
+	STORAGE_ACCOUNT_ID=$(jq -r '[.. | objects | select(.type? == "azurerm_storage_account" and .mode? == "managed") | .values.id] | first // empty' <<<"$STATE_JSON")
+
+	if [[ -n $STORAGE_ACCOUNT_ID ]] && az monitor diagnostic-settings show --name default --resource "$STORAGE_ACCOUNT_ID" --output none --only-show-errors 2>/dev/null; then
+		echo "Importing the [default] diagnostic setting of the storage account, which the earlier version of this sample created with the Azure CLI..."
+		terraform import \
+			-var "prefix=$PREFIX" \
+			-var "suffix=$SUFFIX" \
+			-var "location=$LOCATION" \
+			-var "deployer_object_id=$DEPLOYER_OBJECT_ID" \
+			-var "deployer_principal_type=$DEPLOYER_PRINCIPAL_TYPE" \
+			"$STORAGE_DIAGNOSTIC_SETTING_ADDRESS" "$STORAGE_ACCOUNT_ID|default"
+
+		if [[ $? != 0 ]]; then
+			echo "Terraform import failed. Exiting."
+			exit 1
+		fi
+	fi
+fi
+
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
 terraform plan -out=tfplan \
@@ -72,8 +99,6 @@ fi
 
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
-STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
-LOG_ANALYTICS_NAME=$(terraform output -raw log_analytics_workspace_name)
 WEB_APP_NAME=$(terraform output -raw web_app_name)
 FUNCTION_APP_NAME=$(terraform output -raw function_app_name)
 
