@@ -58,7 +58,7 @@ param logAnalyticsRetentionInDays int = 30
 // Variables
 //********************************************
 
-var storageAccountName = '${prefix}urlstorage${suffix}'
+var storageAccountName = '${prefix}urlshortstorage${suffix}'
 var keyVaultName = '${prefix}-urlshort-kv-${suffix}'
 var postgresServerName = '${prefix}-urlshort-pgflex-${suffix}'
 var servicebusNamespaceName = '${prefix}-urlshort-sb-ns-${suffix}'

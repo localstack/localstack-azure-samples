@@ -1,6 +1,6 @@
 locals {
   resource_group_name       = "${var.prefix}-rg"
-  storage_account_name      = "${var.prefix}urlstorage${var.suffix}"
+  storage_account_name      = "${var.prefix}urlshortstorage${var.suffix}"
   key_vault_name            = "${var.prefix}-urlshort-kv-${var.suffix}"
   postgres_server_name      = "${var.prefix}-urlshort-pgflex-${var.suffix}"
   servicebus_namespace      = "${var.prefix}-urlshort-sb-ns-${var.suffix}"
