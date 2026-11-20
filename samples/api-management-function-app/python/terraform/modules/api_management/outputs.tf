@@ -18,6 +18,11 @@ output "api_path" {
   description = "Specifies the URL suffix of the API on the gateway"
 }
 
+output "product_id" {
+  value       = azurerm_api_management_product.partners.product_id
+  description = "Specifies the id of the product the partners subscribe to"
+}
+
 output "subscription_id" {
   value       = azurerm_api_management_subscription.partner.subscription_id
   description = "Specifies the id of the subscription whose key clients present"

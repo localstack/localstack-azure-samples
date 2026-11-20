@@ -23,7 +23,7 @@ output "api_path" {
 }
 
 output "product_id" {
-  value = "inventory-partners"
+  value = module.api_management.product_id
 }
 
 output "subscription_id" {

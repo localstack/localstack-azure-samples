@@ -40,7 +40,7 @@ output "storage_account_name" {
 
 output "capture_container_name" {
   description = "Blob container receiving Capture archives."
-  value       = module.storage_account.container_names[0]
+  value       = one(module.storage_account.container_names)
 }
 
 output "key_vault_name" {

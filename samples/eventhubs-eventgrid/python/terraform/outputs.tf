@@ -23,7 +23,7 @@ output "capture_consumer_group" {
 }
 
 output "capture_container_name" {
-  value = module.storage_account.container_names[0]
+  value = one(module.storage_account.container_names)
 }
 
 output "storage_account_name" {
