@@ -113,9 +113,18 @@ for OPERATION in getitem listitems whoami; do
 	fi
 done
 
-# 3. A call without a subscription key is refused with Azure's own message.
+# 3. A call without a subscription key is refused with Azure's own message. It is the first call to the gateway, which
+# can take a while to answer the first call after a deployment: on Azure, right after an update of the service, it once
+# gave no answer within ten seconds and answered the next calls at once. A call with no answer at all (curl's 000) is
+# repeated, up to 12 times and 5 seconds apart; any HTTP answer ends the wait.
 echo "Calling [$API_URL/items] without a subscription key..."
-NO_KEY_STATUS=$(curl -s -m 10 -o "$BODY_FILE" -w "%{http_code}" "$API_URL/items")
+NO_KEY_STATUS=""
+for i in $(seq 1 12); do
+	NO_KEY_STATUS=$(curl -s -m 10 -o "$BODY_FILE" -w "%{http_code}" "$API_URL/items")
+	[[ "$NO_KEY_STATUS" != "000" ]] && break
+	echo "No answer from the gateway yet (attempt $i of 12)"
+	sleep 5
+done
 echo "HTTP $NO_KEY_STATUS: $(cat "$BODY_FILE")"
 if [[ "$NO_KEY_STATUS" == "401" ]] && grep -q "missing subscription key" "$BODY_FILE"; then
 	echo "Keyless calls are refused"
