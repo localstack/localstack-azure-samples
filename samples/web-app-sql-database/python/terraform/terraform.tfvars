@@ -1,2 +1,2 @@
-location            = "westeurope"
-python_version      = "3.13"
+location       = "westeurope"
+python_version = "3.13"
