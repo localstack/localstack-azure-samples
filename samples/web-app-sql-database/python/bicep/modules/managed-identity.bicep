@@ -14,8 +14,9 @@ param tags object
 // Resources
 //********************************************
 
-// The identity the SQL server reads its TDE protector key with: the Key Vault module gives it the get, wrapKey and
-// unwrapKey key permissions in an access policy of the vault.
+// A user-assigned managed identity. The sample creates two: the one the SQL server wraps and unwraps its database
+// encryption keys with, and the one the web app reads the connection string and the certificate with. The Key Vault
+// module assigns their roles on the vault.
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: name
   location: location

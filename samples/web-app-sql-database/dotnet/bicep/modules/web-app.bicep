@@ -62,6 +62,16 @@ param httpsOnly bool = false
 @description('Specifies the name of the hosting plan.')
 param hostingPlanName string
 
+@description('Specifies the type of managed identity of the Azure Web App. The user-assigned identity is always attached: AZURE_CLIENT_ID selects it in the app.')
+@allowed([
+  'UserAssigned'
+  'SystemAssigned, UserAssigned'
+])
+param identityType string = 'UserAssigned'
+
+@description('Specifies the resource id of the user-assigned managed identity the web app reads the key vault with.')
+param managedIdentityId string
+
 @description('Specifies the optional Git Repo URL.')
 param repoUrl string = ''
 
@@ -135,10 +145,14 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' = {
       publicNetworkAccess: publicNetworkAccess
     }
   }
-  // The system-assigned managed identity the Key Vault module gives the get and list secret permissions and the get
-  // certificate permission: the app reads the connection string secret and the certificate of the vault with it.
+  // The user-assigned managed identity the Key Vault module gives the Key Vault Secrets User and Key Vault Certificate
+  // User roles: the app reads the connection string secret and the certificate of the vault with it, and
+  // AZURE_CLIENT_ID in its app settings tells DefaultAzureCredential to use it.
   identity: {
-    type: 'SystemAssigned'
+    type: identityType
+    userAssignedIdentities: {
+      '${managedIdentityId}': {}
+    }
   }
 }
 
@@ -168,4 +182,3 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
 output id string = webApp.id
 output name string = webApp.name
 output defaultHostName string = webApp.properties.defaultHostName
-output principalId string = webApp.identity.principalId

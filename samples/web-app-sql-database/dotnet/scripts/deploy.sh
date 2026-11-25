@@ -29,9 +29,130 @@ TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
+WEB_APP_IDENTITY_NAME="${PREFIX}-webapp-identity-${SUFFIX}"
+KEY_VAULT_SECRETS_USER_ROLE="Key Vault Secrets User"
+KEY_VAULT_CERTIFICATE_USER_ROLE="Key Vault Certificate User"
+KEY_VAULT_CRYPTO_SERVICE_ENCRYPTION_USER_ROLE="Key Vault Crypto Service Encryption User"
+KEY_VAULT_SECRETS_OFFICER_ROLE="Key Vault Secrets Officer"
+KEY_VAULT_CERTIFICATES_OFFICER_ROLE="Key Vault Certificates Officer"
+KEY_VAULT_CRYPTO_OFFICER_ROLE="Key Vault Crypto Officer"
+ROLE_ASSIGNMENT_RETRY_COUNT=3
+ROLE_ASSIGNMENT_RETRY_SLEEP=5
+KEY_VAULT_RETRY_COUNT=20
+KEY_VAULT_RETRY_SLEEP=30
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+
+# Assign a role to a principal at a scope, unless the assignment already exists. The assignee is given as an
+# object id together with its principal type, so no directory lookup happens at creation time.
+# $1: the object id of the principal
+# $2: the principal type (ServicePrincipal, User or Group)
+# $3: the role name
+# $4: the scope (resource id)
+# $5: the description of the principal, used in messages
+# $6: the description of the scope, used in messages
+ensure_role_assignment() {
+	local principal_id=$1
+	local principal_type=$2
+	local role=$3
+	local scope=$4
+	local principal_description=$5
+	local scope_description=$6
+	local current attempt
+
+	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	current=$(az role assignment list \
+		--assignee "$principal_id" \
+		--scope "$scope" \
+		--query "[?roleDefinitionName=='$role'].roleDefinitionName" \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ $current == "$role" ]]; then
+		echo "The $principal_description already has the [$role] role assignment on the $scope_description"
+		return 0
+	fi
+
+	echo "Assigning the [$role] role to the $principal_description on the $scope_description..."
+	for attempt in $(seq 1 "$ROLE_ASSIGNMENT_RETRY_COUNT"); do
+		if az role assignment create \
+			--assignee-object-id "$principal_id" \
+			--assignee-principal-type "$principal_type" \
+			--role "$role" \
+			--scope "$scope" \
+			--only-show-errors 1>/dev/null; then
+			echo "[$role] role successfully assigned to the $principal_description on the $scope_description"
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$ROLE_ASSIGNMENT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $ROLE_ASSIGNMENT_RETRY_COUNT to assign the [$role] role failed; retrying in $ROLE_ASSIGNMENT_RETRY_SLEEP seconds..."
+			sleep "$ROLE_ASSIGNMENT_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to assign the [$role] role to the $principal_description on the $scope_description"
+	exit 1
+}
+
+# Run a Key Vault operation until it succeeds. A role assigned on the key vault can take a few minutes to apply on
+# Azure, and until then the vault, or Azure SQL on behalf of the server's identity, refuses the operation, so it is
+# retried up to KEY_VAULT_RETRY_COUNT times, KEY_VAULT_RETRY_SLEEP seconds apart.
+# $1: the description of the operation, used in messages
+# $@: the command and its arguments
+retry_key_vault_operation() {
+	local description=$1
+	local attempt
+	shift
+
+	for attempt in $(seq 1 "$KEY_VAULT_RETRY_COUNT"); do
+		if "$@"; then
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$KEY_VAULT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $KEY_VAULT_RETRY_COUNT to $description failed (a role assignment on the key vault may still be propagating); retrying in $KEY_VAULT_RETRY_SLEEP seconds..."
+			sleep "$KEY_VAULT_RETRY_SLEEP"
+		fi
+	done
+
+	return 1
+}
+
+# Store a secret in the key vault, unless it already holds the same value. The value is never printed.
+# $1: the secret name
+# $2: the secret value
+set_secret() {
+	local secret_name=$1
+	local secret_value=$2
+	local current
+
+	echo "Checking if the [$secret_name] secret actually exists in the [$KEY_VAULT_NAME] key vault..."
+	current=$(az keyvault secret show \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$secret_name" \
+		--query value \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ -n $current && $current == "$secret_value" ]]; then
+		echo "The [$secret_name] secret already holds the expected value in the [$KEY_VAULT_NAME] key vault"
+		return 0
+	fi
+
+	echo "Setting the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault..."
+	if retry_key_vault_operation "set the [$secret_name] secret" az keyvault secret set \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$secret_name" \
+		--value "$secret_value" \
+		--only-show-errors 1>/dev/null; then
+		echo "The [$secret_name] secret was successfully set in the [$KEY_VAULT_NAME] key vault"
+	else
+		echo "Failed to set the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
+}
 # Create a resource group
 echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
 az group create \
@@ -169,6 +290,54 @@ SQL_SERVER_IDENTITY_PRINCIPAL_ID=$(az identity show \
 
 if [[ -z "$SQL_SERVER_IDENTITY_ID" || -z "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" ]]; then
 	echo "Failed to retrieve the resource ID or principalId of [$SQL_SERVER_IDENTITY_NAME]"
+	exit 1
+fi
+
+# Check if the user-assigned managed identity of the web app already exists
+echo "Checking if [$WEB_APP_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az identity show \
+	--name "$WEB_APP_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$WEB_APP_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$WEB_APP_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the user-assigned managed identity the web app reads the connection string and the certificate with
+	az identity create \
+		--name "$WEB_APP_IDENTITY_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$WEB_APP_IDENTITY_NAME] user-assigned managed identity successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$WEB_APP_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+else
+	echo "[$WEB_APP_IDENTITY_NAME] user-assigned managed identity already exists in the [$RESOURCE_GROUP_NAME] resource group"
+fi
+
+# Retrieve the clientId, principalId and resource id of the user-assigned managed identity of the web app
+echo "Retrieving the clientId, principalId and resource id of the [$WEB_APP_IDENTITY_NAME] managed identity..."
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
+mapfile -t WEB_APP_IDENTITY_FIELDS < <(az identity show \
+	--name "$WEB_APP_IDENTITY_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "[clientId, principalId, id]" \
+	--output tsv \
+	--only-show-errors | tr -d '\r')
+WEB_APP_IDENTITY_CLIENT_ID="${WEB_APP_IDENTITY_FIELDS[0]:-}"
+WEB_APP_IDENTITY_PRINCIPAL_ID="${WEB_APP_IDENTITY_FIELDS[1]:-}"
+WEB_APP_IDENTITY_ID="${WEB_APP_IDENTITY_FIELDS[2]:-}"
+
+if [[ -n $WEB_APP_IDENTITY_CLIENT_ID && -n $WEB_APP_IDENTITY_PRINCIPAL_ID && -n $WEB_APP_IDENTITY_ID ]]; then
+	echo "[$WEB_APP_IDENTITY_NAME] managed identity: clientId [$WEB_APP_IDENTITY_CLIENT_ID], principalId [$WEB_APP_IDENTITY_PRINCIPAL_ID]"
+else
+	echo "Failed to retrieve the clientId, principalId and resource id of the [$WEB_APP_IDENTITY_NAME] managed identity"
 	exit 1
 fi
 
@@ -514,63 +683,156 @@ else
 	exit 1
 fi
 
-# Create the web app
-echo "Creating web app [$WEB_APP_NAME]..."
-az webapp create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--name "$WEB_APP_NAME" \
-	--runtime "$RUNTIME:$RUNTIME_VERSION" \
-	--assign-identity \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
-else
-	echo "Failed to create web app [$WEB_APP_NAME]."
-	exit 1
-fi
-
-# Get Web App principal ID
-PRINCIPAL_ID=$(az webapp identity show \
+# Check if the web app already exists
+echo "Checking if web app [$WEB_APP_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az webapp show \
 	--name "$WEB_APP_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query "principalId" \
-	--output tsv)
+	--only-show-errors &>/dev/null
 
-if [ -z "$PRINCIPAL_ID" ]; then
-	echo "Failed to retrieve principalId for web app [$WEB_APP_NAME]"
-	exit 1
-fi
+if [[ $? != 0 ]]; then
+	echo "No web app [$WEB_APP_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating web app [$WEB_APP_NAME] with the [$WEB_APP_IDENTITY_NAME] user-assigned managed identity..."
 
-# Create Key Vault
-echo "Creating Key Vault [$KEY_VAULT_NAME]..."
-az keyvault create \
-	--name "$KEY_VAULT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--enable-rbac-authorization false \
-	--enable-purge-protection true \
-	--retention-days 7 \
-	--only-show-errors 1>/dev/null
+	# Create the web app with the user-assigned managed identity it reads the key vault with
+	az webapp create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--name "$WEB_APP_NAME" \
+		--runtime "$RUNTIME:$RUNTIME_VERSION" \
+		--assign-identity "$WEB_APP_IDENTITY_ID" \
+		--only-show-errors 1>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "Key Vault [$KEY_VAULT_NAME] created successfully."
+	if [ $? -eq 0 ]; then
+		echo "Web app [$WEB_APP_NAME] created successfully."
+	else
+		echo "Failed to create web app [$WEB_APP_NAME]."
+		exit 1
+	fi
 else
-	echo "Failed to create Key Vault [$KEY_VAULT_NAME]."
-	exit 1
+	echo "Web app [$WEB_APP_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Making sure the [$WEB_APP_IDENTITY_NAME] user-assigned managed identity is assigned to the [$WEB_APP_NAME] web app..."
+
+	# Idempotent: assigning an identity that is already assigned is a no-op
+	az webapp identity assign \
+		--name "$WEB_APP_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--identities "$WEB_APP_IDENTITY_ID" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "[$WEB_APP_IDENTITY_NAME] user-assigned managed identity is assigned to the [$WEB_APP_NAME] web app"
+	else
+		echo "Failed to assign the [$WEB_APP_IDENTITY_NAME] user-assigned managed identity to the [$WEB_APP_NAME] web app"
+		exit 1
+	fi
 fi
 
-# Get the resource id of the key vault
-KEY_VAULT_ID=$(az keyvault show \
-	--name "$KEY_VAULT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query id \
+# Recover the key vault if a previous run left it soft-deleted.
+# Deleting a key vault only soft-deletes it, and the name stays reserved for the retention period, so
+# re-running this script after deleting the resource group fails the create below with
+# "A vault with the same name already exists in deleted state". The vault has purge protection, which
+# Azure SQL requires on the vault of a TDE protector key, so it cannot be purged either: recovering
+# restores it with its contents, which is what a re-run wants.
+# The vault's own location, not $LOCATION: a soft-deleted vault stays in the region it was deleted in,
+# so recovering it with a different region fails.
+DELETED_KEY_VAULT_LOCATION=$(az keyvault list-deleted \
+	--query "[?name=='$KEY_VAULT_NAME'].properties.location | [0]" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors 2>/dev/null)
 
-if [[ -z "$KEY_VAULT_ID" ]]; then
-	echo "Failed to retrieve the resource id of the [$KEY_VAULT_NAME] key vault"
+if [[ -n $DELETED_KEY_VAULT_LOCATION ]]; then
+	echo "[$KEY_VAULT_NAME] key vault exists in a soft-deleted state in [$DELETED_KEY_VAULT_LOCATION]"
+	echo "Recovering the [$KEY_VAULT_NAME] key vault..."
+
+	az keyvault recover \
+		--name "$KEY_VAULT_NAME" \
+		--location "$DELETED_KEY_VAULT_LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$KEY_VAULT_NAME] key vault successfully recovered"
+	else
+		echo "Failed to recover the soft-deleted [$KEY_VAULT_NAME] key vault"
+		echo "Its purge protection keeps the name reserved until the retention period ends: change PREFIX or SUFFIX and re-run this script"
+		exit 1
+	fi
+fi
+
+# Check if the key vault already exists
+echo "Checking if [$KEY_VAULT_NAME] key vault actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az keyvault show \
+	--name "$KEY_VAULT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$KEY_VAULT_NAME] key vault actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$KEY_VAULT_NAME] key vault in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the key vault with the Azure RBAC permission model, which the role assignments below need, and with
+	# purge protection, which Azure SQL requires on the vault of a TDE protector key
+	az keyvault create \
+		--name "$KEY_VAULT_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--enable-rbac-authorization true \
+		--enable-purge-protection true \
+		--retention-days 7 \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$KEY_VAULT_NAME] key vault successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$KEY_VAULT_NAME] key vault in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+else
+	echo "[$KEY_VAULT_NAME] key vault already exists in the [$RESOURCE_GROUP_NAME] resource group"
+
+	# A vault created by an earlier version of this sample uses access policies: switch it to the Azure RBAC
+	# permission model, which the role assignments below need
+	if [[ $(az keyvault show \
+		--name "$KEY_VAULT_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--query "properties.enableRbacAuthorization" \
+		--output tsv \
+		--only-show-errors) != "true" ]]; then
+		echo "Switching the [$KEY_VAULT_NAME] key vault to the Azure RBAC permission model..."
+
+		az keyvault update \
+			--name "$KEY_VAULT_NAME" \
+			--resource-group "$RESOURCE_GROUP_NAME" \
+			--enable-rbac-authorization true \
+			--only-show-errors 1>/dev/null
+
+		if [[ $? == 0 ]]; then
+			echo "The [$KEY_VAULT_NAME] key vault now uses the Azure RBAC permission model"
+		else
+			echo "Failed to switch the [$KEY_VAULT_NAME] key vault to the Azure RBAC permission model"
+			exit 1
+		fi
+	fi
+fi
+
+# Retrieve the vault URI and the resource id of the key vault. The URI is read back from the service:
+# https://<vault>.vault.azure.net/ on Azure, https://<vault>.vault.azure.localhost.localstack.cloud:4566/ on
+# the emulator.
+echo "Retrieving the vault URI and the resource id of the [$KEY_VAULT_NAME] key vault..."
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
+mapfile -t KEY_VAULT_FIELDS < <(az keyvault show \
+	--name "$KEY_VAULT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "[properties.vaultUri, id]" \
+	--output tsv \
+	--only-show-errors | tr -d '\r')
+KEY_VAULT_URI="${KEY_VAULT_FIELDS[0]:-}"
+KEY_VAULT_ID="${KEY_VAULT_FIELDS[1]:-}"
+
+if [[ -n $KEY_VAULT_URI && -n $KEY_VAULT_ID ]]; then
+	echo "[$KEY_VAULT_NAME] key vault URI: $KEY_VAULT_URI"
+else
+	echo "Failed to retrieve the vault URI and the resource id of the [$KEY_VAULT_NAME] key vault"
 	exit 1
 fi
 
@@ -611,92 +873,117 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$KEY_VAULT_NAME] key vault already exist"
 fi
 
-# Assign access policy to Web App managed identity
-echo "Assigning Key Vault access policy to Web App..."
-az keyvault set-policy \
-	--name "$KEY_VAULT_NAME" \
-	--object-id "$PRINCIPAL_ID" \
-	--secret-permissions get \
-	--certificate-permissions get \
-	--only-show-errors 1>/dev/null
+# Resolve the object id of the deploying principal. The vault uses the RBAC permission model, so writing the
+# secret, the certificate and the key below needs the Key Vault Secrets Officer, Certificates Officer and Crypto
+# Officer roles on the vault; the script grants them to whoever runs it, a user or a service principal. The lookup
+# goes through Microsoft Graph; when it fails the script continues and the roles become a prerequisite (see the
+# README).
+ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
+ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
 
-if [ $? -eq 0 ]; then
-	echo "Key Vault access policy assigned successfully."
+if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
+	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
 else
-	echo "Failed to assign Key Vault access policy."
-	exit 1
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
+	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
 fi
+
+# Microsoft Graph lookups need directory permissions a pipeline principal often lacks. Fall back to the oid claim of
+# the CLI's own access token, which identifies the same principal without any Graph call.
+if [[ -z $DEPLOYER_OBJECT_ID ]]; then
+	DEPLOYER_OBJECT_ID=$(az account get-access-token --query accessToken --output tsv --only-show-errors 2>/dev/null |
+		cut -d. -f2 | tr '_-' '/+' | awk '{ pad = length($0) % 4; if (pad == 2) $0 = $0 "=="; else if (pad == 3) $0 = $0 "="; print }' |
+		base64 -d 2>/dev/null | jq -r '.oid // empty' 2>/dev/null)
+fi
+
+if [[ -n $DEPLOYER_OBJECT_ID ]]; then
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
+	for ROLE in "$KEY_VAULT_SECRETS_OFFICER_ROLE" "$KEY_VAULT_CERTIFICATES_OFFICER_ROLE" "$KEY_VAULT_CRYPTO_OFFICER_ROLE"; do
+		ensure_role_assignment "$DEPLOYER_OBJECT_ID" "$DEPLOYER_PRINCIPAL_TYPE" "$ROLE" "$KEY_VAULT_ID" "deploying principal [$ACCOUNT_USER_NAME]" "[$KEY_VAULT_NAME] key vault"
+	done
+else
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the [$KEY_VAULT_SECRETS_OFFICER_ROLE], [$KEY_VAULT_CERTIFICATES_OFFICER_ROLE] and [$KEY_VAULT_CRYPTO_OFFICER_ROLE] roles on the [$KEY_VAULT_NAME] key vault must already be assigned to it"
+fi
+
+# The web app reads the connection string and the private key of its certificate as secrets (Key Vault Secrets
+# User), and the certificate itself (Key Vault Certificate User), with its user-assigned managed identity. The SQL
+# server wraps and unwraps its database encryption keys with the TDE protector key through its own user-assigned
+# managed identity (Key Vault Crypto Service Encryption User).
+ensure_role_assignment "$WEB_APP_IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$KEY_VAULT_SECRETS_USER_ROLE" "$KEY_VAULT_ID" "[$WEB_APP_IDENTITY_NAME] managed identity" "[$KEY_VAULT_NAME] key vault"
+ensure_role_assignment "$WEB_APP_IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$KEY_VAULT_CERTIFICATE_USER_ROLE" "$KEY_VAULT_ID" "[$WEB_APP_IDENTITY_NAME] managed identity" "[$KEY_VAULT_NAME] key vault"
+ensure_role_assignment "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$KEY_VAULT_CRYPTO_SERVICE_ENCRYPTION_USER_ROLE" "$KEY_VAULT_ID" "[$SQL_SERVER_IDENTITY_NAME] managed identity" "[$KEY_VAULT_NAME] key vault"
 
 # Build connection string
 SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};User ID=${DATABASE_USER_NAME};Password=${DATABASE_USER_PASSWORD};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
 
-# Create secret
-echo "Creating secret [$SECRET_NAME] in Key Vault..."
-az keyvault secret set \
+# Store the connection string as a secret, unless the vault already holds it
+set_secret "$SECRET_NAME" "$SQL_CONNECTION_STRING"
+
+# Create the certificate the web app serves HTTPS with on port 8443, unless the vault already holds it
+echo "Checking if the [$CERT_NAME] certificate actually exists in the [$KEY_VAULT_NAME] key vault..."
+if az keyvault certificate show \
 	--vault-name "$KEY_VAULT_NAME" \
-	--name "$SECRET_NAME" \
-	--value "$SQL_CONNECTION_STRING" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Secret [$SECRET_NAME] created successfully."
+	--name "$CERT_NAME" \
+	--only-show-errors &>/dev/null; then
+	echo "The [$CERT_NAME] certificate already exists in the [$KEY_VAULT_NAME] key vault"
 else
-	echo "Failed to create secret [$SECRET_NAME]."
-	exit 1
+	echo "Creating the [$CERT_NAME] certificate in the [$KEY_VAULT_NAME] key vault..."
+	if retry_key_vault_operation "create the [$CERT_NAME] certificate" az keyvault certificate create \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$CERT_NAME" \
+		--policy '{
+			"issuerParameters": {"name": "Self"},
+			"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
+			"secretProperties": {"contentType": "application/x-pkcs12"},
+			"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
+		}' \
+		--only-show-errors 1>/dev/null; then
+		echo "The [$CERT_NAME] certificate was successfully created in the [$KEY_VAULT_NAME] key vault"
+	else
+		echo "Failed to create the [$CERT_NAME] certificate in the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
 fi
 
-# Create certificate in Key Vault
-echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
-az keyvault certificate create \
-    --vault-name "$KEY_VAULT_NAME" \
-    --name "$CERT_NAME" \
-    --policy '{
-        "issuerParameters": {"name": "Self"},
-        "keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
-        "secretProperties": {"contentType": "application/x-pkcs12"},
-        "x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
-    }' \
-    --only-show-errors
-
-if [ $? -eq 0 ]; then
-	echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
-else
-	echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."
-	exit 1
-fi
-
-# Assign access policy to the SQL server managed identity
-echo "Assigning Key Vault access policy to the SQL server identity [$SQL_SERVER_IDENTITY_NAME]..."
-az keyvault set-policy \
-	--name "$KEY_VAULT_NAME" \
-	--object-id "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" \
-	--key-permissions get wrapKey unwrapKey \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Key Vault access policy for [$SQL_SERVER_IDENTITY_NAME] assigned successfully."
-else
-	echo "Failed to assign Key Vault access policy for [$SQL_SERVER_IDENTITY_NAME]."
-	exit 1
-fi
-
-# Create the RSA key that protects the database encryption keys of the SQL server
-echo "Creating key [$TDE_KEY_NAME] in Key Vault [$KEY_VAULT_NAME]..."
-TDE_KEY_ID=$(az keyvault key create \
+# Create the RSA key that protects the database encryption keys of the SQL server, unless the vault already holds it:
+# a new key would add a version, and with it a new server key and a new TDE protector, on every run
+echo "Checking if the [$TDE_KEY_NAME] key actually exists in the [$KEY_VAULT_NAME] key vault..."
+TDE_KEY_ID=$(az keyvault key show \
 	--vault-name "$KEY_VAULT_NAME" \
 	--name "$TDE_KEY_NAME" \
-	--kty RSA \
-	--size 2048 \
-	--ops wrapKey unwrapKey \
 	--query "key.kid" \
 	--output tsv \
-	--only-show-errors)
+	--only-show-errors 2>/dev/null)
 
-if [ -n "$TDE_KEY_ID" ]; then
-	echo "Key [$TDE_KEY_ID] created successfully."
+if [[ -n $TDE_KEY_ID ]]; then
+	echo "The [$TDE_KEY_NAME] key already exists in the [$KEY_VAULT_NAME] key vault: [$TDE_KEY_ID]"
 else
-	echo "Failed to create key [$TDE_KEY_NAME] in Key Vault [$KEY_VAULT_NAME]."
-	exit 1
+	echo "Creating the [$TDE_KEY_NAME] key in the [$KEY_VAULT_NAME] key vault..."
+	if ! retry_key_vault_operation "create the [$TDE_KEY_NAME] key" az keyvault key create \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$TDE_KEY_NAME" \
+		--kty RSA \
+		--size 2048 \
+		--ops wrapKey unwrapKey \
+		--only-show-errors 1>/dev/null; then
+		echo "Failed to create the [$TDE_KEY_NAME] key in the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
+
+	TDE_KEY_ID=$(az keyvault key show \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$TDE_KEY_NAME" \
+		--query "key.kid" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ -n $TDE_KEY_ID ]]; then
+		echo "The [$TDE_KEY_NAME] key was successfully created in the [$KEY_VAULT_NAME] key vault: [$TDE_KEY_ID]"
+	else
+		echo "Failed to retrieve the id of the [$TDE_KEY_NAME] key in the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
 fi
 
 # Register the key on the SQL server and make it the TDE protector. The generic az resource create
@@ -709,14 +996,14 @@ SQL_SERVER_ID=$(az sql server show \
 	--output tsv)
 SERVER_KEY_NAME="${KEY_VAULT_NAME}_${TDE_KEY_NAME}_${TDE_KEY_ID##*/}"
 
+# Azure SQL checks that the server's identity can get, wrap and unwrap the key before it adds it, so the call is
+# retried until the Key Vault Crypto Service Encryption User assignment above applies
 echo "Adding key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server..."
-az resource create \
+if retry_key_vault_operation "add the [$TDE_KEY_NAME] key to the [$SQL_SERVER_NAME] sql server" az resource create \
 	--id "$SQL_SERVER_ID/keys/$SERVER_KEY_NAME" \
 	--api-version 2023-08-01 \
 	--properties "{\"serverKeyType\": \"AzureKeyVault\", \"uri\": \"$TDE_KEY_ID\"}" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
+	--only-show-errors 1>/dev/null; then
 	echo "Key [$TDE_KEY_NAME] added successfully to the [$SQL_SERVER_NAME] sql server."
 else
 	echo "Failed to add key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server."
@@ -737,23 +1024,10 @@ else
 	exit 1
 fi
 
-# Get Key Vault URI
-echo "Retrieving Key Vault URI..."
-KEYVAULT_URI=$(az keyvault show \
-	--name "$KEY_VAULT_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--query "properties.vaultUri" \
-	--output tsv)
-
-if [ -z "$KEYVAULT_URI" ]; then
-	echo "Failed to retrieve Key Vault URI."
-	exit 1
-fi
-echo "Key Vault URI: [$KEYVAULT_URI]"
-
 # Set web app settings
 # Pass Key Vault name and secret name as app settings.
-# The .NET SDK will retrieve the actual connection string value from Key Vault.
+# The .NET SDK will retrieve the actual connection string value from Key Vault, authenticating with the
+# user-assigned managed identity that AZURE_CLIENT_ID selects.
 echo "Setting web app settings for [$WEB_APP_NAME]..."
 az webapp config appsettings set \
 	--name "$WEB_APP_NAME" \
@@ -764,8 +1038,9 @@ az webapp config appsettings set \
 	KEY_VAULT_NAME="$KEY_VAULT_NAME" \
 	SECRET_NAME="$SECRET_NAME" \
 	LOGIN_NAME="$LOGIN_NAME" \
-	KEYVAULT_URI="$KEYVAULT_URI" \
+	KEYVAULT_URI="$KEY_VAULT_URI" \
 	CERT_NAME="$CERT_NAME" \
+	AZURE_CLIENT_ID="$WEB_APP_IDENTITY_CLIENT_ID" \
 	APPLICATIONINSIGHTS_CONNECTION_STRING="$APPLICATION_INSIGHTS_CONNECTION_STRING" \
 	--only-show-errors 1>/dev/null
 

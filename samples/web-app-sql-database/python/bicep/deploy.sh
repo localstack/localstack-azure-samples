@@ -17,6 +17,8 @@ DATABASE_USER_PASSWORD='TestP@ssw0rd123'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 DEPLOY_APP=1
+KEY_VAULT_RETRY_COUNT=20
+KEY_VAULT_RETRY_SLEEP=30
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -44,15 +46,19 @@ else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
 fi
 
-# Resolve the object id of the deploying principal. The template gives it the certificate permissions of the key vault
-# this script needs to create the certificate the web app serves HTTPS with, after the deployment: Bicep cannot create
-# a Key Vault certificate. The lookup goes through Microsoft Graph, then the oid claim of the CLI's own access token.
+# Resolve the object id and the principal type of the deploying principal. The template gives it the Key Vault
+# Certificates Officer role this script needs to create the certificate the web app serves HTTPS with, after the
+# deployment (Bicep cannot create a Key Vault certificate), and the Key Vault Secrets Officer role validate.sh needs to
+# read the connection string secret. The lookup goes through Microsoft Graph, then the oid claim of the CLI's own
+# access token.
 ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
 ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
 
 if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
 	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
 else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
 	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
 fi
 
@@ -65,9 +71,9 @@ if [[ -z $DEPLOYER_OBJECT_ID ]]; then
 fi
 
 if [[ -n $DEPLOYER_OBJECT_ID ]]; then
-	echo "Deploying principal [$ACCOUNT_USER_NAME] has object id [$DEPLOYER_OBJECT_ID]"
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
 else
-	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the key vault gives it no access policy, and creating the certificate can fail"
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the Key Vault Certificates Officer and Key Vault Secrets Officer roles on the key vault must already be assigned to it"
 	DEPLOYER_OBJECT_ID=""
 fi
 
@@ -138,6 +144,7 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	sqlDatabaseUsername=$DATABASE_USER_NAME \
 	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
 	deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
+	deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
 	--query 'properties.outputs' \
 	--output json); then
 	# Extract only the JSON portion (everything from first { to the end)
@@ -318,21 +325,35 @@ if [[ $DEPLOY_APP -eq 0 ]]; then
 fi
 
 # Create the certificate the web app serves HTTPS with on port 8443 (its CERT_NAME app setting), before the
-# code is deployed and the app starts: Bicep cannot create a Key Vault certificate.
+# code is deployed and the app starts: Bicep cannot create a Key Vault certificate. The Key Vault Certificates Officer
+# role the template assigned to the deploying principal can take a few minutes to apply on Azure, and until then the
+# vault refuses the certificate, so the creation is retried.
 if az keyvault certificate show --vault-name "$KEY_VAULT_NAME" --name "$CERT_NAME" --only-show-errors &>/dev/null; then
 	echo "Certificate [$CERT_NAME] already exists in Key Vault [$KEY_VAULT_NAME]."
 else
 	echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
-	if az keyvault certificate create \
-		--vault-name "$KEY_VAULT_NAME" \
-		--name "$CERT_NAME" \
-		--policy '{
-			"issuerParameters": {"name": "Self"},
-			"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
-			"secretProperties": {"contentType": "application/x-pkcs12"},
-			"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
-		}' \
-		--only-show-errors 1>/dev/null; then
+	CERTIFICATE_CREATED=0
+	for ATTEMPT in $(seq 1 "$KEY_VAULT_RETRY_COUNT"); do
+		if az keyvault certificate create \
+			--vault-name "$KEY_VAULT_NAME" \
+			--name "$CERT_NAME" \
+			--policy '{
+				"issuerParameters": {"name": "Self"},
+				"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
+				"secretProperties": {"contentType": "application/x-pkcs12"},
+				"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
+			}' \
+			--only-show-errors 1>/dev/null; then
+			CERTIFICATE_CREATED=1
+			break
+		fi
+		if [ "$ATTEMPT" -lt "$KEY_VAULT_RETRY_COUNT" ]; then
+			echo "Attempt $ATTEMPT of $KEY_VAULT_RETRY_COUNT to create certificate [$CERT_NAME] failed (the Key Vault Certificates Officer role may still be propagating); retrying in $KEY_VAULT_RETRY_SLEEP seconds..."
+			sleep "$KEY_VAULT_RETRY_SLEEP"
+		fi
+	done
+
+	if [[ $CERTIFICATE_CREATED == 1 ]]; then
 		echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
 	else
 		echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."

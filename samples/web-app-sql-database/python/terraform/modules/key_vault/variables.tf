@@ -14,7 +14,7 @@ variable "location" {
 }
 
 variable "tenant_id" {
-  description = "(Required) Specifies the Microsoft Entra tenant id of the Key Vault and of its access policies."
+  description = "(Required) Specifies the Microsoft Entra tenant id of the Key Vault."
   type        = string
 }
 
@@ -36,14 +36,39 @@ variable "purge_protection_enabled" {
   default     = true
 }
 
-variable "deployer_object_id" {
-  description = "(Required) Specifies the object id of the identity running Terraform, which creates the key, the secret and the certificate."
-  type        = string
+variable "rbac_authorization_enabled" {
+  description = "(Optional) Specifies whether the Key Vault uses the Azure RBAC permission model, which the role assignments on the vault need. Defaults to true."
+  type        = bool
+  default     = true
 }
 
-variable "sql_server_identity_principal_id" {
-  description = "(Required) Specifies the principal id of the user-assigned managed identity the SQL server reads its TDE protector key with."
+variable "deployer_object_id" {
+  description = "(Optional) Specifies the object id of the principal running terraform apply, which creates the key, the secret and the certificate through the data plane. It is granted the deployer roles on the Key Vault first. Empty skips the assignments."
   type        = string
+  default     = ""
+}
+
+variable "deployer_principal_type" {
+  description = "(Optional) Specifies the principal type of the deploying principal: User, Group or ServicePrincipal. Defaults to User."
+  type        = string
+  default     = "User"
+
+  validation {
+    condition     = contains(["User", "Group", "ServicePrincipal"], var.deployer_principal_type)
+    error_message = "The deployer_principal_type must be User, Group or ServicePrincipal."
+  }
+}
+
+variable "deployer_role_definition_names" {
+  description = "(Optional) Specifies the roles granted to the deploying principal on the Key Vault, so that it can create the key, the secret and the certificate through the data plane. Defaults to Key Vault Crypto Officer, Key Vault Secrets Officer and Key Vault Certificates Officer."
+  type        = list(string)
+  default     = ["Key Vault Crypto Officer", "Key Vault Secrets Officer", "Key Vault Certificates Officer"]
+}
+
+variable "rbac_propagation_delay" {
+  description = "(Optional) Specifies how long to wait after the deploying principal's role assignments before writing the key, the secret and the certificate: Azure role assignments take a while to propagate. Defaults to 60s; pass 0s where propagation is immediate."
+  type        = string
+  default     = "60s"
 }
 
 variable "tde_key_name" {

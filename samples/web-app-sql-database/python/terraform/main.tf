@@ -7,6 +7,7 @@ locals {
   web_app_name              = "${var.prefix}-webapp-${var.suffix}"
   key_vault_name            = "${var.prefix}-kv-${var.suffix}"
   sql_identity_name         = "${var.prefix}-tde-identity-${var.suffix}"
+  web_app_identity_name     = "${var.prefix}-webapp-identity-${var.suffix}"
   tde_key_name              = "${var.prefix}-tde-key-${var.suffix}"
   log_analytics_name        = "${var.prefix}-log-analytics-${var.suffix}"
   application_insights_name = "${var.prefix}-insights-${var.suffix}"
@@ -54,6 +55,15 @@ module "sql_server_identity" {
   tags                = var.tags
 }
 
+# Create the user-assigned managed identity the web app reads the connection string and the certificate with
+module "web_app_identity" {
+  source              = "./modules/managed_identity"
+  name                = local.web_app_identity_name
+  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.example.location
+  tags                = var.tags
+}
+
 # Create the SQL server, its firewall rule and the database, whose auditing and diagnostic setting send to the workspace
 module "sql_server" {
   source                               = "./modules/mssql_server"
@@ -87,33 +97,69 @@ module "sql_server" {
   tags                                 = var.tags
 }
 
-# Create the Key Vault with the TDE protector key, the SQL connection string secret and the certificate the web app
-# serves HTTPS with, and the access policies of the identity running Terraform and of the SQL server's identity
+# Create the Key Vault, with the Azure RBAC permission model, and in it the TDE protector key, the SQL connection string
+# secret and the certificate the web app serves HTTPS with. The module grants the deploying principal the Key Vault
+# Crypto, Secrets and Certificates Officer roles (when deploy.sh could resolve it) and waits for them to propagate
+# before it writes the three objects through the data plane.
 module "key_vault" {
-  source                           = "./modules/key_vault"
-  name                             = local.key_vault_name
-  resource_group_name              = azurerm_resource_group.example.name
-  location                         = azurerm_resource_group.example.location
-  tenant_id                        = data.azurerm_client_config.current.tenant_id
-  deployer_object_id               = data.azurerm_client_config.current.object_id
-  sql_server_identity_principal_id = module.sql_server_identity.principal_id
-  tde_key_name                     = local.tde_key_name
-  secret_name                      = var.secret_name
-  sql_server_fqdn                  = module.sql_server.fully_qualified_domain_name
-  sql_database_name                = module.sql_server.database_name
-  sql_database_username            = var.sql_database_username
-  sql_database_password            = var.sql_database_password
-  cert_name                        = var.cert_name
-  cert_subject                     = var.cert_subject
-  log_analytics_workspace_id       = module.log_analytics_workspace.id
-  tags                             = var.tags
+  source                         = "./modules/key_vault"
+  name                           = local.key_vault_name
+  resource_group_name            = azurerm_resource_group.example.name
+  location                       = azurerm_resource_group.example.location
+  tenant_id                      = data.azurerm_client_config.current.tenant_id
+  rbac_authorization_enabled     = var.key_vault_rbac_authorization_enabled
+  deployer_object_id             = var.deployer_object_id
+  deployer_principal_type        = var.deployer_principal_type
+  deployer_role_definition_names = var.deployer_role_definition_names
+  rbac_propagation_delay         = var.rbac_propagation_delay
+  tde_key_name                   = local.tde_key_name
+  secret_name                    = var.secret_name
+  sql_server_fqdn                = module.sql_server.fully_qualified_domain_name
+  sql_database_name              = module.sql_server.database_name
+  sql_database_username          = var.sql_database_username
+  sql_database_password          = var.sql_database_password
+  cert_name                      = var.cert_name
+  cert_subject                   = var.cert_subject
+  log_analytics_workspace_id     = module.log_analytics_workspace.id
+  tags                           = var.tags
 }
 
-# Make the Key Vault key the TDE protector of the SQL server
+# Role assignments on the Key Vault. The web app reads the connection string and the private key of its certificate as
+# secrets, and the certificate itself, with its user-assigned managed identity. The SQL server wraps and unwraps its
+# database encryption keys with the TDE protector key through its own user-assigned managed identity: Azure SQL checks
+# that access before it accepts the key, so that assignment waits for the role to propagate.
+module "web_app_key_vault_secrets_user_role_assignment" {
+  source               = "./modules/role_assignment"
+  scope                = module.key_vault.id
+  role_definition_name = var.key_vault_secrets_user_role_name
+  principal_id         = module.web_app_identity.principal_id
+  principal_type       = var.managed_identity_principal_type
+}
+
+module "web_app_key_vault_certificate_user_role_assignment" {
+  source               = "./modules/role_assignment"
+  scope                = module.key_vault.id
+  role_definition_name = var.key_vault_certificate_user_role_name
+  principal_id         = module.web_app_identity.principal_id
+  principal_type       = var.managed_identity_principal_type
+}
+
+module "sql_server_key_vault_crypto_service_encryption_user_role_assignment" {
+  source               = "./modules/role_assignment"
+  scope                = module.key_vault.id
+  role_definition_name = var.key_vault_crypto_service_encryption_user_role_name
+  principal_id         = module.sql_server_identity.principal_id
+  principal_type       = var.managed_identity_principal_type
+  propagation_delay    = var.rbac_propagation_delay
+}
+
+# Make the Key Vault key the TDE protector of the SQL server, once the server's identity can use it
 module "transparent_data_encryption" {
   source           = "./modules/transparent_data_encryption"
   server_id        = module.sql_server.id
   key_vault_key_id = module.key_vault.tde_key_id
+
+  depends_on = [module.sql_server_key_vault_crypto_service_encryption_user_role_assignment]
 }
 
 # Create a service plan
@@ -129,8 +175,9 @@ module "app_service_plan" {
   tags                       = var.tags
 }
 
-# Create a web app with a system-assigned managed identity. The app reads the connection string from the vault itself:
-# its settings carry the names of the vault, of the secret and of the certificate.
+# Create a web app with the user-assigned managed identity. The app reads the connection string from the vault itself:
+# its settings carry the names of the vault, of the secret and of the certificate, and AZURE_CLIENT_ID selects the
+# identity it authenticates with.
 module "web_app" {
   source                        = "./modules/web_app"
   name                          = local.web_app_name
@@ -140,7 +187,8 @@ module "web_app" {
   https_only                    = var.https_only
   public_network_access_enabled = var.webapp_public_network_access_enabled
   client_affinity_enabled       = false
-  identity_type                 = "SystemAssigned"
+  identity_type                 = var.web_app_identity_type
+  identity_ids                  = [module.web_app_identity.id]
   always_on                     = var.always_on
   http2_enabled                 = var.http2_enabled
   minimum_tls_version           = var.minimum_tls_version
@@ -155,17 +203,8 @@ module "web_app" {
     SECRET_NAME                           = module.key_vault.secret_name
     KEYVAULT_URI                          = module.key_vault.vault_uri
     CERT_NAME                             = module.key_vault.certificate_name
+    AZURE_CLIENT_ID                       = module.web_app_identity.client_id
     LOGIN_NAME                            = var.login_name
     APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
   }
-}
-
-# Grant the Web App managed identity access to Key Vault secrets and certificates
-module "web_app_key_vault_access_policy" {
-  source                  = "./modules/key_vault_access_policy"
-  key_vault_id            = module.key_vault.id
-  tenant_id               = data.azurerm_client_config.current.tenant_id
-  object_id               = module.web_app.principal_id
-  secret_permissions      = ["Get", "List"]
-  certificate_permissions = ["Get"]
 }

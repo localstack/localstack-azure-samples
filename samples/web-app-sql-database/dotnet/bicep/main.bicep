@@ -333,8 +333,16 @@ param logAnalyticsSku string = 'PerNode'
 @description('Specifies the workspace data retention in days.')
 param logAnalyticsRetentionInDays int = 60
 
-@description('Specifies the object id of the principal that runs the deployment, which deploy.sh resolves: the key vault gives it the certificate permissions deploy.sh needs to create the certificate of the web app. Empty gives it no access policy.')
+@description('Specifies the object id of the principal that runs the deployment, which deploy.sh resolves: the key vault gives it the Key Vault Certificates Officer role deploy.sh needs to create the certificate of the web app, and the Key Vault Secrets Officer role validate.sh needs to read the connection string secret. Empty skips its role assignments.')
 param deployerPrincipalId string = ''
+
+@description('Specifies the principal type of the deploying principal, which deploy.sh resolves.')
+@allowed([
+  'User'
+  'ServicePrincipal'
+  'Group'
+])
+param deployerPrincipalType string = 'User'
 
 //********************************************
 // Variables
@@ -348,6 +356,7 @@ var keyVaultName = '${prefix}-kv-${suffix}'
 var certificateName = '${prefix}-cert-${suffix}'
 var sqlConnectionStringSecretName = '${prefix}-secret-${suffix}'
 var sqlServerIdentityName = '${prefix}-tde-identity-${suffix}'
+var webAppIdentityName = '${prefix}-webapp-identity-${suffix}'
 var tdeKeyName = '${prefix}-tde-key-${suffix}'
 
 //********************************************
@@ -378,6 +387,15 @@ module sqlServerIdentity 'modules/managed-identity.bicep' = {
   name: 'sqlServerIdentity'
   params: {
     name: sqlServerIdentityName
+    location: location
+    tags: tags
+  }
+}
+
+module webAppIdentity 'modules/managed-identity.bicep' = {
+  name: 'webAppIdentity'
+  params: {
+    name: webAppIdentityName
     location: location
     tags: tags
   }
@@ -466,18 +484,19 @@ module webApp 'modules/web-app.bicep' = {
     publicNetworkAccess: publicNetworkAccess
     repoUrl: repoUrl
     hostingPlanName: appServicePlan.outputs.name
+    managedIdentityId: webAppIdentity.outputs.id
     workspaceId: workspace.outputs.id
     tags: tags
   }
 }
 
-// The vault comes after the web app and the identity of the SQL server: its access policies name both principals.
+// The vault comes after the two managed identities: its role assignments name both principals.
 module keyVault 'modules/key-vault.bicep' = {
   name: 'keyVault'
   params: {
     name: keyVaultName
     location: location
-    webAppPrincipalId: webApp.outputs.principalId
+    webAppIdentityPrincipalId: webAppIdentity.outputs.principalId
     sqlServerIdentityPrincipalId: sqlServerIdentity.outputs.principalId
     tdeKeyName: tdeKeyName
     sqlConnectionStringSecretName: sqlConnectionStringSecretName
@@ -486,6 +505,7 @@ module keyVault 'modules/key-vault.bicep' = {
     sqlDatabaseUsername: sqlDatabaseUsername
     sqlDatabasePassword: sqlDatabasePassword
     deployerPrincipalId: deployerPrincipalId
+    deployerPrincipalType: deployerPrincipalType
     workspaceId: workspace.outputs.id
     tags: tags
   }
@@ -510,6 +530,7 @@ module webAppSettings 'modules/web-app-settings.bicep' = {
     secretName: keyVault.outputs.sqlConnectionStringSecretName
     certificateName: certificateName
     username: username
+    managedIdentityClientId: webAppIdentity.outputs.clientId
     applicationInsightsConnectionString: applicationInsights.outputs.connectionString
   }
 }

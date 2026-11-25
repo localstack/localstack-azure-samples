@@ -34,6 +34,9 @@ param certificateName string
 @description('Specifies the username for the application.')
 param username string
 
+@description('Specifies the client id of the web app\'s user-assigned managed identity, handed to the app as AZURE_CLIENT_ID.')
+param managedIdentityClientId string
+
 @description('Specifies the connection string of the Application Insights resource the app sends its telemetry to.')
 param applicationInsightsConnectionString string
 
@@ -45,8 +48,8 @@ resource webApp 'Microsoft.Web/sites@2024-11-01' existing = {
   name: webAppName
 }
 
-// The app settings are a module of their own because they name the vault, whose access policy needs the principal id
-// of the web app's system-assigned identity: the web app comes first, then the vault, then the settings.
+// The app settings are a module of their own, applied once the Key Vault module has created the vault, its secret and
+// the role assignments of the web app's identity: the app reads the vault as soon as these settings restart it.
 resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   parent: webApp
   name: 'appsettings'
@@ -59,6 +62,8 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
     LOGIN_NAME: username
     KEYVAULT_URI: keyVaultUri
     CERT_NAME: certificateName
+    // The user-assigned managed identity DefaultAzureCredential reads the vault with
+    AZURE_CLIENT_ID: managedIdentityClientId
     APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString
   }
 }

@@ -368,3 +368,68 @@ variable "log_analytics_retention_in_days" {
   type        = number
   default     = 30
 }
+
+variable "web_app_identity_type" {
+  description = "(Optional) Specifies the type of managed identity of the Web App. The user-assigned identity reads the Key Vault, and AZURE_CLIENT_ID selects it in the app. Defaults to UserAssigned."
+  type        = string
+  default     = "UserAssigned"
+}
+
+variable "managed_identity_principal_type" {
+  description = "(Optional) Specifies the principal type of the two user-assigned managed identities in their role assignments. Defaults to ServicePrincipal."
+  type        = string
+  default     = "ServicePrincipal"
+}
+
+variable "key_vault_rbac_authorization_enabled" {
+  description = "(Optional) Specifies whether the Key Vault uses the Azure RBAC permission model, which the role assignments on the vault need. Defaults to true."
+  type        = bool
+  default     = true
+}
+
+variable "key_vault_secrets_user_role_name" {
+  description = "(Optional) Specifies the role the Web App's identity reads the connection string and the private key of the certificate with. Defaults to Key Vault Secrets User."
+  type        = string
+  default     = "Key Vault Secrets User"
+}
+
+variable "key_vault_certificate_user_role_name" {
+  description = "(Optional) Specifies the role the Web App's identity reads the certificate with. Defaults to Key Vault Certificate User."
+  type        = string
+  default     = "Key Vault Certificate User"
+}
+
+variable "key_vault_crypto_service_encryption_user_role_name" {
+  description = "(Optional) Specifies the role the SQL server's identity wraps and unwraps its database encryption keys with. Defaults to Key Vault Crypto Service Encryption User."
+  type        = string
+  default     = "Key Vault Crypto Service Encryption User"
+}
+
+variable "deployer_object_id" {
+  description = "(Optional) Specifies the object id of the principal running terraform apply. It is granted the deployer roles on the Key Vault, so that the key, the secret and the certificate can be written through the data plane of an RBAC vault. Empty skips the assignments (deploy.sh resolves it)."
+  type        = string
+  default     = ""
+}
+
+variable "deployer_principal_type" {
+  description = "(Optional) Specifies the principal type of the deploying principal: User, ServicePrincipal or Group. Defaults to User."
+  type        = string
+  default     = "User"
+
+  validation {
+    condition     = contains(["User", "ServicePrincipal", "Group"], var.deployer_principal_type)
+    error_message = "The deployer_principal_type must be User, ServicePrincipal or Group."
+  }
+}
+
+variable "deployer_role_definition_names" {
+  description = "(Optional) Specifies the roles granted to the deploying principal on the Key Vault. Defaults to Key Vault Crypto Officer, Key Vault Secrets Officer and Key Vault Certificates Officer, for the key, the secret and the certificate."
+  type        = list(string)
+  default     = ["Key Vault Crypto Officer", "Key Vault Secrets Officer", "Key Vault Certificates Officer"]
+}
+
+variable "rbac_propagation_delay" {
+  description = "(Optional) Specifies how long to wait after a role assignment on the Key Vault before the role is used: Azure role assignments take a while to propagate. deploy.sh passes 0s on the emulator. Defaults to 60s."
+  type        = string
+  default     = "60s"
+}

@@ -10,7 +10,30 @@ WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
+SQL_SERVER_IDENTITY_NAME="${PREFIX}-tde-identity-${SUFFIX}"
+WEB_APP_IDENTITY_NAME="${PREFIX}-webapp-identity-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+
+# Exit with an error unless a principal holds a role on the key vault.
+# $1: the principal (object) id
+# $2: the role name
+# $3: the description of the principal, used in messages
+require_key_vault_role() {
+	local count
+	count=$(az role assignment list \
+		--assignee "$1" \
+		--scope "$KEY_VAULT_ID" \
+		--query "length([?roleDefinitionName=='$2'])" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $count -ge 1 ]]; then
+		echo "The $3 holds the [$2] role on the [$KEY_VAULT_NAME] key vault"
+	else
+		echo "The $3 does not hold the [$2] role on the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
+}
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -93,6 +116,72 @@ az keyvault secret show \
 --name "$SECRET_NAME" \
 --query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
 --output table
+
+# Check that the key vault uses the Azure RBAC permission model: the role assignments below only work on such a vault
+KEY_VAULT_RBAC=$(az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "properties.enableRbacAuthorization" \
+--output tsv)
+echo -e "\n[$KEY_VAULT_NAME] Key Vault RBAC authorization: [$KEY_VAULT_RBAC]"
+if [[ $KEY_VAULT_RBAC != "true" ]]; then
+	echo "The [$KEY_VAULT_NAME] key vault does not use the Azure RBAC permission model"
+	exit 1
+fi
+
+# Check that the web app runs with its user-assigned managed identity, which AZURE_CLIENT_ID selects in the app
+echo -e "\n[$WEB_APP_IDENTITY_NAME] managed identity of the [$WEB_APP_NAME] web app:\n"
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
+mapfile -t WEB_APP_IDENTITY_FIELDS < <(az identity show \
+--name "$WEB_APP_IDENTITY_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "[id, clientId, principalId]" \
+--output tsv | tr -d '\r')
+WEB_APP_IDENTITY_ID="${WEB_APP_IDENTITY_FIELDS[0]:-}"
+WEB_APP_IDENTITY_CLIENT_ID="${WEB_APP_IDENTITY_FIELDS[1]:-}"
+WEB_APP_IDENTITY_PRINCIPAL_ID="${WEB_APP_IDENTITY_FIELDS[2]:-}"
+if [[ -z $WEB_APP_IDENTITY_ID || -z $WEB_APP_IDENTITY_CLIENT_ID || -z $WEB_APP_IDENTITY_PRINCIPAL_ID ]]; then
+	echo "Failed to retrieve the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+if az webapp identity show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "keys(userAssignedIdentities || \`{}\`)" \
+	--output tsv | tr -d '\r' | grep -q -i -x -F "$WEB_APP_IDENTITY_ID"; then
+	echo "The [$WEB_APP_NAME] web app uses the [$WEB_APP_IDENTITY_NAME] managed identity"
+else
+	echo "The [$WEB_APP_NAME] web app does not use the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+AZURE_CLIENT_ID_SETTING=$(az webapp config appsettings list \
+--name "$WEB_APP_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "[?name=='AZURE_CLIENT_ID'].value | [0]" \
+--output tsv)
+if [[ $AZURE_CLIENT_ID_SETTING == "$WEB_APP_IDENTITY_CLIENT_ID" ]]; then
+	echo "The AZURE_CLIENT_ID app setting holds the client id of the [$WEB_APP_IDENTITY_NAME] managed identity"
+else
+	echo "The AZURE_CLIENT_ID app setting [$AZURE_CLIENT_ID_SETTING] is not the client id [$WEB_APP_IDENTITY_CLIENT_ID] of the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+
+# Check the roles of the managed identities on the key vault: the web app reads the connection string and the private
+# key of its certificate as secrets, and the certificate itself; the SQL server wraps and unwraps its database
+# encryption keys with the TDE protector key
+echo -e "\n[$KEY_VAULT_NAME] Key Vault role assignments:\n"
+SQL_SERVER_IDENTITY_PRINCIPAL_ID=$(az identity show \
+--name "$SQL_SERVER_IDENTITY_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "principalId" \
+--output tsv)
+if [[ -z $SQL_SERVER_IDENTITY_PRINCIPAL_ID ]]; then
+	echo "Failed to retrieve the principalId of the [$SQL_SERVER_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+require_key_vault_role "$WEB_APP_IDENTITY_PRINCIPAL_ID" "Key Vault Secrets User" "[$WEB_APP_IDENTITY_NAME] managed identity"
+require_key_vault_role "$WEB_APP_IDENTITY_PRINCIPAL_ID" "Key Vault Certificate User" "[$WEB_APP_IDENTITY_NAME] managed identity"
+require_key_vault_role "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" "Key Vault Crypto Service Encryption User" "[$SQL_SERVER_IDENTITY_NAME] managed identity"
 
 # Check Application Insights component
 echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"
