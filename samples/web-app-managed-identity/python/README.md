@@ -145,7 +145,7 @@ The workspace keeps the telemetry in these tables:
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `AppRequests`     | The requests it serves, such as `GET /`                                                                                  |
 | `AppDependencies` | Its calls to Blob Storage, such as `GET /activities` and `ContainerClient.list_blobs`                                    |
-| `AppTraces`       | The records of its `webapp` logger, such as `Read 3 activities from container 'activities'.`                             |
+| `AppTraces`       | The records of its `webapp` logger, such as `Activities read: 3`                                                         |
 | `AppEvents`       | The `ActivityAdded`, `ActivityUpdated` and `ActivityDeleted` custom events, with the id of the activity in `activity.id` |
 | `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
 | `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to Blob Storage fails                                        |
