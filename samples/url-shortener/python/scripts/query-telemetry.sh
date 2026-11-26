@@ -11,7 +11,7 @@
 # Each record names the app that sent it in AppRoleName.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so the wait and every
-# query are retried: raise RETRY_COUNT there.
+# query are retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as deploy.sh)
 PREFIX="${PREFIX:-local}"
@@ -19,7 +19,13 @@ SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-urlshort-webapp-${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-urlshort-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
