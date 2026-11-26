@@ -30,6 +30,10 @@ IMAGE_TAG="v1"
 MANAGED_IDENTITY_TYPE="${MANAGED_IDENTITY_TYPE:-None}"
 MANAGED_IDENTITY_NAME="${PREFIX}-aca-identity"
 STORAGE_ROLE="Storage Blob Data Contributor"
+# A role is assigned to a managed identity right after the identity is created: the retries cover the time the new
+# principal takes to replicate to Microsoft Entra ID
+ROLE_ASSIGNMENT_RETRY_COUNT=5
+ROLE_ASSIGNMENT_RETRY_SLEEP=10
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "$MANAGED_IDENTITY_TYPE" in
@@ -42,25 +46,57 @@ esac
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-# Assigns the storage role to a managed identity, retrying while a newly
-# created principal is still replicating to Microsoft Entra ID.
-assign_storage_role() {
-	local principal_id="$1"
-	for attempt in 1 2 3 4 5; do
+
+# Assign a role to a principal at a scope, unless the assignment already exists. The assignee is given as an
+# object id together with its principal type, so no directory lookup happens at creation time.
+# $1: the object id of the principal
+# $2: the principal type (ServicePrincipal, User or Group)
+# $3: the role name
+# $4: the scope (resource id)
+# $5: the description of the principal, used in messages
+# $6: the description of the scope, used in messages
+ensure_role_assignment() {
+	local principal_id=$1
+	local principal_type=$2
+	local role=$3
+	local scope=$4
+	local principal_description=$5
+	local scope_description=$6
+	local current attempt
+
+	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	current=$(az role assignment list \
+		--assignee "$principal_id" \
+		--scope "$scope" \
+		--query "[?roleDefinitionName=='$role'].roleDefinitionName" \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ $current == "$role" ]]; then
+		echo "The $principal_description already has the [$role] role assignment on the $scope_description"
+		return 0
+	fi
+
+	echo "Assigning the [$role] role to the $principal_description on the $scope_description..."
+	for attempt in $(seq 1 "$ROLE_ASSIGNMENT_RETRY_COUNT"); do
 		if az role assignment create \
 			--assignee-object-id "$principal_id" \
-			--assignee-principal-type ServicePrincipal \
-			--role "$STORAGE_ROLE" \
-			--scope "$STORAGE_ACCOUNT_ID" \
+			--assignee-principal-type "$principal_type" \
+			--role "$role" \
+			--scope "$scope" \
 			--only-show-errors 1>/dev/null; then
-			echo "Role [$STORAGE_ROLE] assigned to principal [$principal_id]."
+			echo "[$role] role successfully assigned to the $principal_description on the $scope_description"
 			return 0
 		fi
-		echo "Role assignment attempt $attempt failed. Retrying in 10 seconds..."
-		sleep 10
+
+		if [ "$attempt" -lt "$ROLE_ASSIGNMENT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $ROLE_ASSIGNMENT_RETRY_COUNT to assign the [$role] role failed; retrying in $ROLE_ASSIGNMENT_RETRY_SLEEP seconds..."
+			sleep "$ROLE_ASSIGNMENT_RETRY_SLEEP"
+		fi
 	done
-	echo "Failed to assign role [$STORAGE_ROLE] to principal [$principal_id]."
-	return 1
+
+	echo "Failed to assign the [$role] role to the $principal_description on the $scope_description"
+	exit 1
 }
 
 # =============================================================================
@@ -70,16 +106,20 @@ echo ""
 echo "============================================================"
 echo "Step 1: Creating resource group [$RESOURCE_GROUP_NAME]..."
 echo "============================================================"
-az group create \
-	--name $RESOURCE_GROUP_NAME \
-	--location $LOCATION \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
 fi
 
 # =============================================================================
@@ -89,18 +129,22 @@ echo ""
 echo "============================================================"
 echo "Step 2: Creating storage account [$STORAGE_ACCOUNT_NAME]..."
 echo "============================================================"
-az storage account create \
-	--name $STORAGE_ACCOUNT_NAME \
-	--location $LOCATION \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--sku Standard_LRS \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully."
+if az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Storage account [$STORAGE_ACCOUNT_NAME] already exists."
 else
-	echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME]."
-	exit 1
+	az storage account create \
+		--name "$STORAGE_ACCOUNT_NAME" \
+		--location "$LOCATION" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--sku Standard_LRS \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Storage account [$STORAGE_ACCOUNT_NAME] created successfully."
+	else
+		echo "Failed to create storage account [$STORAGE_ACCOUNT_NAME]."
+		exit 1
+	fi
 fi
 
 # =============================================================================
@@ -156,16 +200,27 @@ echo "Step 5: Creating blob container [$BLOB_CONTAINER_NAME]..."
 echo "============================================================"
 # Use --connection-string to ensure the correct endpoint is used
 # (--account-name constructs its own hostname which may not match LocalStack's cert)
-az storage container create \
-	--name $BLOB_CONTAINER_NAME \
+CONTAINER_EXISTS=$(az storage container exists \
+	--name "$BLOB_CONTAINER_NAME" \
 	--connection-string "$STORAGE_CONN_STRING" \
-	--only-show-errors 1>/dev/null
+	--query exists \
+	--output tsv \
+	--only-show-errors 2>/dev/null | tr -d '\r')
 
-if [ $? -eq 0 ]; then
-	echo "Blob container [$BLOB_CONTAINER_NAME] created successfully."
+if [[ $CONTAINER_EXISTS == "true" ]]; then
+	echo "Blob container [$BLOB_CONTAINER_NAME] already exists."
 else
-	echo "Failed to create blob container [$BLOB_CONTAINER_NAME]."
-	exit 1
+	az storage container create \
+		--name "$BLOB_CONTAINER_NAME" \
+		--connection-string "$STORAGE_CONN_STRING" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Blob container [$BLOB_CONTAINER_NAME] created successfully."
+	else
+		echo "Failed to create blob container [$BLOB_CONTAINER_NAME]."
+		exit 1
+	fi
 fi
 
 # =============================================================================
@@ -183,22 +238,35 @@ if [[ $MANAGED_IDENTITY_TYPE == "UserAssigned" ]]; then
 	echo "============================================================"
 	echo "Step 5b: Creating managed identity [$MANAGED_IDENTITY_NAME]..."
 	echo "============================================================"
-	read -r IDENTITY_ID IDENTITY_CLIENT_ID IDENTITY_PRINCIPAL_ID < <(az identity create \
+	if az identity show --name "$MANAGED_IDENTITY_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+		echo "Managed identity [$MANAGED_IDENTITY_NAME] already exists."
+	elif az identity create \
 		--name "$MANAGED_IDENTITY_NAME" \
 		--resource-group "$RESOURCE_GROUP_NAME" \
 		--location "$LOCATION" \
-		--query "[id, clientId, principalId]" \
-		--output tsv \
-		--only-show-errors | tr '\n' ' ')
-
-	if [ -n "$IDENTITY_PRINCIPAL_ID" ]; then
-		echo "Managed identity [$MANAGED_IDENTITY_NAME] created. Client ID: $IDENTITY_CLIENT_ID"
+		--only-show-errors 1>/dev/null; then
+		echo "Managed identity [$MANAGED_IDENTITY_NAME] created successfully."
 	else
 		echo "Failed to create managed identity [$MANAGED_IDENTITY_NAME]."
 		exit 1
 	fi
 
-	assign_storage_role "$IDENTITY_PRINCIPAL_ID" || exit 1
+	# tr turns the three lines into one, and drops the carriage return the Azure CLI ends each line with on Windows
+	read -r IDENTITY_ID IDENTITY_CLIENT_ID IDENTITY_PRINCIPAL_ID < <(az identity show \
+		--name "$MANAGED_IDENTITY_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--query "[id, clientId, principalId]" \
+		--output tsv \
+		--only-show-errors | tr -d '\r' | tr '\n' ' ')
+
+	if [ -n "$IDENTITY_PRINCIPAL_ID" ]; then
+		echo "Managed identity [$MANAGED_IDENTITY_NAME] Client ID: $IDENTITY_CLIENT_ID"
+	else
+		echo "Failed to retrieve managed identity [$MANAGED_IDENTITY_NAME]."
+		exit 1
+	fi
+
+	ensure_role_assignment "$IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$STORAGE_ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "[$STORAGE_ACCOUNT_NAME] storage account"
 fi
 
 # =============================================================================
@@ -208,19 +276,23 @@ echo ""
 echo "============================================================"
 echo "Step 6: Creating ACR [$ACR_NAME] with admin user enabled..."
 echo "============================================================"
-az acr create \
-	--name "$ACR_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--sku Basic \
-	--admin-enabled true \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "ACR [$ACR_NAME] created successfully."
+if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "ACR [$ACR_NAME] already exists."
 else
-	echo "Failed to create ACR [$ACR_NAME]."
-	exit 1
+	az acr create \
+		--name "$ACR_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--sku Basic \
+		--admin-enabled true \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "ACR [$ACR_NAME] created successfully."
+	else
+		echo "Failed to create ACR [$ACR_NAME]."
+		exit 1
+	fi
 fi
 
 # =============================================================================
@@ -316,20 +388,24 @@ echo ""
 echo "============================================================"
 echo "Step 9: Creating Container Apps environment [$ACA_ENV_NAME]..."
 echo "============================================================"
-# --logs-destination none keeps the CLI from provisioning a Log Analytics
-# workspace, which this sample does not use.
-az containerapp env create \
-	--name "$ACA_ENV_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--logs-destination none \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Container Apps environment [$ACA_ENV_NAME] created successfully."
+if az containerapp env show --name "$ACA_ENV_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Container Apps environment [$ACA_ENV_NAME] already exists."
 else
-	echo "Failed to create Container Apps environment [$ACA_ENV_NAME]."
-	exit 1
+	# --logs-destination none keeps the CLI from provisioning a Log Analytics
+	# workspace, which this sample does not use.
+	az containerapp env create \
+		--name "$ACA_ENV_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--logs-destination none \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Container Apps environment [$ACA_ENV_NAME] created successfully."
+	else
+		echo "Failed to create Container Apps environment [$ACA_ENV_NAME]."
+		exit 1
+	fi
 fi
 
 # =============================================================================
@@ -360,38 +436,43 @@ UserAssigned)
 	;;
 esac
 
-az containerapp create \
-	--name "$ACA_APP_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--environment "$ACA_ENV_NAME" \
-	--image "$FULL_IMAGE" \
-	--container-name "$IMAGE_NAME" \
-	--registry-server "$LOGIN_SERVER" \
-	--registry-username "$ACR_USERNAME" \
-	--registry-password "$ACR_PASSWORD" \
-	"${STORAGE_ARGS[@]}" \
-	--env-vars \
-		"${STORAGE_ENV_VARS[@]}" \
-		BLOB_CONTAINER_NAME="$BLOB_CONTAINER_NAME" \
-		APP_REVISION="$IMAGE_TAG" \
-	--ingress external \
-	--target-port 8080 \
-	--transport http \
-	--allow-insecure \
-	--revisions-mode multiple \
-	--revision-suffix "$IMAGE_TAG" \
-	--cpu 0.5 --memory 1Gi \
-	--min-replicas 1 --max-replicas 3 \
-	--scale-rule-name http-scale \
-	--scale-rule-type http \
-	--scale-rule-http-concurrency 50 \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Container app [$ACA_APP_NAME] created successfully."
+if az containerapp show --name "$ACA_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	# The app keeps its revision: the revision suffix is the image tag, so a new revision needs a new IMAGE_TAG
+	echo "Container app [$ACA_APP_NAME] already exists."
 else
-	echo "Failed to create container app [$ACA_APP_NAME]."
-	exit 1
+	az containerapp create \
+		--name "$ACA_APP_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--environment "$ACA_ENV_NAME" \
+		--image "$FULL_IMAGE" \
+		--container-name "$IMAGE_NAME" \
+		--registry-server "$LOGIN_SERVER" \
+		--registry-username "$ACR_USERNAME" \
+		--registry-password "$ACR_PASSWORD" \
+		"${STORAGE_ARGS[@]}" \
+		--env-vars \
+			"${STORAGE_ENV_VARS[@]}" \
+			BLOB_CONTAINER_NAME="$BLOB_CONTAINER_NAME" \
+			APP_REVISION="$IMAGE_TAG" \
+		--ingress external \
+		--target-port 8080 \
+		--transport http \
+		--allow-insecure \
+		--revisions-mode multiple \
+		--revision-suffix "$IMAGE_TAG" \
+		--cpu 0.5 --memory 1Gi \
+		--min-replicas 1 --max-replicas 3 \
+		--scale-rule-name http-scale \
+		--scale-rule-type http \
+		--scale-rule-http-concurrency 50 \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Container app [$ACA_APP_NAME] created successfully."
+	else
+		echo "Failed to create container app [$ACA_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # A system-assigned identity only exists once the app does, so it is granted
@@ -410,7 +491,7 @@ if [[ $MANAGED_IDENTITY_TYPE == "SystemAssigned" ]]; then
 		exit 1
 	fi
 	echo "System-assigned identity principal ID: $APP_PRINCIPAL_ID"
-	assign_storage_role "$APP_PRINCIPAL_ID" || exit 1
+	ensure_role_assignment "$APP_PRINCIPAL_ID" "ServicePrincipal" "$STORAGE_ROLE" "$STORAGE_ACCOUNT_ID" "system-assigned identity of the [$ACA_APP_NAME] container app" "[$STORAGE_ACCOUNT_NAME] storage account"
 fi
 
 FQDN=$(az containerapp show \

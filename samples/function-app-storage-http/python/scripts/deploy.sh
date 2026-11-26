@@ -183,25 +183,29 @@ else
 	echo "App Service plan [$APP_SERVICE_PLAN_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
 fi
 
-# Create the function app on the App Service plan, which also turns on Always On, so that the timer, queue and blob
-# triggers keep running. The --app-insights parameter connects the function app to the Application Insights component
-# through its APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
-echo "Creating function app [$FUNCTION_APP_NAME]..."
-az functionapp create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--runtime $RUNTIME \
-	--runtime-version $RUNTIME_VERSION \
-	--functions-version 4 \
-	--name $FUNCTION_APP_NAME \
-	--app-insights "$APPLICATION_INSIGHTS_NAME" \
-	--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Function app [$FUNCTION_APP_NAME] created successfully."
+if az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Function app [$FUNCTION_APP_NAME] already exists."
 else
-	echo "Failed to create function app [$FUNCTION_APP_NAME]."
-	exit 1
+	# Create the function app on the App Service plan, which also turns on Always On, so that the timer, queue and blob
+	# triggers keep running. The --app-insights parameter connects the function app to the Application Insights component
+	# through its APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
+	echo "Creating function app [$FUNCTION_APP_NAME]..."
+	az functionapp create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--runtime $RUNTIME \
+		--runtime-version $RUNTIME_VERSION \
+		--functions-version 4 \
+		--name $FUNCTION_APP_NAME \
+		--app-insights "$APPLICATION_INSIGHTS_NAME" \
+		--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Function app [$FUNCTION_APP_NAME] created successfully."
+	else
+		echo "Failed to create function app [$FUNCTION_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # Construct the storage connection string for LocalStack

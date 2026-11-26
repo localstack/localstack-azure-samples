@@ -6,10 +6,35 @@ SUFFIX='test'
 LOCATION='eastus'
 IMAGE_NAME='vacation-planner'
 IMAGE_TAG='v1'
+RBAC_PROPAGATION_DELAY="${RBAC_PROPAGATION_DELAY:-60s}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+
+# Dual-target provider configuration. providers.tf hardcodes nothing: the azurerm provider reads its endpoints and the
+# target subscription from the ARM_* environment variables exported here.
+# - On both targets: the subscription and tenant of the active az account.
+# - Only when the active az cloud is LocalStack: the emulator's metadata endpoint, taken from the az cloud registration
+#   that `lstk az start-interception` created, so nothing is hardcoded here either.
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
+ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv --only-show-errors)
+ARM_TENANT_ID=$(az account show --query tenantId --output tsv --only-show-errors)
+export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
+
+if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+	RESOURCE_MANAGER_ENDPOINT=$(az cloud show --query endpoints.resourceManager --output tsv --only-show-errors)
+	METADATA_HOSTNAME="${RESOURCE_MANAGER_ENDPOINT#https://}"
+	export ARM_METADATA_HOSTNAME="${METADATA_HOSTNAME%/}"
+	# The emulator applies role assignments immediately, so the role needs no propagation wait.
+	RBAC_PROPAGATION_DELAY="0s"
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets the emulator at [$RESOURCE_MANAGER_ENDPOINT]"
+else
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in the same shell would
+	# keep the provider doing metadata discovery against the emulator while the CLI is on Azure.
+	unset ARM_METADATA_HOSTNAME
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets Azure subscription [$ARM_SUBSCRIPTION_ID]"
+fi
 
 # =============================================================================
 # Build and push the Docker image before Terraform deployment
@@ -30,20 +55,34 @@ if [[ -n $STATE_RESOURCE_GROUP_NAME && $STATE_RESOURCE_GROUP_NAME != "$RESOURCE_
 	exit 1
 fi
 
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+	if ! az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null; then
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
+fi
 
-echo "Creating ACR [$ACR_NAME] for image push..."
-az acr create \
-	--name "$ACR_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--sku Basic \
-	--admin-enabled true \
-	--only-show-errors 1>/dev/null
+if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "ACR [$ACR_NAME] already exists."
+else
+	echo "Creating ACR [$ACR_NAME] for image push..."
+	if ! az acr create \
+		--name "$ACR_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--sku Basic \
+		--admin-enabled true \
+		--only-show-errors 1>/dev/null; then
+		echo "Failed to create ACR [$ACR_NAME]."
+		exit 1
+	fi
+fi
 
 LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \
@@ -97,16 +136,24 @@ echo "Image pushed to ACR successfully."
 echo "Initializing Terraform..."
 terraform init -upgrade
 
-# Import the resource group that was pre-created for the image push
-echo "Importing pre-created resource group into Terraform state..."
-terraform import \
-	-var "prefix=$PREFIX" \
-	-var "suffix=$SUFFIX" \
-	-var "location=$LOCATION" \
-	-var "image_name=$IMAGE_NAME" \
-	-var "image_tag=$IMAGE_TAG" \
-	azurerm_resource_group.example \
-	"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RESOURCE_GROUP_NAME}" 2>/dev/null || true
+# Import the resource group that was pre-created for the image push, unless a previous run already did
+if terraform state show azurerm_resource_group.example &>/dev/null; then
+	echo "The Terraform state already tracks resource group [$RESOURCE_GROUP_NAME]."
+else
+	echo "Importing pre-created resource group [$RESOURCE_GROUP_NAME] into Terraform state..."
+	if ! terraform import \
+		-var "prefix=$PREFIX" \
+		-var "suffix=$SUFFIX" \
+		-var "location=$LOCATION" \
+		-var "image_name=$IMAGE_NAME" \
+		-var "image_tag=$IMAGE_TAG" \
+		-var "rbac_propagation_delay=$RBAC_PROPAGATION_DELAY" \
+		azurerm_resource_group.example \
+		"/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"; then
+		echo "Failed to import resource group [$RESOURCE_GROUP_NAME] into the Terraform state."
+		exit 1
+	fi
+fi
 
 # Run terraform plan and check for errors
 echo "Planning Terraform deployment..."
@@ -115,7 +162,13 @@ terraform plan -out=tfplan \
 	-var "suffix=$SUFFIX" \
 	-var "location=$LOCATION" \
 	-var "image_name=$IMAGE_NAME" \
-	-var "image_tag=$IMAGE_TAG"
+	-var "image_tag=$IMAGE_TAG" \
+	-var "rbac_propagation_delay=$RBAC_PROPAGATION_DELAY"
+
+if [[ $? != 0 ]]; then
+	echo "Terraform plan failed. Exiting."
+	exit 1
+fi
 
 # Apply the Terraform configuration
 echo "Applying Terraform configuration..."

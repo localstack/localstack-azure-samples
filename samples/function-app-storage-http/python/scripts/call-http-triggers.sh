@@ -158,11 +158,12 @@ call_http_trigger_functions() {
 		exit 1
 	fi
 
+	player_name='Leo'
+	game_session='1'
+
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	player_name='Leo'
-	game_session='1'
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
@@ -191,6 +192,26 @@ call_http_trigger_functions() {
 		echo "Failed to get mapped host port for container [$container_name]"
 		exit 1
 	fi
+
+	# The games live in the memory of the function app, and its timer function creates the first one when the host
+	# starts. After a restart, such as the one a second deployment causes, the host waits for the lock lease of the
+	# previous instance to expire and starts the timer up to a minute later, so wait until the game exists.
+	echo "Waiting for game session [$game_session] to exist in the [$function_app_name] function app..."
+	local attempt status_code
+	for attempt in $(seq 1 "${RETRY_COUNT:-18}"); do
+		status_code=$(curl --max-time 10 -s -o /dev/null -w "%{http_code}" "http://$function_host_name/api/player/$game_session/$player_name/status")
+		if [[ $status_code == 200 ]]; then
+			echo "Game session [$game_session] exists in the [$function_app_name] function app"
+			break
+		fi
+		if [ "$attempt" -lt "${RETRY_COUNT:-18}" ]; then
+			echo "Attempt $attempt of ${RETRY_COUNT:-18}: the function app answered [$status_code]. Waiting [${SLEEP:-10}] seconds before retry..."
+			sleep "${SLEEP:-10}"
+		else
+			echo "Error: game session [$game_session] still doesn't exist in the [$function_app_name] function app after ${RETRY_COUNT:-18} attempts"
+			exit 1
+		fi
+	done
 
 	if [ -n "$function_host_name" ]; then
 		# Call the GET HTTP trigger function that returns a player status in a specified game session via the function hostname

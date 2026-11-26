@@ -128,40 +128,52 @@ if [ -z "$SQL_SERVER_FQDN" ]; then
 	exit 1
 fi
 
-# Create server-level login
-echo "Creating login [$DATABASE_USER_NAME] at server level..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d master \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-C \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME')
-			CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "Login [$DATABASE_USER_NAME] created successfully"
+echo "Checking if login [$DATABASE_USER_NAME] exists at server level..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d master -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "Login [$DATABASE_USER_NAME] already exists at server level"
 else
-	echo "Failed to create login [$DATABASE_USER_NAME]"
-	exit 1
+	# Create server-level login
+	echo "Creating login [$DATABASE_USER_NAME] at server level..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d master \
+		-U "$ADMIN_USER" \
+		-P "$ADMIN_PASSWORD" \
+		-C \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME')
+				CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Login [$DATABASE_USER_NAME] created successfully"
+	else
+		echo "Failed to create login [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
-# Create database user
-echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-C \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME')
-      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+echo "Checking if user [$DATABASE_USER_NAME] exists in database [$SQL_DATABASE_NAME]..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "User [$DATABASE_USER_NAME] already exists in database [$SQL_DATABASE_NAME]"
 else
-	echo "Failed to create user [$DATABASE_USER_NAME]"
-	exit 1
+	# Create database user
+	echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d "$SQL_DATABASE_NAME" \
+		-U "$ADMIN_USER" \
+		-P "$ADMIN_PASSWORD" \
+		-C \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME')
+	      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+	else
+		echo "Failed to create user [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
 # Grant permissions including DDL rights
@@ -200,52 +212,62 @@ else
 	exit 1
 fi
 
-# Create table
-echo "Creating test [Products] table..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$DATABASE_USER_NAME" \
-	-P "$DATABASE_USER_PASSWORD" \
-	-C \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
-		CREATE TABLE dbo.Activities (
-			-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
-			id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
-
-			-- Username field
-			username VARCHAR(32) NOT NULL,
-
-			-- Description of the activity
-			activity VARCHAR(128) NOT NULL,
-
-			-- Timestamp of the activity
-			timestamp DATETIME NOT NULL
-		);" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "Test [Activities] table created successfully"
+echo "Checking if the [Activities] table exists..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$DATABASE_USER_NAME" -P "$DATABASE_USER_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo');" | tr -d '[:space:]') == 1 ]]; then
+	echo "[Activities] table already exists"
 else
-	echo "Failed to create test [Activities] table"
-	exit 1
+	# Create table
+	echo "Creating test [Activities] table..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d "$SQL_DATABASE_NAME" \
+		-U "$DATABASE_USER_NAME" \
+		-P "$DATABASE_USER_PASSWORD" \
+		-C \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
+			CREATE TABLE dbo.Activities (
+				-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
+				id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
+
+				-- Username field
+				username VARCHAR(32) NOT NULL,
+
+				-- Description of the activity
+				activity VARCHAR(128) NOT NULL,
+
+				-- Timestamp of the activity
+				timestamp DATETIME NOT NULL
+			);" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Test [Activities] table created successfully"
+	else
+		echo "Failed to create test [Activities] table"
+		exit 1
+	fi
 fi
 
-# Insert data
-echo "Inserting test data into [Activities] table..."
+# Insert the test data, only the rows the table does not hold yet, so that a second run adds no duplicates
+echo "Inserting the missing test data into [Activities] table..."
 sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
 	-C \
 	-Q "INSERT INTO Activities (username, activity, timestamp)
-			VALUES
-			('paolo', 'Go to Paris', GETDATE()),
-			('paolo', 'Go to London', GETDATE()),
-			('paolo', 'Go to Mexico', GETDATE());" \
+			SELECT seed.username, seed.activity, GETDATE()
+			FROM (VALUES
+				('paolo', 'Go to Paris'),
+				('paolo', 'Go to London'),
+				('paolo', 'Go to Mexico')) AS seed (username, activity)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM Activities existing
+				WHERE existing.username = seed.username AND existing.activity = seed.activity);" \
 	-V 1
 
 if [ $? -eq 0 ]; then
-	echo "Test data inserted successfully into [Activities] table"
+	echo "Missing test data inserted successfully into [Activities] table"
 else
 	echo "Failed to insert test data into [Activities] table"
 	exit 1
@@ -295,9 +317,9 @@ az webapp deploy \
 	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

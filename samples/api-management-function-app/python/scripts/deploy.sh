@@ -742,19 +742,33 @@ else
 	echo "[$PRODUCT_ID] product already exists in the [$APIM_NAME] API Management service"
 fi
 
-# Add the API to the product (a PUT, so re-runs are harmless)
-echo "Adding the [$API_ID] API to the [$PRODUCT_ID] product..."
-az apim product api add \
-	--product-id $PRODUCT_ID \
-	--api-id $API_ID \
-	--service-name $APIM_NAME \
-	--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+# Check if the product already contains the API
+echo "Checking if the [$PRODUCT_ID] product already contains the [$API_ID] API..."
+PRODUCT_API_COUNT=$(az apim product api list \
+	--product-id "$PRODUCT_ID" \
+	--service-name "$APIM_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "length([?name=='$API_ID'])" \
+	--output tsv \
+	--only-show-errors 2>/dev/null | tr -d '\r')
 
-if [[ $? == 0 ]]; then
-	echo "[$API_ID] API successfully added to the [$PRODUCT_ID] product"
+if [[ $PRODUCT_API_COUNT == 1 ]]; then
+	echo "The [$PRODUCT_ID] product already contains the [$API_ID] API"
 else
-	echo "Failed to add the [$API_ID] API to the [$PRODUCT_ID] product"
-	exit 1
+	# Add the API to the product
+	echo "Adding the [$API_ID] API to the [$PRODUCT_ID] product..."
+	az apim product api add \
+		--product-id $PRODUCT_ID \
+		--api-id $API_ID \
+		--service-name $APIM_NAME \
+		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$API_ID] API successfully added to the [$PRODUCT_ID] product"
+	else
+		echo "Failed to add the [$API_ID] API to the [$PRODUCT_ID] product"
+		exit 1
+	fi
 fi
 
 # Check if the subscription already exists. The az CLI has no subscription commands, so this goes

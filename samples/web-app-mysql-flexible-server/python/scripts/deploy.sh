@@ -57,19 +57,23 @@ ZIPFILE="planner_website.zip"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-# Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name $RESOURCE_GROUP_NAME \
-	--location $LOCATION \
-	--tags environment=test iac=az-cli \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	# Create a resource group
+	echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+	az group create \
+		--name $RESOURCE_GROUP_NAME \
+		--location $LOCATION \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
 fi
 
 # Check if the MySQL flexible server already exists
@@ -642,6 +646,18 @@ if [[ -z "$MYSQL_CHECK" ]]; then
 fi
 
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
+# Count the login first: the batch below creates it only when it is missing, and grants its privileges every time
+echo "Checking if login [$MYSQL_APP_USER] exists on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
+LOGIN_COUNT=$(MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
+	--host="$MYSQL_FQDN" \
+	--port="$MYSQL_PORT" \
+	--user="$MYSQL_ADMIN_USER" \
+	--protocol=TCP \
+	--ssl-mode=REQUIRED \
+	--skip-column-names \
+	--batch \
+	-e "SELECT COUNT(*) FROM mysql.user WHERE user = '$MYSQL_APP_USER' AND host = '%';" 2>/dev/null)
+
 echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
 MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
@@ -654,7 +670,13 @@ MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 		FLUSH PRIVILEGES;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$MYSQL_APP_USER] created successfully"
+	if [[ $LOGIN_COUNT == 1 ]]; then
+		echo "Login [$MYSQL_APP_USER] already exists: its privileges were granted again"
+	elif [[ $LOGIN_COUNT == 0 ]]; then
+		echo "Login [$MYSQL_APP_USER] created successfully"
+	else
+		echo "Login [$MYSQL_APP_USER] is in place"
+	fi
 else
 	echo "Failed to create login [$MYSQL_APP_USER]"
 	exit 1
@@ -679,6 +701,19 @@ else
 fi
 
 # Create [activities] table
+# Count the table first: the batch below creates it only when it is missing
+echo "Checking if the [activities] table exists in the [$MYSQL_DATABASE_NAME] database..."
+TABLE_COUNT=$(MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
+	--host="$MYSQL_FQDN" \
+	--port="$MYSQL_PORT" \
+	--user="$MYSQL_APP_USER" \
+	--protocol=TCP \
+	--ssl-mode=REQUIRED \
+	--database="$MYSQL_DATABASE_NAME" \
+	--skip-column-names \
+	--batch \
+	-e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$MYSQL_DATABASE_NAME' AND table_name = 'activities';" 2>/dev/null)
+
 echo "Creating [activities] table in the [$MYSQL_DATABASE_NAME] database..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
@@ -698,14 +733,20 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 		);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	if [[ $TABLE_COUNT == 1 ]]; then
+		echo "[activities] table already exists"
+	elif [[ $TABLE_COUNT == 0 ]]; then
+		echo "[activities] table created successfully"
+	else
+		echo "[activities] table is in place"
+	fi
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -725,9 +766,9 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 			(MD5('paolo_viareggio_promenade_seed'), 'paolo', 'Stroll along the Viareggio promenade');"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
-	echo "Failed to insert sample data into [activities] table"
+	echo "Failed to insert the missing sample data into [activities] table"
 	exit 1
 fi
 
@@ -749,22 +790,26 @@ else
 	exit 1
 fi
 
-# Create app service plan
-echo "Creating app service plan [$APP_SERVICE_PLAN_NAME]..."
-az appservice plan create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$APP_SERVICE_PLAN_NAME" \
-	--location "$LOCATION" \
-	--sku "$APP_SERVICE_PLAN_SKU" \
-	--is-linux \
-	--tags environment=test iac=az-cli \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "app service plan [$APP_SERVICE_PLAN_NAME] created successfully."
+if az appservice plan show --name "$APP_SERVICE_PLAN_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "App service plan [$APP_SERVICE_PLAN_NAME] already exists."
 else
-	echo "Failed to create app service plan [$APP_SERVICE_PLAN_NAME]."
-	exit 1
+	# Create app service plan
+	echo "Creating app service plan [$APP_SERVICE_PLAN_NAME]..."
+	az appservice plan create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$APP_SERVICE_PLAN_NAME" \
+		--location "$LOCATION" \
+		--sku "$APP_SERVICE_PLAN_SKU" \
+		--is-linux \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "app service plan [$APP_SERVICE_PLAN_NAME] created successfully."
+	else
+		echo "Failed to create app service plan [$APP_SERVICE_PLAN_NAME]."
+		exit 1
+	fi
 fi
 
 # Get the app service plan resource id
@@ -783,23 +828,27 @@ else
 	exit 1
 fi
 
-# Create the web app
-echo "Creating web app [$WEB_APP_NAME]..."
-az webapp create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--name "$WEB_APP_NAME" \
-	--runtime "$RUNTIME:$RUNTIME_VERSION" \
-	--vnet "$VIRTUAL_NETWORK_NAME" \
-	--subnet "$WEB_APP_SUBNET_NAME" \
-	--tags environment=test iac=az-cli \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+if az webapp show --name "$WEB_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Web app [$WEB_APP_NAME] already exists."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
-	exit 1
+	# Create the web app
+	echo "Creating web app [$WEB_APP_NAME]..."
+	az webapp create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--name "$WEB_APP_NAME" \
+		--runtime "$RUNTIME:$RUNTIME_VERSION" \
+		--vnet "$VIRTUAL_NETWORK_NAME" \
+		--subnet "$WEB_APP_SUBNET_NAME" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Web app [$WEB_APP_NAME] created successfully."
+	else
+		echo "Failed to create web app [$WEB_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # Get the web app resource id

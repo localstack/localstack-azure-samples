@@ -89,9 +89,9 @@ variable "sku" {
 }
 
 variable "auto_pause_delay" {
-  description = "Time in minutes after which database is automatically paused. A value of -1 means that automatic pause is disabled."
+  description = "(Optional) Specifies the time in minutes after which a serverless database automatically pauses; -1 disables automatic pausing. Only serverless SKUs pause: the default, null, leaves the setting to Azure, so that a provisioned database such as the default Standard one shows no difference on the next plan."
   type        = number
-  default     = -1
+  default     = null
 }
 
 variable "availability_zone" {

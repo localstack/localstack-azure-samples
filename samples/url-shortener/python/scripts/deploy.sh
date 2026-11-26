@@ -35,8 +35,62 @@ DEPLOY_RETRY_SLEEP=30
 KEY_VAULT_SECRETS_OFFICER_ROLE="Key Vault Secrets Officer"
 SECRET_RETRY_COUNT=20
 SECRET_RETRY_SLEEP=30
+ROLE_ASSIGNMENT_RETRY_COUNT=3
+ROLE_ASSIGNMENT_RETRY_SLEEP=5
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_FILE="$CURRENT_DIR/.last_deploy.${PREFIX}.env"
+
+# Assign a role to a principal at a scope, unless the assignment already exists. The assignee is given as an
+# object id together with its principal type, so no directory lookup happens at creation time.
+# $1: the object id of the principal
+# $2: the principal type (ServicePrincipal, User or Group)
+# $3: the role name
+# $4: the scope (resource id)
+# $5: the description of the principal, used in messages
+# $6: the description of the scope, used in messages
+ensure_role_assignment() {
+	local principal_id=$1
+	local principal_type=$2
+	local role=$3
+	local scope=$4
+	local principal_description=$5
+	local scope_description=$6
+	local current attempt
+
+	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	current=$(az role assignment list \
+		--assignee "$principal_id" \
+		--scope "$scope" \
+		--query "[?roleDefinitionName=='$role'].roleDefinitionName" \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ $current == "$role" ]]; then
+		echo "The $principal_description already has the [$role] role assignment on the $scope_description"
+		return 0
+	fi
+
+	echo "Assigning the [$role] role to the $principal_description on the $scope_description..."
+	for attempt in $(seq 1 "$ROLE_ASSIGNMENT_RETRY_COUNT"); do
+		if az role assignment create \
+			--assignee-object-id "$principal_id" \
+			--assignee-principal-type "$principal_type" \
+			--role "$role" \
+			--scope "$scope" \
+			--only-show-errors 1>/dev/null; then
+			echo "[$role] role successfully assigned to the $principal_description on the $scope_description"
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$ROLE_ASSIGNMENT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $ROLE_ASSIGNMENT_RETRY_COUNT to assign the [$role] role failed; retrying in $ROLE_ASSIGNMENT_RETRY_SLEEP seconds..."
+			sleep "$ROLE_ASSIGNMENT_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to assign the [$role] role to the $principal_description on the $scope_description"
+	exit 1
+}
 
 # Get the current subscription
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
@@ -103,44 +157,56 @@ else
 	exit 1
 fi
 
-# Create the links table
-echo "Creating [$LINKS_TABLE_NAME] table in the [$STORAGE_ACCOUNT_NAME] storage account..."
-az storage table create \
-	--name $LINKS_TABLE_NAME \
-	--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$LINKS_TABLE_NAME] table successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+if [[ $(az storage table exists --name "$LINKS_TABLE_NAME" --connection-string "$STORAGE_CONNECTION_STRING" --query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "[$LINKS_TABLE_NAME] table in the [$STORAGE_ACCOUNT_NAME] storage account already exists."
 else
-	echo "Failed to create [$LINKS_TABLE_NAME] table in the [$STORAGE_ACCOUNT_NAME] storage account"
-	exit 1
+	# Create the links table
+	echo "Creating [$LINKS_TABLE_NAME] table in the [$STORAGE_ACCOUNT_NAME] storage account..."
+	az storage table create \
+		--name $LINKS_TABLE_NAME \
+		--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$LINKS_TABLE_NAME] table successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+	else
+		echo "Failed to create [$LINKS_TABLE_NAME] table in the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
 fi
 
-# Create the QR jobs queue
-echo "Creating [$QR_JOBS_QUEUE_NAME] queue in the [$STORAGE_ACCOUNT_NAME] storage account..."
-az storage queue create \
-	--name $QR_JOBS_QUEUE_NAME \
-	--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$QR_JOBS_QUEUE_NAME] queue successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+if [[ $(az storage queue exists --name "$QR_JOBS_QUEUE_NAME" --connection-string "$STORAGE_CONNECTION_STRING" --query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "[$QR_JOBS_QUEUE_NAME] queue in the [$STORAGE_ACCOUNT_NAME] storage account already exists."
 else
-	echo "Failed to create [$QR_JOBS_QUEUE_NAME] queue in the [$STORAGE_ACCOUNT_NAME] storage account"
-	exit 1
+	# Create the QR jobs queue
+	echo "Creating [$QR_JOBS_QUEUE_NAME] queue in the [$STORAGE_ACCOUNT_NAME] storage account..."
+	az storage queue create \
+		--name $QR_JOBS_QUEUE_NAME \
+		--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$QR_JOBS_QUEUE_NAME] queue successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+	else
+		echo "Failed to create [$QR_JOBS_QUEUE_NAME] queue in the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
 fi
 
-# Create the QR codes blob container with public blob access
-echo "Creating [$QR_CONTAINER_NAME] container in the [$STORAGE_ACCOUNT_NAME] storage account..."
-az storage container create \
-	--name $QR_CONTAINER_NAME \
-	--public-access blob \
-	--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$QR_CONTAINER_NAME] container successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+if [[ $(az storage container exists --name "$QR_CONTAINER_NAME" --connection-string "$STORAGE_CONNECTION_STRING" --query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "[$QR_CONTAINER_NAME] container in the [$STORAGE_ACCOUNT_NAME] storage account already exists."
 else
-	echo "Failed to create [$QR_CONTAINER_NAME] container in the [$STORAGE_ACCOUNT_NAME] storage account"
-	exit 1
+	# Create the QR codes blob container with public blob access
+	echo "Creating [$QR_CONTAINER_NAME] container in the [$STORAGE_ACCOUNT_NAME] storage account..."
+	az storage container create \
+		--name $QR_CONTAINER_NAME \
+		--public-access blob \
+		--connection-string "$STORAGE_CONNECTION_STRING" 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$QR_CONTAINER_NAME] container successfully created in the [$STORAGE_ACCOUNT_NAME] storage account"
+	else
+		echo "Failed to create [$QR_CONTAINER_NAME] container in the [$STORAGE_ACCOUNT_NAME] storage account"
+		exit 1
+	fi
 fi
 
 # Check if the user-assigned managed identity already exists
@@ -174,32 +240,10 @@ STORAGE_ACCOUNT_ID=$(az storage account show --name $STORAGE_ACCOUNT_NAME --reso
 
 # Assign the storage data-plane roles to the managed identity
 for ROLE in "Storage Table Data Contributor" "Storage Queue Data Contributor" "Storage Blob Data Contributor"; do
-	echo "Assigning [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$STORAGE_ACCOUNT_NAME] storage account..."
-	# Skip when already assigned: az role assignment create is not idempotent
-	# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
-	EXISTING_ASSIGNMENT=$(az role assignment list \
-		--role "$ROLE" \
-		--assignee "$IDENTITY_PRINCIPAL_ID" \
-		--scope "$STORAGE_ACCOUNT_ID" \
-		--query "[0].id" \
-		--output tsv)
-	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
-		az role assignment create \
-			--role "$ROLE" \
-			--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-			--assignee-principal-type ServicePrincipal \
-			--scope "$STORAGE_ACCOUNT_ID" 1>/dev/null
-	fi
-
-	if [[ $? == 0 ]]; then
-		echo "[$ROLE] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
-	else
-		echo "Failed to assign [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity"
-		exit 1
-	fi
+	ensure_role_assignment "$IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "[$STORAGE_ACCOUNT_NAME] storage account"
 done
 
-# Store a secret in the key vault. The value is never printed. Writes go through the Key Vault data plane, which the
+# Store a secret in the key vault, unless it already holds the same value. The value is never printed. Writes go through the Key Vault data plane, which the
 # deploying principal can use only once its Key Vault Secrets Officer assignment has propagated, so a failed write is
 # retried for a few minutes.
 # $1: the secret name
@@ -207,7 +251,19 @@ done
 set_secret() {
 	local secret_name=$1
 	local secret_value=$2
-	local attempt
+	local attempt current
+
+	current=$(az keyvault secret show \
+		--vault-name "$KEY_VAULT_NAME" \
+		--name "$secret_name" \
+		--query value \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ -n $current && $current == "$secret_value" ]]; then
+		echo "The [$secret_name] secret already holds the expected value in the [$KEY_VAULT_NAME] key vault"
+		return 0
+	fi
 
 	echo "Storing the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault..."
 	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
@@ -229,6 +285,38 @@ set_secret() {
 	done
 
 	echo "Failed to store the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault"
+	exit 1
+}
+
+# Tell whether a secret exists in the key vault: 0 when it does, 1 when it doesn't. Reads go through the Key Vault data
+# plane too, so a read refused while the Key Vault Secrets Officer assignment is still propagating is retried, and only
+# a SecretNotFound answer counts as missing.
+# $1: the secret name
+secret_exists() {
+	local secret_name=$1
+	local attempt output
+
+	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
+		if output=$(az keyvault secret show \
+			--vault-name "$KEY_VAULT_NAME" \
+			--name "$secret_name" \
+			--query id \
+			--output tsv \
+			--only-show-errors 2>&1); then
+			return 0
+		fi
+
+		if [[ $output == *SecretNotFound* ]]; then
+			return 1
+		fi
+
+		if [[ $attempt -lt $SECRET_RETRY_COUNT ]]; then
+			echo "Attempt $attempt of $SECRET_RETRY_COUNT to read the [$secret_name] secret failed (the [$KEY_VAULT_SECRETS_OFFICER_ROLE] assignment may still be propagating); retrying in $SECRET_RETRY_SLEEP seconds..."
+			sleep "$SECRET_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to read the [$secret_name] secret in the [$KEY_VAULT_NAME] key vault"
 	exit 1
 }
 
@@ -258,29 +346,7 @@ fi
 
 # Assign the Key Vault Secrets User role to the managed identity
 KEY_VAULT_ID=$(az keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
-echo "Assigning [Key Vault Secrets User] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$KEY_VAULT_NAME] key vault..."
-# Skip when already assigned: az role assignment create is not idempotent
-# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
-EXISTING_ASSIGNMENT=$(az role assignment list \
-	--role "Key Vault Secrets User" \
-	--assignee "$IDENTITY_PRINCIPAL_ID" \
-	--scope "$KEY_VAULT_ID" \
-	--query "[0].id" \
-	--output tsv)
-if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
-	az role assignment create \
-		--role "Key Vault Secrets User" \
-		--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-		--assignee-principal-type ServicePrincipal \
-		--scope "$KEY_VAULT_ID" 1>/dev/null
-fi
-
-if [[ $? == 0 ]]; then
-	echo "[Key Vault Secrets User] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
-else
-	echo "Failed to assign [Key Vault Secrets User] role to the [$MANAGED_IDENTITY_NAME] managed identity"
-	exit 1
-fi
+ensure_role_assignment "$IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "Key Vault Secrets User" "$KEY_VAULT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "[$KEY_VAULT_NAME] key vault"
 
 # Resolve the object id of the deploying principal. The vault uses the RBAC permission model, so writing the secrets
 # below needs the Key Vault Secrets Officer role on the vault; the script grants it to whoever runs it, a user or a
@@ -307,34 +373,17 @@ fi
 
 if [[ -n $DEPLOYER_OBJECT_ID ]]; then
 	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
-	echo "Assigning [$KEY_VAULT_SECRETS_OFFICER_ROLE] role to the deploying principal on the [$KEY_VAULT_NAME] key vault..."
-	# Skip when already assigned: az role assignment create is not idempotent
-	EXISTING_ASSIGNMENT=$(az role assignment list \
-		--role "$KEY_VAULT_SECRETS_OFFICER_ROLE" \
-		--assignee "$DEPLOYER_OBJECT_ID" \
-		--scope "$KEY_VAULT_ID" \
-		--query "[0].id" \
-		--output tsv)
-	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
-		az role assignment create \
-			--role "$KEY_VAULT_SECRETS_OFFICER_ROLE" \
-			--assignee-object-id "$DEPLOYER_OBJECT_ID" \
-			--assignee-principal-type "$DEPLOYER_PRINCIPAL_TYPE" \
-			--scope "$KEY_VAULT_ID" 1>/dev/null
-	fi
-
-	if [[ $? == 0 ]]; then
-		echo "[$KEY_VAULT_SECRETS_OFFICER_ROLE] role successfully assigned to the deploying principal"
-	else
-		echo "Failed to assign [$KEY_VAULT_SECRETS_OFFICER_ROLE] role to the deploying principal"
-		exit 1
-	fi
+	ensure_role_assignment "$DEPLOYER_OBJECT_ID" "$DEPLOYER_PRINCIPAL_TYPE" "$KEY_VAULT_SECRETS_OFFICER_ROLE" "$KEY_VAULT_ID" "deploying principal [$ACCOUNT_USER_NAME]" "[$KEY_VAULT_NAME] key vault"
 else
 	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the [$KEY_VAULT_SECRETS_OFFICER_ROLE] role on the [$KEY_VAULT_NAME] key vault must already be assigned to it"
 fi
 
-# Store the link-signing key in the key vault
-set_secret "$SIGN_KEY_SECRET_NAME" "$(openssl rand -hex 16)"
+# Store the link-signing key in the key vault once: a re-run keeps the key that signed the existing links
+if secret_exists "$SIGN_KEY_SECRET_NAME"; then
+	echo "The [$SIGN_KEY_SECRET_NAME] secret already exists in the [$KEY_VAULT_NAME] key vault"
+else
+	set_secret "$SIGN_KEY_SECRET_NAME" "$(openssl rand -hex 16)"
+fi
 
 # Check if the PostgreSQL flexible server already exists
 echo "Checking if [$POSTGRES_SERVER_NAME] PostgreSQL flexible server actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -375,18 +424,22 @@ else
 	fi
 fi
 
-# Create the clicks database
-echo "Creating [$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
-az postgres flexible-server db create \
-	--server-name $POSTGRES_SERVER_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name $POSTGRES_DB_NAME 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$POSTGRES_DB_NAME] database successfully created on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
+if az postgres flexible-server db show --server-name "$POSTGRES_SERVER_NAME" --resource-group "$RESOURCE_GROUP_NAME" --name "$POSTGRES_DB_NAME" --only-show-errors &>/dev/null; then
+	echo "[$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server already exists."
 else
-	echo "Failed to create [$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
-	exit 1
+	# Create the clicks database
+	echo "Creating [$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
+	az postgres flexible-server db create \
+		--server-name $POSTGRES_SERVER_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--name $POSTGRES_DB_NAME 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$POSTGRES_DB_NAME] database successfully created on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
+	else
+		echo "Failed to create [$POSTGRES_DB_NAME] database on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server"
+		exit 1
+	fi
 fi
 
 # Split host:port - the LocalStack emulator embeds the dynamically allocated TCP-proxy port
@@ -439,46 +492,28 @@ else
 	echo "[$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
-# Create the link-events queue
-echo "Creating [$SERVICEBUS_QUEUE_NAME] queue in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace..."
-az servicebus queue create \
-	--name $SERVICEBUS_QUEUE_NAME \
-	--namespace-name $SERVICEBUS_NAMESPACE_NAME \
-	--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$SERVICEBUS_QUEUE_NAME] queue successfully created in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace"
+if az servicebus queue show --name "$SERVICEBUS_QUEUE_NAME" --namespace-name "$SERVICEBUS_NAMESPACE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "[$SERVICEBUS_QUEUE_NAME] queue in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace already exists."
 else
-	echo "Failed to create [$SERVICEBUS_QUEUE_NAME] queue in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace"
-	exit 1
+	# Create the link-events queue
+	echo "Creating [$SERVICEBUS_QUEUE_NAME] queue in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace..."
+	az servicebus queue create \
+		--name $SERVICEBUS_QUEUE_NAME \
+		--namespace-name $SERVICEBUS_NAMESPACE_NAME \
+		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$SERVICEBUS_QUEUE_NAME] queue successfully created in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace"
+	else
+		echo "Failed to create [$SERVICEBUS_QUEUE_NAME] queue in the [$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace"
+		exit 1
+	fi
 fi
 
 # Assign the Service Bus data-plane roles to the managed identity
 SERVICEBUS_NAMESPACE_ID=$(az servicebus namespace show --name $SERVICEBUS_NAMESPACE_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 for ROLE in "Azure Service Bus Data Sender" "Azure Service Bus Data Receiver"; do
-	echo "Assigning [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity on the [$SERVICEBUS_NAMESPACE_NAME] namespace..."
-	# Skip when already assigned: az role assignment create is not idempotent
-	# and re-runs fail with RoleAssignmentExists (Azure/azure-cli#31995).
-	EXISTING_ASSIGNMENT=$(az role assignment list \
-		--role "$ROLE" \
-		--assignee "$IDENTITY_PRINCIPAL_ID" \
-		--scope "$SERVICEBUS_NAMESPACE_ID" \
-		--query "[0].id" \
-		--output tsv)
-	if [[ -z "$EXISTING_ASSIGNMENT" ]]; then
-		az role assignment create \
-			--role "$ROLE" \
-			--assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
-			--assignee-principal-type ServicePrincipal \
-			--scope "$SERVICEBUS_NAMESPACE_ID" 1>/dev/null
-	fi
-
-	if [[ $? == 0 ]]; then
-		echo "[$ROLE] role successfully assigned to the [$MANAGED_IDENTITY_NAME] managed identity"
-	else
-		echo "Failed to assign [$ROLE] role to the [$MANAGED_IDENTITY_NAME] managed identity"
-		exit 1
-	fi
+	ensure_role_assignment "$IDENTITY_PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$SERVICEBUS_NAMESPACE_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "[$SERVICEBUS_NAMESPACE_NAME] Service Bus namespace"
 done
 
 # Retrieve the Service Bus connection string used by the web app

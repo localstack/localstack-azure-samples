@@ -141,9 +141,9 @@ az webapp deploy \
 	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

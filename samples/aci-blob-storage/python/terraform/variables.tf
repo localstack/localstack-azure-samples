@@ -104,3 +104,15 @@ variable "tags" {
     iac         = "terraform"
   }
 }
+
+variable "deployer_role_definition_name" {
+  description = "(Optional) Specifies the role granted to the principal running terraform apply on the Key Vault, so that it can write the secret through the data plane of an RBAC vault. Defaults to Key Vault Secrets Officer."
+  type        = string
+  default     = "Key Vault Secrets Officer"
+}
+
+variable "rbac_propagation_delay" {
+  description = "(Optional) Specifies how long to wait after the deployer's role assignment before writing the secret: Azure role assignments take a while to propagate. deploy.sh passes 0s on the emulator. Defaults to 60s."
+  type        = string
+  default     = "60s"
+}

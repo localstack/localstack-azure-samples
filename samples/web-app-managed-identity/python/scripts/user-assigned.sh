@@ -120,19 +120,23 @@ else
 	exit 1
 fi
 
-# Create blob container
-echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
-az storage container create \
-	--name $CONTAINER_NAME \
-	--account-name $STORAGE_ACCOUNT_NAME \
-	--account-key "$STORAGE_ACCOUNT_KEY" \
-	--public-access off 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
+if [[ $(az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$STORAGE_ACCOUNT_KEY" --query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "Blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account already exists."
 else
-	echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
-	exit 1
+	# Create blob container
+	echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
+	az storage container create \
+		--name $CONTAINER_NAME \
+		--account-name $STORAGE_ACCOUNT_NAME \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--public-access off 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
+	else
+		echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
+		exit 1
+	fi
 fi
 
 # Check if the Log Analytics workspace already exists
@@ -648,9 +652,9 @@ az webapp deploy \
 	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

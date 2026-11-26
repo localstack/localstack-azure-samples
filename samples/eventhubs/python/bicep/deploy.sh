@@ -41,7 +41,7 @@ fail() {
 	exit 1
 }
 
-# Store a secret in the key vault. The deploying principal can write through the Key Vault data plane only once its
+# Store a secret in the key vault, unless it already holds the same value. The deploying principal can write through the Key Vault data plane only once its
 # Key Vault Secrets Officer assignment has propagated, which takes a few minutes on Azure, so the write is retried. The
 # value is never printed.
 # $1: the secret name
@@ -49,7 +49,14 @@ fail() {
 set_secret() {
 	local secret_name=$1
 	local secret_value=$2
-	local attempt error
+	local attempt error current
+
+	current=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
+		--query value --output tsv --only-show-errors 2>/dev/null)
+	if [[ -n $current && $current == "$secret_value" ]]; then
+		echo "The [$secret_name] secret already holds the expected value."
+		return 0
+	fi
 
 	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
 		if error=$(az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
@@ -93,11 +100,15 @@ else
 fi
 
 echo "=== Creating the resource group ==="
-az group create \
-	--name "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 echo ""
 echo "=== Validating the Bicep template ==="

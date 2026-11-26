@@ -66,11 +66,27 @@ resource "azurerm_key_vault" "example" {
   }
 }
 
+# The secret is written through the Key Vault data plane, so on an RBAC vault the principal running Terraform needs a
+# data-plane role: it gets the deployer role (Key Vault Secrets Officer by default), and the secret waits for the
+# assignment to propagate
+resource "azurerm_role_assignment" "deployer" {
+  scope                = azurerm_key_vault.example.id
+  role_definition_name = var.deployer_role_definition_name
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "time_sleep" "rbac_propagation" {
+  depends_on      = [azurerm_role_assignment.deployer]
+  create_duration = var.rbac_propagation_delay
+}
+
 # Store the storage connection string in Key Vault
 resource "azurerm_key_vault_secret" "storage_conn" {
   name         = "storage-conn"
   value        = "DefaultEndpointsProtocol=http;AccountName=${azurerm_storage_account.example.name};AccountKey=${azurerm_storage_account.example.primary_access_key};BlobEndpoint=${azurerm_storage_account.example.primary_blob_endpoint}"
   key_vault_id = azurerm_key_vault.example.id
+
+  depends_on = [time_sleep.rbac_propagation]
 }
 
 # Reference the pre-created ACR (created by deploy.sh before terraform apply)

@@ -56,20 +56,24 @@ fi
 
 # Create ACR first so we can push the image
 ACR_NAME="${PREFIX}acaacr${SUFFIX}"
-echo "Creating ACR [$ACR_NAME] for image push..."
-az acr create \
-	--name "$ACR_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--sku Basic \
-	--admin-enabled true \
-	--only-show-errors 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$ACR_NAME] container registry successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "[$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group already exists."
 else
-	echo "Failed to create [$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group"
-	exit 1
+	echo "Creating ACR [$ACR_NAME] for image push..."
+	az acr create \
+		--name "$ACR_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--sku Basic \
+		--admin-enabled true \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$ACR_NAME] container registry successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$ACR_NAME] container registry in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 fi
 
 LOGIN_SERVER=$(az acr show \

@@ -35,9 +35,13 @@ fail() {
 }
 
 echo "=== Creating the resource group ==="
-az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 echo ""
 echo "=== Validating the Bicep template ==="

@@ -30,19 +30,18 @@ For more information on the sample application, see [ACI Blob Storage](../README
 
 ## Configuration
 
-When using LocalStack for Azure, configure the `metadata_host` and `subscription_id` settings in the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs):
+`providers.tf` hardcodes no endpoint and no subscription. `deploy.sh` exports the variables the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) reads natively, so the same files run unmodified against the LocalStack emulator and against Azure:
 
-```hcl
-provider "azurerm" {
-  features {
-    resource_group {
-      prevent_deletion_if_contains_resources = false
-    }
-  }
-  metadata_host="azure.localhost.localstack.cloud:4566"
-  subscription_id = "00000000-0000-0000-0000-000000000000"
-}
-```
+| Variable                               | Exported when                         | Value                                                     |
+| -------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
+| `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID` | always                                | `az account show`                                         |
+| `ARM_METADATA_HOSTNAME`                | the active `az cloud` is `LocalStack` | host of `az cloud show --query endpoints.resourceManager` |
+
+The provider discovers every endpoint of the emulator from `ARM_METADATA_HOSTNAME`, and authenticates with the Azure CLI session on both targets. Against Azure, `deploy.sh` unsets `ARM_METADATA_HOSTNAME`, so the provider uses the endpoints of the public cloud. Running `terraform` directly, rather than through `deploy.sh`, needs these variables exported.
+
+The key vault uses the Azure RBAC permission model, and Terraform writes the storage connection string secret through its data plane: the configuration grants the principal that runs it the Key Vault Secrets Officer role on the vault, and waits `rbac_propagation_delay` (60 seconds by default) for the role to apply on Azure; `deploy.sh` passes `0s` on the emulator.
+
+`deploy.sh` creates the resource group and the container registry before Terraform runs, so that it can push the image, and imports the resource group into the Terraform state on the first run. It creates each of them only when it does not exist yet, so the script can run again.
 
 ## Deployment
 

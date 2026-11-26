@@ -82,9 +82,13 @@ step() {
 # -----------------------------------------------------------------------------
 step "[1/11] Resource group"
 # -----------------------------------------------------------------------------
-az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 # -----------------------------------------------------------------------------
 step "[2/11] Log Analytics workspace and Application Insights"
@@ -153,10 +157,15 @@ STORAGE_TABLE=$(az storage account show -n "$STORAGE_ACCOUNT_NAME" -g "$RESOURCE
 # carries a port, which it does against the emulator.
 STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_KEY};BlobEndpoint=${STORAGE_BLOB};QueueEndpoint=${STORAGE_QUEUE};TableEndpoint=${STORAGE_TABLE}"
 
-az storage container create --name "$CAPTURE_CONTAINER_NAME" \
-	--connection-string "$STORAGE_CONNECTION_STRING" --only-show-errors 1>/dev/null ||
-	fail "could not create the capture container"
-echo "Blob container [$CAPTURE_CONTAINER_NAME] ready for Capture archives."
+if [[ $(az storage container exists --name "$CAPTURE_CONTAINER_NAME" --connection-string "$STORAGE_CONNECTION_STRING" \
+	--query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "Blob container [$CAPTURE_CONTAINER_NAME] for Capture archives already exists."
+else
+	az storage container create --name "$CAPTURE_CONTAINER_NAME" \
+		--connection-string "$STORAGE_CONNECTION_STRING" --only-show-errors 1>/dev/null ||
+		fail "could not create the capture container"
+	echo "Blob container [$CAPTURE_CONTAINER_NAME] ready for Capture archives."
+fi
 
 # -----------------------------------------------------------------------------
 step "[4/11] Event Hubs namespace (Standard tier - Capture needs it)"

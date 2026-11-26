@@ -163,7 +163,7 @@ ensure_role_assignment() {
 	fail "could not assign the [$role] role to the $description"
 }
 
-# Store a secret in the key vault. The deploying principal can write through the Key Vault data plane only once its
+# Store a secret in the key vault, unless it already holds the same value. The deploying principal can write through the Key Vault data plane only once its
 # Key Vault Secrets Officer assignment has propagated, which takes a few minutes on Azure, so the write is retried. The
 # value is never printed.
 # $1: the secret name
@@ -171,7 +171,14 @@ ensure_role_assignment() {
 set_secret() {
 	local secret_name=$1
 	local secret_value=$2
-	local attempt error
+	local attempt error current
+
+	current=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
+		--query value --output tsv --only-show-errors 2>/dev/null)
+	if [[ -n $current && $current == "$secret_value" ]]; then
+		echo "The [$secret_name] secret already holds the expected value."
+		return 0
+	fi
 
 	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
 		if error=$(az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
@@ -298,11 +305,16 @@ for SERVICE in blob queue table; do
 		--metrics '[{"category": "Capacity", "enabled": true}, {"category": "Transaction", "enabled": true}]'
 done
 
-az storage container create \
-	--name "$CAPTURE_CONTAINER_NAME" \
-	--connection-string "$STORAGE_CONNECTION_STRING" \
-	--only-show-errors 1>/dev/null || fail "could not create the capture container"
-echo "Created blob container [$CAPTURE_CONTAINER_NAME] for Capture archives."
+if [[ $(az storage container exists --name "$CAPTURE_CONTAINER_NAME" --connection-string "$STORAGE_CONNECTION_STRING" \
+	--query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "Blob container [$CAPTURE_CONTAINER_NAME] for Capture archives already exists."
+else
+	az storage container create \
+		--name "$CAPTURE_CONTAINER_NAME" \
+		--connection-string "$STORAGE_CONNECTION_STRING" \
+		--only-show-errors 1>/dev/null || fail "could not create the capture container"
+	echo "Created blob container [$CAPTURE_CONTAINER_NAME] for Capture archives."
+fi
 
 # -----------------------------------------------------------------------------
 step "[4/12] Event Hubs namespace (Standard tier, Kafka enabled)"

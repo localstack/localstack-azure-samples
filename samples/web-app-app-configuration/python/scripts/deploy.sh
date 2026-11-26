@@ -410,19 +410,23 @@ set_key_vault_reference() {
 # Resource group
 #********************************************
 
-# Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--tags environment=test iac=az-cli \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	# Create a resource group
+	echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--tags environment=test iac=az-cli \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
 fi
 
 #********************************************
@@ -1185,6 +1189,18 @@ ensure_private_dns_zone_group "$KEY_VAULT_PRIVATE_ENDPOINT_NAME" "$KEY_VAULT_PRI
 #********************************************
 
 # Create application role [$PG_APP_USER] on the PostgreSQL flexible server
+# Count the login first: the batch below creates it only when it is missing
+echo "Checking if login [$PG_APP_USER] exists on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
+LOGIN_COUNT=$(PGPASSWORD="$PG_ADMIN_PASSWORD" psql \
+	--host="$POSTGRES_FQDN" \
+	--port="$POSTGRES_PORT" \
+	--username="$PG_ADMIN_USER" \
+	--dbname=postgres \
+	--no-password \
+	--tuples-only \
+	--no-align \
+	-c "SELECT COUNT(*) FROM pg_roles WHERE rolname = '$PG_APP_USER';" 2>/dev/null)
+
 echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
 PGPASSWORD="$PG_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
@@ -1202,7 +1218,13 @@ END
 \$\$;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$PG_APP_USER] created successfully"
+	if [[ $LOGIN_COUNT == 1 ]]; then
+		echo "Login [$PG_APP_USER] already exists"
+	elif [[ $LOGIN_COUNT == 0 ]]; then
+		echo "Login [$PG_APP_USER] created successfully"
+	else
+		echo "Login [$PG_APP_USER] is in place"
+	fi
 else
 	echo "Failed to create login [$PG_APP_USER]"
 	exit 1
@@ -1264,6 +1286,18 @@ else
 fi
 
 # Create [activities] table
+# Count the table first: the batch below creates it and its indexes only when they are missing
+echo "Checking if the [activities] table exists in the [$POSTGRES_DATABASE_NAME] database..."
+TABLE_COUNT=$(PGPASSWORD="$PG_APP_PASSWORD" psql \
+	--host="$POSTGRES_FQDN" \
+	--port="$POSTGRES_PORT" \
+	--username="$PG_APP_USER" \
+	--dbname="$POSTGRES_DATABASE_NAME" \
+	--no-password \
+	--tuples-only \
+	--no-align \
+	-c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'activities';" 2>/dev/null)
+
 echo "Creating [activities] table in the [$POSTGRES_DATABASE_NAME] database..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
@@ -1282,14 +1316,20 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at DESC);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	if [[ $TABLE_COUNT == 1 ]]; then
+		echo "[activities] table already exists"
+	elif [[ $TABLE_COUNT == 0 ]]; then
+		echo "[activities] table created successfully"
+	else
+		echo "[activities] table is in place"
+	fi
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -1310,9 +1350,9 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		ON CONFLICT (id) DO NOTHING;"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
-	echo "Failed to insert sample data into [activities] table"
+	echo "Failed to insert the missing sample data into [activities] table"
 	exit 1
 fi
 

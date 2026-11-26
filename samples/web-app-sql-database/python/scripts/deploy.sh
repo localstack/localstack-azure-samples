@@ -153,18 +153,30 @@ set_secret() {
 		exit 1
 	fi
 }
-# Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name $RESOURCE_GROUP_NAME \
-	--location $LOCATION \
-	--only-show-errors 1>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+# Check if the resource group already exists
+echo "Checking if [$RESOURCE_GROUP_NAME] resource group actually exists..."
+az group show \
+	--name "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	echo "No [$RESOURCE_GROUP_NAME] resource group actually exists"
+	echo "Creating [$RESOURCE_GROUP_NAME] resource group..."
+
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$RESOURCE_GROUP_NAME] resource group successfully created"
+	else
+		echo "Failed to create [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	echo "[$RESOURCE_GROUP_NAME] resource group already exists"
 fi
 
 # Check if the Log Analytics workspace already exists
@@ -261,19 +273,32 @@ else
 	exit 1
 fi
 
-# Create the user-assigned managed identity the SQL server uses to reach the TDE protector key
-echo "Creating user-assigned managed identity [$SQL_SERVER_IDENTITY_NAME]..."
-az identity create \
+# Check if the user-assigned managed identity of the SQL server already exists
+echo "Checking if [$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az identity show \
 	--name "$SQL_SERVER_IDENTITY_NAME" \
 	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null
+	--only-show-errors &>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "User-assigned managed identity [$SQL_SERVER_IDENTITY_NAME] created successfully."
+if [[ $? != 0 ]]; then
+	echo "No [$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	# Create the user-assigned managed identity the SQL server uses to reach the TDE protector key
+	az identity create \
+		--name "$SQL_SERVER_IDENTITY_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 else
-	echo "Failed to create user-assigned managed identity [$SQL_SERVER_IDENTITY_NAME]."
-	exit 1
+	echo "[$SQL_SERVER_IDENTITY_NAME] user-assigned managed identity already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
 SQL_SERVER_IDENTITY_ID=$(az identity show \
@@ -375,21 +400,35 @@ else
 	fi
 fi
 
-# Add firewall rule to allow all local network addresses (for testing/development)
-echo "Creating firewall rule to allow all IP addresses..."
-az sql server firewall-rule create \
-	--name $FIREWALL_RULE_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--server $SQL_SERVER_NAME \
-	--start-ip-address 0.0.0.0 \
-	--end-ip-address 255.255.255.255 \
-	--only-show-errors 1>/dev/null
+# Check if the firewall rule already exists
+echo "Checking if [$FIREWALL_RULE_NAME] firewall rule exists on the [$SQL_SERVER_NAME] sql server..."
+az sql server firewall-rule show \
+	--name "$FIREWALL_RULE_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--server "$SQL_SERVER_NAME" \
+	--only-show-errors &>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "Firewall rule [$FIREWALL_RULE_NAME] created successfully"
+if [[ $? != 0 ]]; then
+	echo "No [$FIREWALL_RULE_NAME] firewall rule exists on the [$SQL_SERVER_NAME] sql server"
+	echo "Creating [$FIREWALL_RULE_NAME] firewall rule to allow all IP addresses..."
+
+	# Add firewall rule to allow all local network addresses (for testing/development)
+	az sql server firewall-rule create \
+		--name "$FIREWALL_RULE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--server "$SQL_SERVER_NAME" \
+		--start-ip-address 0.0.0.0 \
+		--end-ip-address 255.255.255.255 \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$FIREWALL_RULE_NAME] firewall rule successfully created on the [$SQL_SERVER_NAME] sql server"
+	else
+		echo "Failed to create [$FIREWALL_RULE_NAME] firewall rule on the [$SQL_SERVER_NAME] sql server"
+		exit 1
+	fi
 else
-	echo "Failed to create firewall rule"
-	exit 1
+	echo "[$FIREWALL_RULE_NAME] firewall rule already exists on the [$SQL_SERVER_NAME] sql server"
 fi
 
 # Create database if it does not exist
@@ -526,40 +565,52 @@ fi
 #	fi
 #fi
 
-# Create server-level login
-echo "Creating login [$DATABASE_USER_NAME] at server level..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-    -d master \
-    -U "$ADMIN_USER" \
-    -P "$ADMIN_PASSWORD" \
-    -N -C \
-    -Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME')
-            CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
-    -V 1
-
-if [ $? -eq 0 ]; then
-	echo "Login [$DATABASE_USER_NAME] created successfully"
+echo "Checking if login [$DATABASE_USER_NAME] exists at server level..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d master -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "Login [$DATABASE_USER_NAME] already exists at server level"
 else
-	echo "Failed to create login [$DATABASE_USER_NAME]"
-	exit 1
+	# Create server-level login
+	echo "Creating login [$DATABASE_USER_NAME] at server level..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+	    -d master \
+	    -U "$ADMIN_USER" \
+	    -P "$ADMIN_PASSWORD" \
+	    -N -C \
+	    -Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME')
+	            CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
+	    -V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Login [$DATABASE_USER_NAME] created successfully"
+	else
+		echo "Failed to create login [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
-# Create database user
-echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-    -d "$SQL_DATABASE_NAME" \
-    -U "$ADMIN_USER" \
-    -P "$ADMIN_PASSWORD" \
-    -N -C \
-    -Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME')
-          CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
-    -V 1
-
-if [ $? -eq 0 ]; then
-	echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+echo "Checking if user [$DATABASE_USER_NAME] exists in database [$SQL_DATABASE_NAME]..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "User [$DATABASE_USER_NAME] already exists in database [$SQL_DATABASE_NAME]"
 else
-	echo "Failed to create user [$DATABASE_USER_NAME]"
-	exit 1
+	# Create database user
+	echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+	    -d "$SQL_DATABASE_NAME" \
+	    -U "$ADMIN_USER" \
+	    -P "$ADMIN_PASSWORD" \
+	    -N -C \
+	    -Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME')
+	          CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
+	    -V 1
+
+	if [ $? -eq 0 ]; then
+		echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+	else
+		echo "Failed to create user [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
 # Grant permissions including DDL rights
@@ -598,52 +649,62 @@ else
 	exit 1
 fi
 
-# Create table
-echo "Creating test [Products] table..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$DATABASE_USER_NAME" \
-	-P "$DATABASE_USER_PASSWORD" \
-  -N -C \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
-		CREATE TABLE dbo.Activities (
-			-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
-			id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
-
-			-- Username field
-			username VARCHAR(32) NOT NULL,
-
-			-- Description of the activity
-			activity VARCHAR(128) NOT NULL,
-
-			-- Timestamp of the activity
-			timestamp DATETIME NOT NULL
-		);" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "Test [Activities] table created successfully"
+echo "Checking if the [Activities] table exists..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$DATABASE_USER_NAME" -P "$DATABASE_USER_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo');" | tr -d '[:space:]') == 1 ]]; then
+	echo "[Activities] table already exists"
 else
-	echo "Failed to create test [Activities] table"
-	exit 1
+	# Create table
+	echo "Creating test [Activities] table..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d "$SQL_DATABASE_NAME" \
+		-U "$DATABASE_USER_NAME" \
+		-P "$DATABASE_USER_PASSWORD" \
+	  -N -C \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
+			CREATE TABLE dbo.Activities (
+				-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
+				id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
+
+				-- Username field
+				username VARCHAR(32) NOT NULL,
+
+				-- Description of the activity
+				activity VARCHAR(128) NOT NULL,
+
+				-- Timestamp of the activity
+				timestamp DATETIME NOT NULL
+			);" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Test [Activities] table created successfully"
+	else
+		echo "Failed to create test [Activities] table"
+		exit 1
+	fi
 fi
 
-# Insert data
-echo "Inserting test data into [Activities] table..."
+# Insert the test data, only the rows the table does not hold yet, so that a second run adds no duplicates
+echo "Inserting the missing test data into [Activities] table..."
 sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
   -N -C \
-	-Q "INSERT INTO Activities (username, activity, timestamp) 
-			VALUES 
-			('paolo', 'Go to Paris', GETDATE()),
-			('paolo', 'Go to London', GETDATE()),
-			('paolo', 'Go to Mexico', GETDATE());" \
+	-Q "INSERT INTO Activities (username, activity, timestamp)
+			SELECT seed.username, seed.activity, GETDATE()
+			FROM (VALUES
+				('paolo', 'Go to Paris'),
+				('paolo', 'Go to London'),
+				('paolo', 'Go to Mexico')) AS seed (username, activity)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM Activities existing
+				WHERE existing.username = seed.username AND existing.activity = seed.activity);" \
 	-V 1
 
 if [ $? -eq 0 ]; then
-	echo "Test data inserted successfully into [Activities] table"
+	echo "Missing test data inserted successfully into [Activities] table"
 else
 	echo "Failed to insert test data into [Activities] table"
 	exit 1
@@ -666,21 +727,33 @@ else
 	exit 1
 fi
 
-# Create App Service Plan
-echo "Creating App Service Plan [$APP_SERVICE_PLAN_NAME]..."
-az appservice plan create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
+# Check if the App Service plan already exists
+echo "Checking if [$APP_SERVICE_PLAN_NAME] App Service plan actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
+az appservice plan show \
 	--name "$APP_SERVICE_PLAN_NAME" \
-	--location "$LOCATION" \
-	--sku "$APP_SERVICE_PLAN_SKU" \
-	--is-linux \
-	--only-show-errors 1>/dev/null
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--only-show-errors &>/dev/null
 
-if [ $? -eq 0 ]; then
-	echo "App Service Plan [$APP_SERVICE_PLAN_NAME] created successfully."
+if [[ $? != 0 ]]; then
+	echo "No [$APP_SERVICE_PLAN_NAME] App Service plan actually exists in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Creating [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group..."
+
+	az appservice plan create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$APP_SERVICE_PLAN_NAME" \
+		--location "$LOCATION" \
+		--sku "$APP_SERVICE_PLAN_SKU" \
+		--is-linux \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APP_SERVICE_PLAN_NAME] App Service plan successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 else
-	echo "Failed to create App Service Plan [$APP_SERVICE_PLAN_NAME]."
-	exit 1
+	echo "[$APP_SERVICE_PLAN_NAME] App Service plan already exists in the [$RESOURCE_GROUP_NAME] resource group"
 fi
 
 # Check if the web app already exists
@@ -996,32 +1069,57 @@ SQL_SERVER_ID=$(az sql server show \
 	--output tsv)
 SERVER_KEY_NAME="${KEY_VAULT_NAME}_${TDE_KEY_NAME}_${TDE_KEY_ID##*/}"
 
-# Azure SQL checks that the server's identity can get, wrap and unwrap the key before it adds it, so the call is
-# retried until the Key Vault Crypto Service Encryption User assignment above applies
-echo "Adding key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server..."
-if retry_key_vault_operation "add the [$TDE_KEY_NAME] key to the [$SQL_SERVER_NAME] sql server" az resource create \
+# Check if the key is already registered on the SQL server
+echo "Checking if key [$TDE_KEY_NAME] is registered on the [$SQL_SERVER_NAME] sql server..."
+az resource show \
 	--id "$SQL_SERVER_ID/keys/$SERVER_KEY_NAME" \
 	--api-version 2023-08-01 \
-	--properties "{\"serverKeyType\": \"AzureKeyVault\", \"uri\": \"$TDE_KEY_ID\"}" \
-	--only-show-errors 1>/dev/null; then
-	echo "Key [$TDE_KEY_NAME] added successfully to the [$SQL_SERVER_NAME] sql server."
+	--only-show-errors &>/dev/null
+
+if [[ $? != 0 ]]; then
+	# Azure SQL checks that the server's identity can get, wrap and unwrap the key before it adds it, so the call is
+	# retried until the Key Vault Crypto Service Encryption User assignment above applies
+	echo "Adding key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server..."
+	if retry_key_vault_operation "add the [$TDE_KEY_NAME] key to the [$SQL_SERVER_NAME] sql server" az resource create \
+		--id "$SQL_SERVER_ID/keys/$SERVER_KEY_NAME" \
+		--api-version 2023-08-01 \
+		--properties "{\"serverKeyType\": \"AzureKeyVault\", \"uri\": \"$TDE_KEY_ID\"}" \
+		--only-show-errors 1>/dev/null; then
+		echo "Key [$TDE_KEY_NAME] added successfully to the [$SQL_SERVER_NAME] sql server."
+	else
+		echo "Failed to add key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server."
+		exit 1
+	fi
 else
-	echo "Failed to add key [$TDE_KEY_NAME] to the [$SQL_SERVER_NAME] sql server."
-	exit 1
+	echo "Key [$TDE_KEY_NAME] is already registered on the [$SQL_SERVER_NAME] sql server."
 fi
 
-echo "Setting key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server..."
-az resource create \
+# Check if the key is already the auto-rotated TDE protector of the SQL server: the server always has a protector, so
+# the script sets it only when it is a different key
+echo "Checking the TDE protector of the [$SQL_SERVER_NAME] sql server..."
+CURRENT_PROTECTOR=$(az resource show \
 	--id "$SQL_SERVER_ID/encryptionProtector/current" \
 	--api-version 2023-08-01 \
-	--properties "{\"serverKeyType\": \"AzureKeyVault\", \"serverKeyName\": \"$SERVER_KEY_NAME\", \"autoRotationEnabled\": true}" \
-	--only-show-errors 1>/dev/null
+	--query "join('/', [properties.serverKeyName, to_string(properties.autoRotationEnabled)])" \
+	--output tsv \
+	--only-show-errors 2>/dev/null | tr -d '\r')
 
-if [ $? -eq 0 ]; then
-	echo "Key [$TDE_KEY_NAME] set successfully as the TDE protector of the [$SQL_SERVER_NAME] sql server."
+if [[ $CURRENT_PROTECTOR != "$SERVER_KEY_NAME/true" ]]; then
+	echo "Setting key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server..."
+	az resource create \
+		--id "$SQL_SERVER_ID/encryptionProtector/current" \
+		--api-version 2023-08-01 \
+		--properties "{\"serverKeyType\": \"AzureKeyVault\", \"serverKeyName\": \"$SERVER_KEY_NAME\", \"autoRotationEnabled\": true}" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Key [$TDE_KEY_NAME] set successfully as the TDE protector of the [$SQL_SERVER_NAME] sql server."
+	else
+		echo "Failed to set key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server."
+		exit 1
+	fi
 else
-	echo "Failed to set key [$TDE_KEY_NAME] as the TDE protector of the [$SQL_SERVER_NAME] sql server."
-	exit 1
+	echo "Key [$TDE_KEY_NAME] is already the auto-rotated TDE protector of the [$SQL_SERVER_NAME] sql server."
 fi
 
 # Set web app settings
@@ -1202,9 +1300,9 @@ az webapp deploy \
 	--async true 1>/dev/null
 
 if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

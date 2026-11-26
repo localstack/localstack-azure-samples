@@ -33,23 +33,79 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RETRY_COUNT=3
-SLEEP=5
+ROLE_ASSIGNMENT_RETRY_COUNT=3
+ROLE_ASSIGNMENT_RETRY_SLEEP=5
 
 cd "$CURRENT_DIR" || exit
 
-# Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null
+# Assign a role to a principal at a scope, unless the assignment already exists. The assignee is given as an
+# object id together with its principal type, so no directory lookup happens at creation time.
+# $1: the object id of the principal
+# $2: the principal type (ServicePrincipal, User or Group)
+# $3: the role name
+# $4: the scope (resource id)
+# $5: the description of the principal, used in messages
+# $6: the description of the scope, used in messages
+ensure_role_assignment() {
+	local principal_id=$1
+	local principal_type=$2
+	local role=$3
+	local scope=$4
+	local principal_description=$5
+	local scope_description=$6
+	local current attempt
 
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
-else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	current=$(az role assignment list \
+		--assignee "$principal_id" \
+		--scope "$scope" \
+		--query "[?roleDefinitionName=='$role'].roleDefinitionName" \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ $current == "$role" ]]; then
+		echo "The $principal_description already has the [$role] role assignment on the $scope_description"
+		return 0
+	fi
+
+	echo "Assigning the [$role] role to the $principal_description on the $scope_description..."
+	for attempt in $(seq 1 "$ROLE_ASSIGNMENT_RETRY_COUNT"); do
+		if az role assignment create \
+			--assignee-object-id "$principal_id" \
+			--assignee-principal-type "$principal_type" \
+			--role "$role" \
+			--scope "$scope" \
+			--only-show-errors 1>/dev/null; then
+			echo "[$role] role successfully assigned to the $principal_description on the $scope_description"
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$ROLE_ASSIGNMENT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $ROLE_ASSIGNMENT_RETRY_COUNT to assign the [$role] role failed; retrying in $ROLE_ASSIGNMENT_RETRY_SLEEP seconds..."
+			sleep "$ROLE_ASSIGNMENT_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to assign the [$role] role to the $principal_description on the $scope_description"
 	exit 1
+}
+
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	# Create a resource group
+	echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
 fi
 
 # Check if the Azure Container Registry already exists
@@ -228,44 +284,7 @@ fi
 
 # Assign the AcrPull role to the managed identity with the Azure Container Registry as scope
 ROLE="AcrPull"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on Azure Container Registry [$ACR_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$ACR_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "Managed identity [$MANAGED_IDENTITY_NAME] already has the [$ROLE] role assignment on Azure Container Registry [$ACR_NAME]"
-else
-	echo "Managed identity [$MANAGED_IDENTITY_NAME] does not have the [$ROLE] role assignment on Azure Container Registry [$ACR_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to managed identity [$MANAGED_IDENTITY_NAME] on Azure Container Registry [$ACR_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$ACR_ID" 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to managed identity [$MANAGED_IDENTITY_NAME] on Azure Container Registry [$ACR_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to managed identity [$MANAGED_IDENTITY_NAME] on Azure Container Registry [$ACR_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$ACR_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "Azure Container Registry [$ACR_NAME]"
 
 # Check if the network security group for the web app subnet already exists
 echo "Checking if [$WEB_APP_SUBNET_NSG_NAME] network security group for the web app subnet actually exists in the [$RESOURCE_GROUP_NAME] resource group..."
