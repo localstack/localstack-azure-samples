@@ -95,6 +95,8 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 Once the resources and function app have been deployed, you can use the [call-http-trigger.sh](./scripts/call-http-trigger.sh) Bash script to invoke the **GetGreetings** HTTP-triggered function. This function returns the most recent greetings stored in the in-memory circular buffer, allowing you to verify that the entire message pipeline is working end to end. The output should look like this:
 
+On Azure, where the function app runs in no container on your machine, the script calls the function on its default host name over HTTPS instead, with the function app's default key, which its `Function` authorization level requires.
+
 ```bash
 Getting function app name...
 Function app [local-func-test] successfully retrieved.

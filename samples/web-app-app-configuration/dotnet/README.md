@@ -124,6 +124,8 @@ You can use the `scripts/call-web-app.sh` Bash script to call the web app from o
 3. **Via container IP address** on port `80`.
 4. **Via the default hostname** `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
 
+On Azure, where the web app runs in no container on your machine, the script calls its default host name over HTTPS instead, and retries while the web app starts.
+
 To inspect the configuration the app runs with, list the key-values of the store with their content types (the two Key Vault references stand out), the secret names in the vault (never the values), and the app settings of the Web App, which must contain no `PG_*` entry:
 
 ```bash
