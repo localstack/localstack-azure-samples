@@ -155,11 +155,21 @@ call_http_trigger_functions() {
 	# level requires.
 	cloud_name=$(az cloud show --query name --output tsv | tr -d '\r')
 	if [[ $cloud_name != "LocalStack" ]]; then
-		function_key=$(az functionapp keys list \
-			--name "$function_app_name" \
-			--resource-group "$resource_group_name" \
-			--query 'functionKeys.default' \
-			--output tsv | tr -d '\r')
+		# Azure reads the keys from the Functions host, which can answer with a timeout while it starts after a
+		# deployment: ask again until it returns the default key
+		local attempt function_key=""
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			function_key=$(az functionapp keys list \
+				--name "$function_app_name" \
+				--resource-group "$resource_group_name" \
+				--query 'functionKeys.default' \
+				--output tsv 2>/dev/null | tr -d '\r')
+			[ -n "$function_key" ] && break
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: no default function key yet for function app [$function_app_name]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			fi
+		done
 		if [ -z "$function_key" ]; then
 			echo "Error: No default function key found for function app [$function_app_name]"
 			exit 1
@@ -168,7 +178,7 @@ call_http_trigger_functions() {
 		# The games live in the memory of the function app, and its timer function creates the first one when the host
 		# starts, so wait until the game exists
 		echo "Waiting for game session [$game_session] to exist in the [$function_app_name] function app on [$cloud_name]..."
-		local attempt status_code body
+		local status_code body
 		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
 			status_code=$(curl --max-time 30 -s -o /dev/null -w "%{http_code}" -H "x-functions-key: $function_key" "https://$function_host_name/api/player/$game_session/$player_name/status")
 			if [[ $status_code == 200 ]]; then

@@ -154,17 +154,27 @@ call_http_trigger_function() {
 	# level requires, and retry while the function app starts.
 	cloud_name=$(az cloud show --query name --output tsv | tr -d '\r')
 	if [[ $cloud_name != "LocalStack" ]]; then
-		function_key=$(az functionapp keys list \
-			--name "$function_app_name" \
-			--resource-group "$resource_group_name" \
-			--query 'functionKeys.default' \
-			--output tsv | tr -d '\r')
+		# Azure reads the keys from the Functions host, which can answer with a timeout while it starts after a
+		# deployment: ask again until it returns the default key
+		local attempt function_key=""
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			function_key=$(az functionapp keys list \
+				--name "$function_app_name" \
+				--resource-group "$resource_group_name" \
+				--query 'functionKeys.default' \
+				--output tsv 2>/dev/null | tr -d '\r')
+			[ -n "$function_key" ] && break
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: no default function key yet for function app [$function_app_name]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			fi
+		done
 		if [ -z "$function_key" ]; then
 			echo "Error: No default function key found for function app [$function_app_name]"
 			exit 1
 		fi
 		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via function hostname [$function_host_name] on [$cloud_name]..."
-		local attempt response status_code
+		local response status_code
 		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
 			response=$(curl --max-time 30 -s -w '\n%{http_code}' -H "x-functions-key: $function_key" "https://$function_host_name/api/greetings?count=$greeting_count")
 			status_code=${response##*$'\n'}
