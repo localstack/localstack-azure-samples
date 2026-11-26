@@ -201,8 +201,13 @@ else
 fi
 
 # Loop n times to check whether the function app processed the input file and generated the result file in the output container.
-# On Azure the blob trigger can take a minute or more to pick up a new blob: raise RETRY_COUNT there.
-n="${RETRY_COUNT:-36}"
+# On Azure the blob trigger of a new function app took over four minutes to pick up its first blob (2026-11-26), so the
+# default wait there is ten minutes.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	n="${RETRY_COUNT:-36}"
+else
+	n="${RETRY_COUNT:-120}"
+fi
 seconds="${SLEEP:-5}"
 
 for ((i=1; i<=n; i++)); do
