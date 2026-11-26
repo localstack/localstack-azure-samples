@@ -116,7 +116,7 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`    | The `status_requests` custom metric, with the image in `image`                                                  |
 | `AppExceptions` | The exceptions of the requests that fail, with their stack trace                                                |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the home page and the status endpoint, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the home page and the status endpoint, and reads the tables back, retrying until their records arrive. While it waits it calls the web app again: on Azure, App Service applies the connection string that `deploy.sh` sets last by starting a new container about a minute after the deployment, and the calls an earlier container served may never reach the workspace. It shows the exceptions without waiting for them: a healthy run has none.
 
 ## Logs and metrics
 

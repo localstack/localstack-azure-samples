@@ -22,6 +22,15 @@ RETRY_COUNT="${RETRY_COUNT:-30}"
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
+# Call the home page and the status endpoint once, quietly. Every wait for records calls the web app again: on Azure,
+# App Service applies the APPLICATIONINSIGHTS_CONNECTION_STRING app setting that deploy.sh sets last by starting a new
+# container about a minute after the deployment ends, and the calls an earlier container served may never reach the
+# workspace
+call_web_app_once() {
+	curl --max-time 30 --silent --output /dev/null "https://$WEB_APP_HOST_NAME/"
+	curl --max-time 30 --silent --output /dev/null "https://$WEB_APP_HOST_NAME/api/status"
+}
+
 # Run a KQL query on the Log Analytics workspace and print the records it returns as a table, retrying while the
 # records are still on their way to the workspace
 # $1: what the query reads
@@ -60,7 +69,8 @@ query_workspace() {
 			return 0
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
-				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Waiting [$SLEEP] seconds before retry..."
+				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Calling the web app again and waiting [$SLEEP] seconds before retry..."
+				call_web_app_once
 				sleep $SLEEP
 			fi
 			attempt=$((attempt + 1))
