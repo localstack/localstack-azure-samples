@@ -300,6 +300,13 @@ az webapp deploy \
 	--type zip \
 	--async true 1>/dev/null
 
+if [ $? -eq 0 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
+	exit 1
+fi
+
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then
 	rm "$ZIPFILE"
