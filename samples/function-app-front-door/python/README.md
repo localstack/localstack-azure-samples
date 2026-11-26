@@ -133,7 +133,7 @@ bash scripts/call-front-door.sh
 | 11  | The endpoint disabled, then enabled again                                    | `enabledState` takes the endpoint out of service and back                                                                                               |
 | 12  | The Application Insights resource and the app settings of both Function Apps | The resource stores its telemetry in the workspace, and both apps send theirs to it (the check reads the names of the app settings, never their values) |
 
-`call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received.
+`call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received. On Azure, a change to the endpoint reaches the edge locations of Front Door one after the other, so the script retries the read, the rewrite and the origin call until the edge answers with status 200.
 
 ### Calling the endpoint by hand
 

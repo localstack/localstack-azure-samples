@@ -6,6 +6,8 @@ SUFFIX="${SUFFIX:-test}"
 RESOURCE_GROUP_NAME="${PREFIX}-rg"
 PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
+RETRY_COUNT="${RETRY_COUNT:-60}"
+SLEEP="${SLEEP:-10}"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
 # (az, curl, jq, python, docker) when MSYS_NO_PATHCONV=1 is set, as the README asks. cygpath, which
@@ -52,8 +54,24 @@ call_endpoint() {
 	LOCATION=$(grep -i "^location:" "$HEADERS_FILE" | tr -d '\r' | awk '{print $2}')
 }
 
+# Call the endpoint until it answers with status 200. On Azure a change to the endpoint, such as a new route or the
+# disable and enable that validate.sh checks last, reaches the edge locations of Front Door one after the other, and an
+# edge that hasn't received it yet answers 404 meanwhile.
+call_endpoint_until_ok() {
+	local PATH_TO_CALL="$1" ATTEMPT
+	for ATTEMPT in $(seq 1 "$RETRY_COUNT"); do
+		call_endpoint "$PATH_TO_CALL"
+		[[ "$STATUS" == "200" ]] && return 0
+		if [ "$ATTEMPT" -lt "$RETRY_COUNT" ]; then
+			echo "Attempt $ATTEMPT of $RETRY_COUNT: [$ENDPOINT_URL$PATH_TO_CALL] returned [$STATUS]. Waiting [$SLEEP] seconds before retry..."
+			sleep "$SLEEP"
+		fi
+	done
+	return 1
+}
+
 echo "Calling [$ENDPOINT_URL/catalog/1]..."
-call_endpoint /catalog/1
+call_endpoint_until_ok /catalog/1
 
 if [[ "$STATUS" == "200" ]]; then
 	jq . "$BODY_FILE"
@@ -68,7 +86,7 @@ call_endpoint /catalog/1
 echo "Cache status: ${CACHE:-(none)}"
 
 echo "Calling [$ENDPOINT_URL/shop/3], which the rules engine rewrites to /catalog/3..."
-call_endpoint /shop/3
+call_endpoint_until_ok /shop/3
 
 if [[ "$STATUS" == "200" ]]; then
 	echo "The origin was asked for $(jq -r '.path' "$BODY_FILE") and answered with $(jq -r '.item.name' "$BODY_FILE")"
@@ -82,7 +100,7 @@ call_endpoint /legacy
 echo "Answered [$STATUS] at the edge, pointing at ${LOCATION:-(no Location header)}"
 
 echo "Calling [$ENDPOINT_URL/whoami], which reports what the origin received..."
-call_endpoint /whoami
+call_endpoint_until_ok /whoami
 
 if [[ "$STATUS" == "200" ]]; then
 	jq . "$BODY_FILE"
