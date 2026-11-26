@@ -196,7 +196,7 @@ fi
 # Create application role [$PG_APP_USER] on the PostgreSQL flexible server. Its name and password are
 # already in Key Vault (pg-user, pg-password) and referenced from the App Configuration store; this step
 # creates the role the web app logs in with.
-echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
+echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server, unless it exists..."
 PGPASSWORD="$PG_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -213,7 +213,7 @@ END
 \$\$;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$PG_APP_USER] created successfully"
+	echo "Login [$PG_APP_USER] is in place: created if it was missing"
 else
 	echo "Failed to create login [$PG_APP_USER]"
 	exit 1
@@ -275,7 +275,7 @@ else
 fi
 
 # Create [activities] table
-echo "Creating [activities] table in the [$DATABASE_NAME] database..."
+echo "Creating [activities] table in the [$DATABASE_NAME] database, unless it exists..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -293,14 +293,14 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at DESC);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	echo "[activities] table is in place: created if it was missing"
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -321,7 +321,7 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		ON CONFLICT (id) DO NOTHING;"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
 	echo "Failed to insert sample data into [activities] table"
 	exit 1
