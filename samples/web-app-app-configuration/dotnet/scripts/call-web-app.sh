@@ -156,21 +156,21 @@ call_web_app() {
 	if [[ $cloud_name != "LocalStack" ]]; then
 		echo "Calling web app [$web_app_name] via default hostname [$app_host_name] on [$cloud_name]..."
 		# Until the app runs, App Service answers with a placeholder page of its own: wait for the app's page, which holds
-		# the form that adds an activity
+		# the form that adds an activity, as long as App Service gives a site to start (ten minutes)
 		local attempt response status_code
-		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+		for attempt in $(seq 1 "${RETRY_COUNT:-60}"); do
 			response=$(curl --max-time 30 -s -w '\n%{http_code}' "https://$app_host_name/")
 			status_code=${response##*$'\n'}
 			if [[ $status_code == 200 && $response == *'name="activity"'* ]]; then
 				echo "Web app call via default hostname [$app_host_name] succeeded."
 				return 0
 			fi
-			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
-				echo "Attempt $attempt of ${RETRY_COUNT:-30}: the web app answered [$status_code] without its page. Waiting [${SLEEP:-10}] seconds before retry..."
+			if [ "$attempt" -lt "${RETRY_COUNT:-60}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-60}: the web app answered [$status_code] without its page. Waiting [${SLEEP:-10}] seconds before retry..."
 				sleep "${SLEEP:-10}"
 			fi
 		done
-		echo "Error: the web app [$web_app_name] didn't answer with its page after ${RETRY_COUNT:-30} attempts"
+		echo "Error: the web app [$web_app_name] didn't answer with its page after ${RETRY_COUNT:-60} attempts"
 		exit 1
 	fi
 
