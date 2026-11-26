@@ -71,7 +71,7 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 ## Test
 
-You can use the `call-web-app.sh` Bash script below to call the web app. The script calls the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
+You can use the `call-web-app.sh` Bash script below to call the web app. The script calls the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`. It calls it again while the web app pulls its image and starts, which on Azure can take a few minutes after the deployment.
 
 ## Application Insights
 
