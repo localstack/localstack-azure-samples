@@ -22,6 +22,12 @@ variable "eventhub_sku" {
   default     = "Standard"
 }
 
+variable "function_plan_sku_name" {
+  description = "SKU of the App Service plan of the function app: Y1 is the Linux Consumption plan."
+  type        = string
+  default     = "Y1"
+}
+
 variable "telemetry_hub_name" {
   description = "Hub that receives device telemetry and is archived by Capture."
   type        = string

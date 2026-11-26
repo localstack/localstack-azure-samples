@@ -142,7 +142,7 @@ module "function_plan" {
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   os_type                    = "Linux"
-  sku_name                   = "Y1"
+  sku_name                   = var.function_plan_sku_name
   diagnostic_setting_name    = "default"
   log_analytics_workspace_id = module.log_analytics.id
   tags                       = var.tags
@@ -185,7 +185,7 @@ module "web_plan" {
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   os_type                    = "Linux"
-  sku_name                   = "S1"
+  sku_name                   = var.web_plan_sku_name
   diagnostic_setting_name    = "default"
   log_analytics_workspace_id = module.log_analytics.id
   tags                       = var.tags
