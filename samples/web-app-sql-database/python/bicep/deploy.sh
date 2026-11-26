@@ -129,24 +129,40 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	fi
 fi
 
-# Deploy the Bicep template
+# Deploy the Bicep template. On Azure the SQL server can use its TDE protector key only once the role that the
+# deployment gives the server's identity on the vault applies, which can take a few minutes: while Azure answers
+# UmiMissingAkvPermissions, the deployment runs again.
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(az deployment group create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--only-show-errors \
-	--template-file $TEMPLATE \
-	--parameters $PARAMETERS \
-	--parameters location=$LOCATION \
-	prefix=$PREFIX \
-	suffix=$SUFFIX \
-	administratorLogin=$ADMIN_USER \
-	administratorLoginPassword=$ADMIN_PASSWORD \
-	sqlDatabaseUsername=$DATABASE_USER_NAME \
-	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
-	deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
-	deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
-	--query 'properties.outputs' \
-	--output json); then
+DEPLOYMENT_ERRORS_FILE=$(mktemp)
+for ATTEMPT in $(seq 1 "$KEY_VAULT_RETRY_COUNT"); do
+	DEPLOYMENT_STATUS=0
+	DEPLOYMENT_OUTPUTS=$(az deployment group create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--only-show-errors \
+		--template-file $TEMPLATE \
+		--parameters $PARAMETERS \
+		--parameters location=$LOCATION \
+		prefix=$PREFIX \
+		suffix=$SUFFIX \
+		administratorLogin=$ADMIN_USER \
+		administratorLoginPassword=$ADMIN_PASSWORD \
+		sqlDatabaseUsername=$DATABASE_USER_NAME \
+		sqlDatabasePassword=$DATABASE_USER_PASSWORD \
+		deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
+		deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
+		--query 'properties.outputs' \
+		--output json 2>"$DEPLOYMENT_ERRORS_FILE") || DEPLOYMENT_STATUS=$?
+	cat "$DEPLOYMENT_ERRORS_FILE" >&2
+	if [ "$DEPLOYMENT_STATUS" -eq 0 ] || ! grep -q 'UmiMissingAkvPermissions' "$DEPLOYMENT_ERRORS_FILE"; then
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$KEY_VAULT_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $KEY_VAULT_RETRY_COUNT to deploy Bicep template [$TEMPLATE] failed (the Key Vault Crypto Service Encryption User role of the SQL server's identity may still be propagating); retrying in $KEY_VAULT_RETRY_SLEEP seconds..."
+		sleep "$KEY_VAULT_RETRY_SLEEP"
+	fi
+done
+rm -f "$DEPLOYMENT_ERRORS_FILE"
+if [ "$DEPLOYMENT_STATUS" -eq 0 ]; then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"

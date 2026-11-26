@@ -45,6 +45,8 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 8. [Azure Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the diagnostic settings of the web app, the App Service plan, the database, the key vault and the workspace itself send to it.
 9. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
 
+On Azure the SQL server can use its TDE protector key only once the role of its identity on the vault applies, which can take a few minutes after the deployment assigns it: while Azure answers `UmiMissingAkvPermissions`, [deploy.sh](deploy.sh) runs the deployment again, up to `KEY_VAULT_RETRY_COUNT` times.
+
 Bicep cannot create a Key Vault certificate, so after the deployment [deploy.sh](deploy.sh) creates the self-signed certificate the web app serves HTTPS with on port 8443, under the name of its `CERT_NAME` app setting, before it deploys the code.
 
 The web app allows users to plan and manage vacation activities, storing all activity data in the `Activities` table in the `PlannerDB` database. For more information, see [Azure Web App with Azure SQL Database and Azure Key Vault](../README.md).
