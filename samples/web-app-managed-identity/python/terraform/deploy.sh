@@ -165,9 +165,9 @@ for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
 done
 
 if [ $WEBAPP_DEPLOYED -eq 1 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 
