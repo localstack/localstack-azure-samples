@@ -302,5 +302,6 @@ output appServicePlanName string = appServicePlan.outputs.name
 output webAppName string = webApp.outputs.name
 output webAppUrl string = webApp.outputs.defaultHostName
 output storageAccountName string = storageAccount.outputs.name
+output storageContainerName string = containerName
 output logAnalyticsName string = workspace.outputs.name
 output applicationInsightsName string = applicationInsights.outputs.name

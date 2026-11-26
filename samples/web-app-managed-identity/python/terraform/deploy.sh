@@ -34,6 +34,7 @@ fi
 # Get the output values
 RESOURCE_GROUP_NAME=$(terraform output -raw resource_group_name)
 STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
+CONTAINER_NAME=$(terraform output -raw storage_container_name)
 WEB_APP_NAME=$(terraform output -raw web_app_name)
 
 # Check if output values are empty
@@ -41,6 +42,67 @@ if [[ -z "$WEB_APP_NAME" || -z "$STORAGE_ACCOUNT_NAME" ]]; then
 	echo "Web App Name or Storage Account Name is empty. Exiting."
 	exit 1
 fi
+
+# The key of the storage account, which uploads the sample activities as the Azure CLI scripts do
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
+	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "[0].value" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $STORAGE_ACCOUNT_KEY ]]; then
+	echo "Failed to retrieve the key of the [$STORAGE_ACCOUNT_NAME] storage account."
+	exit 1
+fi
+
+# Seed the container with sample activities, one blob per activity, as the other samples seed their databases. Every
+# blob has a fixed name, so a second run finds the ones already there and uploads only the missing ones.
+SAMPLE_ACTIVITIES=(
+	"pisa|Visit the Leaning Tower in Pisa"
+	"volterra|Explore Etruscan walls in Volterra"
+	"san-gimignano|Climb Torre Grossa in San Gimignano"
+	"siena|Walk across Piazza del Campo in Siena"
+	"montalcino|Taste Brunello wine in Montalcino"
+	"pienza|Sample Pecorino cheese in Pienza"
+	"florence|Admire Michelangelo's David in Florence"
+	"viareggio-beach|Relax by the beach in Viareggio"
+	"viareggio-promenade|Stroll along the Viareggio promenade"
+)
+echo "Seeding the [$CONTAINER_NAME] container of the [$STORAGE_ACCOUNT_NAME] storage account with sample activities..."
+for SAMPLE_ACTIVITY in "${SAMPLE_ACTIVITIES[@]}"; do
+	SAMPLE_BLOB_NAME="sample-${SAMPLE_ACTIVITY%%|*}-activity.txt"
+	SAMPLE_BLOB_EXISTS=$(az storage blob exists \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--query exists \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $SAMPLE_BLOB_EXISTS == "true" ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] already exists in the [$CONTAINER_NAME] container."
+		continue
+	fi
+
+	az storage blob upload \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--data "${SAMPLE_ACTIVITY#*|}" \
+		--content-type "text/plain" \
+		--no-progress \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] uploaded to the [$CONTAINER_NAME] container."
+	else
+		echo "Failed to upload sample activity [$SAMPLE_BLOB_NAME] to the [$CONTAINER_NAME] container."
+		exit 1
+	fi
+done
 
 # Change current directory to source folder
 cd "../src" || exit
