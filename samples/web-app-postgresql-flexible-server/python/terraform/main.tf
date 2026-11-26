@@ -209,6 +209,8 @@ module "web_app" {
     PG_HOST                               = local.pg_host
     PG_PORT                               = local.pg_port
     PG_DATABASE                           = module.postgres_flexible_server.database_name
+    PG_USER                               = var.pg_app_user
+    PG_PASSWORD                           = var.pg_app_password
     LOGIN_NAME                            = var.login_name
     APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string
     WEBSITES_PORT                         = var.websites_port

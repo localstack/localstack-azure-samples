@@ -68,6 +68,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+			mysqlAppUser="$MYSQL_APP_USER" \
+			mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -87,6 +89,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+			mysqlAppUser="$MYSQL_APP_USER" \
+			mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -110,6 +114,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
 	mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+	mysqlAppUser="$MYSQL_APP_USER" \
+	mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 	--query 'properties.outputs' -o json); then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
@@ -252,21 +258,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set MYSQL_USER + MYSQL_PASSWORD on the web app to point at the application user
-echo "Setting MYSQL_USER=[$MYSQL_APP_USER] and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings MYSQL_USER="$MYSQL_APP_USER" MYSQL_PASSWORD="$MYSQL_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "MYSQL_USER and MYSQL_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set MYSQL_USER and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 

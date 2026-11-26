@@ -57,6 +57,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			pgAdminPassword="$PG_ADMIN_PASSWORD" \
+			pgAppUser="$PG_APP_USER" \
+			pgAppPassword="$PG_APP_PASSWORD" \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -76,6 +78,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			pgAdminPassword="$PG_ADMIN_PASSWORD" \
+			pgAppUser="$PG_APP_USER" \
+			pgAppPassword="$PG_APP_PASSWORD" \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -99,6 +103,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
 	pgAdminPassword="$PG_ADMIN_PASSWORD" \
+	pgAppUser="$PG_APP_USER" \
+	pgAppPassword="$PG_APP_PASSWORD" \
 	--query 'properties.outputs' -o json); then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
@@ -280,21 +286,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set PG_USER + PG_PASSWORD on the web app to point at the application role
-echo "Setting PG_USER=[$PG_APP_USER] and PG_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings PG_USER="$PG_APP_USER" PG_PASSWORD="$PG_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "PG_USER and PG_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set PG_USER and PG_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 

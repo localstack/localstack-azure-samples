@@ -42,6 +42,19 @@ variable "pg_admin_password" {
   default     = "P@ssw0rd1234!"
 }
 
+variable "pg_app_user" {
+  description = "Application role that deploy.sh creates on the PostgreSQL flexible server; the web app connects with it through its PG_USER app setting."
+  type        = string
+  default     = "testuser"
+}
+
+variable "pg_app_password" {
+  description = "Password of the application role, which the web app reads from its PG_PASSWORD app setting. Pass via -var; do NOT commit."
+  type        = string
+  sensitive   = true
+  default     = "TestP@ssw0rd123"
+}
+
 variable "pg_version" {
   description = "PostgreSQL major version."
   type        = string

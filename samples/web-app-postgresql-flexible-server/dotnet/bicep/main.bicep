@@ -74,6 +74,13 @@ param pgAdminLogin string = 'pgadmin'
 @secure()
 param pgAdminPassword string
 
+@description('Application role that deploy.sh creates on the PostgreSQL flexible server; the web app connects with it through its PG_USER app setting.')
+param pgAppUser string = 'testuser'
+
+@description('Password of the application role, which the web app reads from its PG_PASSWORD app setting.')
+@secure()
+param pgAppPassword string
+
 @description('PostgreSQL major version.')
 @allowed(['13','14','15','16','17'])
 param pgVersion string = '16'
@@ -304,6 +311,8 @@ module webApp 'modules/web-app.bicep' = {
     pgHost: pgHost
     pgPort: pgPort
     pgDatabase: postgresqlServer.outputs.databaseName
+    pgUser: pgAppUser
+    pgPassword: pgAppPassword
     username: username
     applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     workspaceId: workspace.outputs.id

@@ -74,6 +74,13 @@ param mysqlAdminLogin string = 'myadmin'
 @secure()
 param mysqlAdminPassword string
 
+@description('Application user that deploy.sh creates on the MySQL flexible server; the web app connects with it through its MYSQL_USER app setting.')
+param mysqlAppUser string = 'testuser'
+
+@description('Password of the application user, which the web app reads from its MYSQL_PASSWORD app setting.')
+@secure()
+param mysqlAppPassword string
+
 @description('MySQL major version.')
 @allowed(['5.7','8.0.21'])
 param mysqlVersion string = '8.0.21'
@@ -304,6 +311,8 @@ module webApp 'modules/web-app.bicep' = {
     mysqlHost: mysqlHost
     mysqlPort: mysqlPort
     mysqlDatabase: mysqlServer.outputs.databaseName
+    mysqlUser: mysqlAppUser
+    mysqlPassword: mysqlAppPassword
     username: username
     applicationInsightsConnectionString: applicationInsights.outputs.connectionString
     workspaceId: workspace.outputs.id

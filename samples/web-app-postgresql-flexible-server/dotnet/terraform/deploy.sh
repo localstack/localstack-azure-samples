@@ -47,7 +47,9 @@ terraform plan -out=tfplan \
         -var "suffix=$SUFFIX" \
         -var "location=$LOCATION" \
         -var "pg_admin_login=$PG_ADMIN_USER" \
-        -var "pg_admin_password=$PG_ADMIN_PASSWORD"
+        -var "pg_admin_password=$PG_ADMIN_PASSWORD" \
+        -var "pg_app_user=$PG_APP_USER" \
+        -var "pg_app_password=$PG_APP_PASSWORD"
 
 if [[ $? != 0 ]]; then
         echo "Terraform plan failed. Exiting."
@@ -232,21 +234,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set PG_USER + PG_PASSWORD on the web app to point at the application role
-echo "Setting PG_USER=[$PG_APP_USER] and PG_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings PG_USER="$PG_APP_USER" PG_PASSWORD="$PG_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "PG_USER and PG_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set PG_USER and PG_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 

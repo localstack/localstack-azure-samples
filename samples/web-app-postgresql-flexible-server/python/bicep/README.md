@@ -32,7 +32,7 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 8. [Azure Database for PostgreSQL flexible server](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 16, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create psql bootstrap.
 9. [PostgreSQL database](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-servers) `PlannerDB` (UTF8 / `en_US.utf8`).
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `PG_HOST`, `PG_PORT`, and `PG_DATABASE` on the Web App but **does not** set `PG_USER` or `PG_PASSWORD` — those are written by `deploy.sh` after psql creates the application role. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
+11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `PG_HOST`, `PG_PORT`, `PG_DATABASE`, and `PG_USER` / `PG_PASSWORD` on the Web App, from the `pgAppUser` and `pgAppPassword` parameters: the application role that `deploy.sh` then creates with psql. A second deployment leaves them as they are. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 ## Configuration
 
@@ -75,10 +75,9 @@ The script will:
 
 1. Ensure the resource group exists.
 2. Validate `main.bicep`.
-3. Deploy the template, passing `pgAdminPassword`.
+3. Deploy the template, passing `pgAdminPassword`, `pgAppUser` and `pgAppPassword`.
 4. Use `psql` (connected via the public endpoint + firewall rule) to create the `testuser` role, the `activities` table, and the three demo rows.
-5. Set the Web App's `PG_USER`/`PG_PASSWORD` to `testuser` / `<app-password>` — the server admin login is never written to the Web App.
-6. Zip the application source under `../src` and deploy it.
+5. Zip the application source under `../src` and deploy it.
 
 ## Verification
 

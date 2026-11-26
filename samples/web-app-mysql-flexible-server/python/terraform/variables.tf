@@ -42,6 +42,19 @@ variable "mysql_admin_password" {
   default     = "P@ssw0rd1234!"
 }
 
+variable "mysql_app_user" {
+  description = "Application user that deploy.sh creates on the MySQL flexible server; the web app connects with it through its MYSQL_USER app setting."
+  type        = string
+  default     = "testuser"
+}
+
+variable "mysql_app_password" {
+  description = "Password of the application user, which the web app reads from its MYSQL_PASSWORD app setting. Pass via -var or the MYSQL_APP_PASSWORD env var; do NOT commit."
+  type        = string
+  sensitive   = true
+  default     = "TestP@ssw0rd123"
+}
+
 variable "mysql_version" {
   description = "MySQL major version."
   type        = string

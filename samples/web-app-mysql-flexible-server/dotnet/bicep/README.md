@@ -32,7 +32,7 @@ The [`deploy.sh`](deploy.sh) script creates the resource group while the Bicep m
 8. [Azure Database for MySQL flexible server](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/overview): public-access mode, Burstable `Standard_B1ms`, version 8.0.21, 32 GiB, HA disabled. A permissive firewall rule (`0.0.0.0–255.255.255.255`) lets the deploy machine reach the server for the post-create mysql bootstrap. Its audit log is on for the connection events (the `audit_log_enabled` and `audit_log_events` server parameters).
 9. [MySQL database](https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-create-manage-databases) `plannerdb` (utf8mb4 / `utf8mb4_unicode_ci`).
 10. [Azure App Service Plan](https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans).
-11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `MYSQL_HOST`, `MYSQL_PORT`, and `MYSQL_DATABASE` on the Web App but **does not** set `MYSQL_USER` or `MYSQL_PASSWORD` — those are written by `deploy.sh` after the mysql client creates the application user. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
+11. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview) with regional VNet integration into *app-subnet*. The Bicep template sets `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, and `MYSQL_USER` / `MYSQL_PASSWORD` on the Web App, from the `mysqlAppUser` and `mysqlAppPassword` parameters: the application user that `deploy.sh` then creates with the mysql client. A second deployment leaves them as they are. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 
 ## Configuration
 
@@ -75,10 +75,9 @@ The script will:
 
 1. Ensure the resource group exists.
 2. Validate `main.bicep`.
-3. Deploy the template, passing `mysqlAdminPassword`.
+3. Deploy the template, passing `mysqlAdminPassword`, `mysqlAppUser` and `mysqlAppPassword`.
 4. Use the `mysql` client (connected via the public endpoint + firewall rule) to create the `testuser` user, the `activities` table, and the demo rows.
-5. Set the Web App's `MYSQL_USER`/`MYSQL_PASSWORD` to `testuser` / `<app-password>` — the server admin login is never written to the Web App.
-6. Zip the application source under `../src` and deploy it.
+5. Zip the application source under `../src` and deploy it.
 
 ## Verification
 

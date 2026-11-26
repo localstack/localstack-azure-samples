@@ -58,7 +58,9 @@ terraform plan -out=tfplan \
         -var "suffix=$SUFFIX" \
         -var "location=$LOCATION" \
         -var "mysql_admin_login=$MYSQL_ADMIN_USER" \
-        -var "mysql_admin_password=$MYSQL_ADMIN_PASSWORD"
+        -var "mysql_admin_password=$MYSQL_ADMIN_PASSWORD" \
+        -var "mysql_app_user=$MYSQL_APP_USER" \
+        -var "mysql_app_password=$MYSQL_APP_PASSWORD"
 
 if [[ $? != 0 ]]; then
         echo "Terraform plan failed. Exiting."
@@ -227,21 +229,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set MYSQL_USER + MYSQL_PASSWORD on the web app to point at the application user
-echo "Setting MYSQL_USER=[$MYSQL_APP_USER] and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings MYSQL_USER="$MYSQL_APP_USER" MYSQL_PASSWORD="$MYSQL_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "MYSQL_USER and MYSQL_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set MYSQL_USER and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 
