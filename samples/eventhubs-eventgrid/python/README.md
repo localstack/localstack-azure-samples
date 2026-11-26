@@ -295,11 +295,11 @@ These queries read the telemetry and draw charts of it:
   | render areachart with (kind=stacked)
   ```
 
-- **The invocations of the function.** The invocations of `CaptureProcessor`:
+- **The invocations of the function.** The Functions host records each batch of events the Event Hubs trigger hands to `CaptureProcessor` as a request named `EventProcessor.Process`, after the span of the Event Hubs processor, not after the function:
 
   ```kusto
   requests
-  | where name startswith "CaptureProcessor"
+  | where name == "EventProcessor.Process"
   | project timestamp, name, success, duration
   ```
 

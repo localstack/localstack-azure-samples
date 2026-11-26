@@ -235,7 +235,7 @@ These queries read the telemetry and draw charts of it:
 
   ```kusto
   requests
-  | where name startswith "POST /delete"
+  | where name startswith "POST delete/"
   | project timestamp, name
   ```
 
