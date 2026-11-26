@@ -228,6 +228,12 @@ query_workspace \
 	"AppEvents | where Name == 'StatusRequested' | project TimeGenerated, Name, Image = tostring(Properties['image.name']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Image:Image}"
 
+# The traces that confirm the status requests the web app answered (AppTraces)
+query_workspace \
+	"Confirmation traces of the status requests (AppTraces)" \
+	"AppTraces | where Message startswith 'Status returned: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the status requests by image, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the status requests (AppMetrics)" \

@@ -175,6 +175,12 @@ query_workspace \
 	"[].{Event:Name,Source:Source,Events:Events}" \
 	2
 
+# The traces that confirm the games the timer function created (AppTraces)
+query_workspace \
+	"Confirmation traces of the games created (AppTraces)" \
+	"AppTraces | where Message contains 'scoreboard entries for game' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the completed games by the source of the request, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the completed games (AppMetrics)" \

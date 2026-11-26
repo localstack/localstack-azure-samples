@@ -265,6 +265,12 @@ query_workspace \
 	"[].{App:AppRoleName,Event:Name,Events:Events}" \
 	3
 
+# The trace that confirms the link shortened above (AppTraces)
+query_workspace \
+	"Confirmation trace of the [$CODE] link (AppTraces)" \
+	"AppTraces | where Message startswith 'Link created: $CODE ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metrics, exported once a minute: the links created and followed by the web app, and the links the abuse
 # scan checked by verdict (AppMetrics)
 query_workspace \

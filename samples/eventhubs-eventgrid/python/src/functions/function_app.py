@@ -146,7 +146,9 @@ def _read_archive(file_url: str) -> list[dict[str, Any]]:
         try:
             readings.append(json.loads(bytes(body).decode("utf-8")))
         except ValueError:
+            logger.warning("CAPTURE_RECORD_NOT_JSON url=%s sequence=%s", file_url, record.get("SequenceNumber"))
             continue
+    logger.info("CAPTURE_ARCHIVE_READ url=%s readings=%d", file_url, len(readings))
     return readings
 
 

@@ -111,7 +111,7 @@ def catalog(req: func.HttpRequest) -> func.HttpResponse:
     wanted = req.route_params.get("item")
     item = CATALOG.get(wanted)
     if item is None:
-        logger.warning("Origin %s has no catalog item %s", ORIGIN_NAME, wanted)
+        logger.warning("Catalog item not found: %s (origin %s)", wanted, ORIGIN_NAME)
         return json_response({"error": f"No catalog item {wanted}"}, status_code=404)
     # A custom event (customEvents table): the worker sends a log record that carries the microsoft.custom_event.name
     # attribute as a custom event named after its value, with the other attributes as its custom dimensions
@@ -124,6 +124,7 @@ def catalog(req: func.HttpRequest) -> func.HttpResponse:
         },
     )
     catalog_items_served.add(1, {"origin": ORIGIN_NAME})
+    logger.info("Catalog item read: %s (%s, origin %s)", wanted, item["sku"], ORIGIN_NAME)
     return json_response(
         {"origin": ORIGIN_NAME, "path": origin_path(req), "item": item},
         cache_control="public, max-age=300",

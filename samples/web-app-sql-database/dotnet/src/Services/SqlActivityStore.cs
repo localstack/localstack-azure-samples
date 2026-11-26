@@ -55,7 +55,7 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
         return activities;
     }
 
-    public async Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(string text, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
@@ -66,43 +66,42 @@ public sealed class SqlActivityStore(SqlOptions options, ILogger<SqlActivityStor
             """, connection);
         command.Parameters.AddWithValue("@username", options.Username);
         command.Parameters.AddWithValue("@activity", text);
-        var id = await command.ExecuteScalarAsync(cancellationToken);
+        var id = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken)) ?? "";
         logger.LogInformation("Activity created: {Id}", id);
-        ActivityTelemetry.Track(logger, "ActivityAdded", "add", Convert.ToString(id) ?? "");
+        ActivityTelemetry.Track(logger, "ActivityAdded", "add", id);
+        return id;
     }
 
-    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
             "UPDATE dbo.Activities SET activity = @activity, timestamp = GETDATE() WHERE id = CAST(@id AS UNIQUEIDENTIFIER)", connection);
         command.Parameters.AddWithValue("@activity", text);
         command.Parameters.AddWithValue("@id", id);
-        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
-        if (rows == 0)
+        if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
         {
-            logger.LogWarning("No activity found with ID: {Id}", id);
-            return;
+            return false;
         }
 
         logger.LogInformation("Updated activity with ID: {Id}", id);
         ActivityTelemetry.Track(logger, "ActivityUpdated", "update", id);
+        return true;
     }
 
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new SqlCommand("DELETE FROM dbo.Activities WHERE id = CAST(@id AS UNIQUEIDENTIFIER)", connection);
         command.Parameters.AddWithValue("@id", id);
-        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
-        if (rows == 0)
+        if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
         {
-            logger.LogWarning("No activity found with ID: {Id}", id);
-            return;
+            return false;
         }
 
         logger.LogInformation("Deleted activity with ID: {Id}", id);
         ActivityTelemetry.Track(logger, "ActivityDeleted", "delete", id);
+        return true;
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

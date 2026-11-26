@@ -58,7 +58,7 @@ public sealed class MongoActivityStore : IActivityStore
         return documents.Select(d => new Activity(d["_id"].AsString, d["activity"].AsString)).ToList();
     }
 
-    public async Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(string text, CancellationToken cancellationToken)
     {
         var id = ActivityId.Create(_options.Username, text);
         var document = new BsonDocument
@@ -75,9 +75,10 @@ public sealed class MongoActivityStore : IActivityStore
             document.ToJson(Indented)
         );
         ActivityTelemetry.Track(_logger, "ActivityAdded", "add", id);
+        return id;
     }
 
-    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken)
     {
         var result = await _collection.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", id),
@@ -90,10 +91,18 @@ public sealed class MongoActivityStore : IActivityStore
             id,
             _options.CollectionName
         );
+        // The matched count, not the modified one, tells whether the activity exists: an update to the same text
+        // matches the document without modifying it
+        if (result.MatchedCount == 0)
+        {
+            return false;
+        }
+
         ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
+        return true;
     }
 
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         var result = await _collection.DeleteOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", id),
@@ -105,7 +114,13 @@ public sealed class MongoActivityStore : IActivityStore
             id,
             _options.CollectionName
         );
+        if (result.DeletedCount == 0)
+        {
+            return false;
+        }
+
         ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
+        return true;
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

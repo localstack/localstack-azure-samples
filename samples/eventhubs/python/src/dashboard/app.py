@@ -156,7 +156,9 @@ def checkpoint_snapshot(partitions: list[dict]) -> list[dict]:
             try:
                 payload = container_client.download_blob(blob.name).readall()
                 metadata = json.loads(payload) if payload else {}
-            except Exception:
+            except Exception as error:
+                # The blob's metadata still holds the checkpoint, so the row is kept without the body's values
+                LOG.warning("CHECKPOINT_BODY_UNREADABLE blob=%s/%s error=%s", container["name"], blob.name, type(error).__name__)
                 metadata = {}
             blob_properties = container_client.get_blob_client(blob.name).get_blob_properties()
             checkpoint_metadata = blob_properties.metadata or {}
@@ -210,6 +212,7 @@ def recent_alerts(limit: int = ALERT_PAGE_SIZE) -> list[dict]:
                 try:
                     alerts.append(json.loads(event.body_as_str()))
                 except ValueError:
+                    LOG.warning("ALERT_UNDECODABLE partition=%s", partition_context.partition_id)
                     continue
 
     # receive_batch() returns only once the client is closed, so it runs on a worker thread
@@ -266,6 +269,7 @@ def capture_snapshot(limit: int = 10) -> dict:
                     try:
                         body = json.loads(body.decode("utf-8"))
                     except ValueError:
+                        LOG.warning("CAPTURE_BODY_NOT_JSON blob=%s sequence=%s", candidate["name"], record.get("SequenceNumber"))
                         body = body.decode("utf-8", errors="replace")
                 sample_records.append(
                     {

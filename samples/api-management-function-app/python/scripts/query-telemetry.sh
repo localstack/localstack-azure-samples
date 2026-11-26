@@ -268,6 +268,12 @@ query_workspace \
 	"AppEvents | where Name == 'InventoryItemServed' | summarize Events = count() by Sku = tostring(Properties['inventory.sku']) | order by Sku asc" \
 	"[].{Sku:Sku,Events:Events}"
 
+# The traces that confirm the inventory items the backend served (AppTraces)
+query_workspace \
+	"Confirmation traces of the inventory items read (AppTraces)" \
+	"AppTraces | where Message startswith 'Inventory item read: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the inventory items served per SKU, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the inventory items served (AppMetrics)" \

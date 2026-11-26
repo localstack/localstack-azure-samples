@@ -118,6 +118,7 @@ def read_documents(username: str | None = None) -> List[dict]:
         for document in client.read_documents(query=query):
             documents.append(document)
             activities.append((document["_id"], document["activity"]))
+        logger.info("Activities read: %d", len(documents))
     except PyMongoError:
         logger.exception("Error reading documents.")
         flash(DATABASE_UNAVAILABLE)
@@ -144,9 +145,12 @@ def index():
 
                     updated_activity = client.update_document_by_id(row_id, {"activity": activity})
                     if updated_activity:
-                        logger.info(f"Activity updated: {row_id}")
+                        logger.info("Activity updated: %s (%s)", row_id, activity)
                         track_activity_event("ActivityUpdated", "update", row_id)
                         flash("Activity updated!")
+                    else:
+                        logger.warning("Activity not found: %s", row_id)
+                        flash("Activity not found.")
                 else:
                     # Create a document with the activity provided
                     document: dict = create_document(activity)
@@ -154,7 +158,7 @@ def index():
 
                     # Append the activity to the activities list
                     activities.append((document["_id"], activity))
-                    logger.info(f"Activity added: {activity}")
+                    logger.info("Activity added: %s (%s)", document["_id"], activity)
                     track_activity_event("ActivityAdded", "add", document["_id"])
                     flash("Activity added!")
 
@@ -188,13 +192,18 @@ def delete(activity_id: int):
             document_id = activities[activity_id][0]
             try:
                 # Delete the document from MongoDB
-                client.delete_document_by_id(document_id)
-                logger.info("Activity deleted: %s", document_id)
-                track_activity_event("ActivityDeleted", "delete", document_id)
-                flash("Activity deleted.")
+                if client.delete_document_by_id(document_id):
+                    logger.info("Activity deleted: %s", document_id)
+                    track_activity_event("ActivityDeleted", "delete", document_id)
+                    flash("Activity deleted.")
+                else:
+                    logger.warning("Activity not found: %s", document_id)
+                    flash("Activity not found.")
             except PyMongoError:
                 logger.exception("Error deleting the activity %s.", document_id)
                 flash(DATABASE_UNAVAILABLE)
+    else:
+        logger.warning("Activity not found: position %d", activity_id)
 
     return redirect(url_for('index'))
 

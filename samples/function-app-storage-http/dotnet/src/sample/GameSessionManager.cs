@@ -42,8 +42,10 @@ public class GameSessionManager
     private static readonly Dictionary<int, List<PlayerScore>> _gameData = new Dictionary<int, List<PlayerScore>>();
     private static readonly object _gameDataLock = new object();
 
-    // Static initialization - runs once per application lifetime
-    private static readonly Lazy<Task> _infrastructureInitialization = new Lazy<Task>(() => InitializeInfrastructureOnceAsync());
+    // Static initialization - runs once per application lifetime, started by the first instance that needs it with its
+    // logger, whose records the Functions worker sends to Application Insights
+    private static Task? _infrastructureInitialization;
+    private static readonly object _infrastructureInitializationLock = new object();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GameSessionManager"/> class.
@@ -59,17 +61,22 @@ public class GameSessionManager
     /// during the application lifetime. This method is thread-safe and idempotent.
     /// </summary>
     /// <returns>A task that completes when infrastructure initialization is finished.</returns>
-    private async Task EnsureInfrastructureInitializedAsync()
+    private Task EnsureInfrastructureInitializedAsync()
     {
-        await _infrastructureInitialization.Value;
+        lock (_infrastructureInitializationLock)
+        {
+            _infrastructureInitialization ??= InitializeInfrastructureOnceAsync(_logger);
+            return _infrastructureInitialization;
+        }
     }
 
     /// <summary>
     /// One-time initialization of Azure Storage infrastructure (queues, containers, tables).
     /// This method runs exactly once per application lifetime and stores configuration values in static fields.
     /// </summary>
+    /// <param name="logger">The logger of the instance that starts the initialization.</param>
     /// <returns>A task representing the asynchronous initialization operation.</returns>
-    private static async Task InitializeInfrastructureOnceAsync()
+    private static async Task InitializeInfrastructureOnceAsync(ILogger logger)
     {
         try
         {
@@ -78,10 +85,6 @@ public class GameSessionManager
                 .AddEnvironmentVariables()
                 .AddJsonFile("local.settings.json", optional: true);
             var config = configBuilder.Build();
-
-            // Create a temporary logger for initialization
-            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-            var logger = loggerFactory.CreateLogger<GameSessionManager>();
 
             logger.LogInformation("[InitializeInfrastructureOnceAsync] Starting one-time infrastructure initialization...");
 
@@ -122,8 +125,8 @@ public class GameSessionManager
         }
         catch (Exception ex)
         {
-            // Log error but don't throw - let functions continue to work even if initialization fails
-            Console.WriteLine("[InitializeInfrastructureOnceAsync] Failed to initialize infrastructure: {0}", ex.Message);
+            // Log the error but don't throw - let functions continue to work even if initialization fails
+            logger.LogError(ex, "[InitializeInfrastructureOnceAsync] Failed to initialize infrastructure.");
             _configurationValid = false;
         }
     }
@@ -253,6 +256,7 @@ public class GameSessionManager
         // Validate the name parameter
         if (name == null || string.IsNullOrWhiteSpace(name))
         {
+            _logger.LogWarning("[GetPlayerScore] Invalid parameters: gameId = {gameId}, name = {name}.", gameId, name ?? "NULL");
             response = request.CreateResponse(HttpStatusCode.BadRequest);
             await response.WriteStringAsync("Invalid parameters: name parameter is required.");
             return response;
@@ -270,6 +274,7 @@ public class GameSessionManager
 
         if (playerScore == null)
         {
+            _logger.LogWarning("[GetPlayerScore] Player not found: game {gameId}, player {name}.", gameId, name);
             response = request.CreateResponse(HttpStatusCode.NotFound);
             await response.WriteStringAsync($"Game {gameId} and player '{name}' tuple not found.");
             return response;
@@ -319,6 +324,7 @@ public class GameSessionManager
         // Validate that the request body is not empty
         if (requestBody == null || string.IsNullOrWhiteSpace(requestBody))
         {
+            _logger.LogWarning("[CreateGameStatus] The request has no body.");
             response = request.CreateResponse(HttpStatusCode.BadRequest);
             await response.WriteStringAsync("[CreateGameStatus] Invalid request message: Request body is required.");
             return response;
@@ -330,9 +336,10 @@ public class GameSessionManager
             // Attempt to deserialize the request body into a GameStatusRequest object
             requestMessage = JsonSerializer.Deserialize<GameStatusRequest>(requestBody);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // Handle invalid JSON format
+            // An invalid body is an expected condition: a warning trace, not an exception
+            _logger.LogWarning("[CreateGameStatus] The body is not a GameStatusRequest: {message}", ex.Message);
             response = request.CreateResponse(HttpStatusCode.BadRequest);
             await response.WriteStringAsync("[CreateGameStatus] Invalid request message: Request body is not in the proper format.");
             return response;
@@ -341,6 +348,7 @@ public class GameSessionManager
         // Validate that the GameId property is present and valid
         if (requestMessage == null || requestMessage.GameId <= 0)
         {
+            _logger.LogWarning("[CreateGameStatus] The request names no valid gameId.");
             response = request.CreateResponse(HttpStatusCode.BadRequest);
             await response.WriteStringAsync("[CreateGameStatus] Invalid request message: 'GameId' is required and must be greater than 0.");
             return response;

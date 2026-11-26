@@ -226,6 +226,12 @@ query_workspace \
 	"AppEvents | where Name == 'FraudDetected' | summarize Events = count(), Amount = round(sum(todouble(Properties['payment.amount'])), 2) by Channel = tostring(Properties['payment.channel']) | order by Channel asc" \
 	"[].{Channel:Channel,Events:Events,Amount:Amount}"
 
+# The traces that confirm the payment batches the function screened (AppTraces)
+query_workspace \
+	"Confirmation traces of the payment batches screened (AppTraces)" \
+	"AppTraces | where Message startswith 'FRAUD_BATCH ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the payments the function screened, by outcome (legitimate, flagged), exported once a
 # minute (AppMetrics): run-pipeline.sh sends both kinds
 query_workspace \

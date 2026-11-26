@@ -91,7 +91,9 @@ app.MapGet("/api/certificate", async (ILogger<Program> logger, CancellationToken
 
     try
     {
-        return Results.Json(await KeyVaultCertificates.GetCertificateInfoAsync(vaultUri, certificateName, cancellationToken));
+        var info = await KeyVaultCertificates.GetCertificateInfoAsync(vaultUri, certificateName, cancellationToken);
+        logger.LogInformation("Certificate read: {Certificate} (thumbprint {Thumbprint})", info.Name, info.Thumbprint);
+        return Results.Json(info);
     }
     catch (Exception ex)
     {

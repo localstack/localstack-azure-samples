@@ -164,6 +164,12 @@ query_workspace \
 	"AppEvents | where Name == 'DeviceSummarized' | summarize Events = count(), Excursions = sum(toint(Properties['device.excursions'])) by Device = tostring(Properties['device.id']) | order by Device asc" \
 	"[].{Device:Device,Events:Events,Excursions:Excursions}"
 
+# The traces that confirm the device summaries the function wrote (AppTraces)
+query_workspace \
+	"Confirmation traces of the device summaries (AppTraces)" \
+	"AppTraces | where Message startswith 'DEVICE_SUMMARY ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the readings and the excursions the function summarized, exported once a minute
 # (AppMetrics)
 query_workspace \

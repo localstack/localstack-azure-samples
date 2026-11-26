@@ -178,6 +178,12 @@ query_workspace \
 	"AppEvents | where Name == 'BlobProcessed' | project TimeGenerated, Name, Blob = tostring(Properties['blob.name']), Size = tostring(Properties['blob.size']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Blob:Blob,Size:Size}"
 
+# The traces that confirm the blobs the function processed, including the one above (AppTraces)
+query_workspace \
+	"Confirmation traces of the processed blobs (AppTraces)" \
+	"AppTraces | where Message startswith 'Blob processed: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the processed files, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the processed files (AppMetrics)" \

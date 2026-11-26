@@ -176,6 +176,12 @@ query_workspace \
 	"[].{Event:Name,Events:Events}" \
 	3
 
+# The traces that confirm the greeting requests the handler processed (AppTraces)
+query_workspace \
+	"Confirmation traces of the processed greetings (AppTraces)" \
+	"AppTraces | where Message startswith '[GreetingHandler] Processed message' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the greetings by operation, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the greetings (AppMetrics)" \

@@ -68,24 +68,37 @@ public sealed class BlobActivityStore : IActivityStore
         return activities;
     }
 
-    public async Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(string text, CancellationToken cancellationToken)
     {
         var name = $"{DateTime.Now:yyyy-MM-dd-HH-mm-ss}-activity.txt";
         await UploadAsync(name, text, cancellationToken);
         ActivityTelemetry.Track(_logger, "ActivityAdded", "add", name);
+        return name;
     }
 
-    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken)
     {
+        // An upload creates the blob when it is missing, so an update checks first that the activity exists
+        if (!await _container.GetBlobClient(id).ExistsAsync(cancellationToken))
+        {
+            return false;
+        }
+
         await UploadAsync(id, text, cancellationToken);
         ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
+        return true;
     }
 
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
-        await _container.GetBlobClient(id).DeleteIfExistsAsync(cancellationToken: cancellationToken);
+        if (!await _container.GetBlobClient(id).DeleteIfExistsAsync(cancellationToken: cancellationToken))
+        {
+            return false;
+        }
+
         _logger.LogInformation("Deleted blob '{Blob}' from container '{Container}'", id, _container.Name);
         ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
+        return true;
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

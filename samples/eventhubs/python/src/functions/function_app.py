@@ -78,6 +78,7 @@ def _parse_timestamp(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
     except (TypeError, ValueError):
+        logger.warning("PAYMENT_TIMESTAMP_INVALID timestamp=%r: the velocity rule uses the current time", value)
         return datetime.now(UTC)
 
 

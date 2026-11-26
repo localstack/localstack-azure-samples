@@ -217,6 +217,12 @@ query_workspace \
 	"AppEvents | where Name == 'CatalogItemServed' | summarize Events = count() by Origin = tostring(Properties['origin.name']), Sku = tostring(Properties['catalog.sku']) | order by Origin asc, Sku asc" \
 	"[].{Origin:Origin,Sku:Sku,Events:Events}"
 
+# The traces that confirm the catalog items the origins served (AppTraces)
+query_workspace \
+	"Confirmation traces of the catalog items read (AppTraces)" \
+	"AppTraces | where Message startswith 'Catalog item read: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the catalog items each origin served, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the catalog items served (AppMetrics)" \

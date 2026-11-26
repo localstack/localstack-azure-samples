@@ -54,6 +54,8 @@ app.MapRazorPages();
 app.MapGet("/api/status", () =>
 {
     StatusTelemetry.Track(statusLogger, AppInfo.ImageName, AppInfo.HostName);
+    // The values of a message template's placeholders reach Application Insights as custom dimensions
+    statusLogger.LogInformation("Status returned: {ImageName} on {HostName}", AppInfo.ImageName, AppInfo.HostName);
     return Results.Json(new
     {
         status = "ok",

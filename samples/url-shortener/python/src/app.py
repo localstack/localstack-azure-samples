@@ -207,6 +207,7 @@ def entity_to_dict(e):
 def index():
     entities = table().query_entities(f"PartitionKey eq '{PARTITION}'")
     links = sorted((entity_to_dict(e) for e in entities), key=lambda l: -l["hits"])
+    LOG.info("Links read: %d", len(links))
     return render_template_string(PAGE, links=links)
 
 
@@ -215,6 +216,7 @@ def shorten():
     payload = request.get_json(silent=True) or request.form
     url = (payload.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
+        LOG.warning("Link not created: the url %r does not start with http:// or https://", url)
         return jsonify(error="url must start with http:// or https://"), 400
     for _ in range(3):
         code = new_code()
@@ -232,8 +234,10 @@ def shorten():
             table().create_entity(entity)
             break
         except ResourceExistsError:
+            LOG.warning("Code %s is taken: trying another one", code)
             continue
     else:
+        LOG.error("Link not created: no unique code for %s after 3 attempts", url)
         return jsonify(error="could not allocate a unique code"), 500
 
     # Fan out to the workers: abuse scan via Service Bus, QR render via Storage Queue.
@@ -241,6 +245,7 @@ def shorten():
         sender.send_messages(ServiceBusMessage(json.dumps({"code": code, "url": url})))
     qr_queue().send_message(json.dumps({"code": code}))
 
+    LOG.info("Link created: %s (%s)", code, url)
     track_link_event("LinkCreated", "create", code)
     short_url = request.host_url.rstrip("/") + "/l/" + code
     if request.is_json:
@@ -253,6 +258,7 @@ def follow(code):
     try:
         entity = table().get_entity(PARTITION, code)
     except ResourceNotFoundError:
+        LOG.warning("Link not found: %s", code)
         return jsonify(error=f"unknown code {code!r}"), 404
     entity["hits"] = int(entity.get("hits", 0)) + 1
     table().update_entity(entity, mode=UpdateMode.MERGE)
@@ -266,6 +272,7 @@ def follow(code):
         # Analytics must not break redirects; the click is lost and logged. The distro sends a log record that carries
         # an exception to Application Insights as an exception.
         LOG.warning("click logging to postgres failed for %s: %s", code, e, exc_info=True)
+    LOG.info("Link followed: %s (%s, %d hits)", code, entity["url"], entity["hits"])
     track_link_event("LinkFollowed", "follow", code)
     return redirect(entity["url"], code=302)
 
@@ -275,7 +282,9 @@ def link_info(code):
     try:
         entity = table().get_entity(PARTITION, code)
     except ResourceNotFoundError:
+        LOG.warning("Link not found: %s", code)
         return jsonify(error=f"unknown code {code!r}"), 404
+    LOG.info("Link read: %s", code)
     return jsonify(entity_to_dict(entity))
 
 
@@ -291,10 +300,15 @@ def require_internal_token():
 def scan_result():
     require_internal_token()
     body = request.get_json(force=True)
-    table().update_entity(
-        {"PartitionKey": PARTITION, "RowKey": body["code"], "scan": body["verdict"]},
-        mode=UpdateMode.MERGE,
-    )
+    try:
+        table().update_entity(
+            {"PartitionKey": PARTITION, "RowKey": body["code"], "scan": body["verdict"]},
+            mode=UpdateMode.MERGE,
+        )
+    except ResourceNotFoundError:
+        LOG.warning("Link not found: %s", body["code"])
+        return jsonify(error=f"unknown code {body['code']!r}"), 404
+    LOG.info("Link scan updated: %s (%s)", body["code"], body["verdict"])
     return jsonify(ok=True)
 
 
@@ -318,10 +332,15 @@ def generate_qr():
         overwrite=True,
         content_settings=ContentSettings(content_type="image/svg+xml"),
     )
-    table().update_entity(
-        {"PartitionKey": PARTITION, "RowKey": code, "qr": "done"},
-        mode=UpdateMode.MERGE,
-    )
+    try:
+        table().update_entity(
+            {"PartitionKey": PARTITION, "RowKey": code, "qr": "done"},
+            mode=UpdateMode.MERGE,
+        )
+    except ResourceNotFoundError:
+        LOG.warning("Link not found: %s", code)
+        return jsonify(error=f"unknown code {code!r}"), 404
+    LOG.info("Link QR code created: %s", code)
     return jsonify(ok=True)
 
 
@@ -332,11 +351,14 @@ def healthz():
         table()
         components["table"] = "ok"
     except Exception as e:
+        # A warning without the stack trace: it repeats on every probe while the dependency is down
+        LOG.warning("Health check: the table is unavailable: %s", e)
         components["table"] = f"error: {e}"
     try:
         sign_key()
         components["keyvault"] = "ok"
     except Exception as e:
+        LOG.warning("Health check: Key Vault is unavailable: %s", e)
         components["keyvault"] = f"error: {e}"
     try:
         conn = pg()
@@ -345,6 +367,7 @@ def healthz():
         conn.close()
         components["postgres"] = "ok"
     except Exception as e:
+        LOG.warning("Health check: PostgreSQL is unavailable: %s", e)
         components["postgres"] = f"error: {e}"
     components["servicebus"] = (
         "configured" if (os.environ.get("SB_CONN") or os.environ.get("SB_FQNS")) else "missing config"

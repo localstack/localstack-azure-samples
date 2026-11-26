@@ -258,6 +258,12 @@ query_workspace \
 	"AppEvents | where Name == 'ActivityAdded' | project TimeGenerated, Name, ActivityId = tostring(Properties['activity.id']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Activity:ActivityId}"
 
+# The trace that confirms the activity added above, with its id and text (AppTraces)
+query_workspace \
+	"Confirmation trace of the [$ACTIVITY] activity (AppTraces)" \
+	"AppTraces | where Message startswith 'Activity added: ' and Message endswith '($ACTIVITY)' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
 # The custom metric that counts the activities by operation, exported once a minute (AppMetrics)
 query_workspace \
 	"Custom metric of the activities (AppMetrics)" \

@@ -46,6 +46,7 @@ class CosmosDbClient:
         ))
 
     def update_document_by_id(self, doc_id: str, username: str, updates: dict):
+        """Apply the updates to the document with the ID; return the updated document, or None when no document has it."""
         try:
             item = self.container.read_item(item=doc_id, partition_key=username)
             for k, v in updates.items():
@@ -54,25 +55,13 @@ class CosmosDbClient:
         except exceptions.CosmosResourceNotFoundError:
             return None
 
-    def update_document_activity(self, activity_id: str, username: str, new_text: str):
-        try:
-            item = self.container.read_item(item=activity_id, partition_key=username)
-            item['activity'] = new_text
-            self.container.replace_item(item=activity_id, body=item)
-        except Exception as e:
-            logger.warning(f"Update failed: {e}")
-    
-    def delete_document_by_id(self, doc_id: str, username: str):
+    def delete_document_by_id(self, doc_id: str, username: str) -> bool:
+        """Delete the document with the ID; return False when no document has it. Other failures raise."""
         self.ensure_initialized()
-        
+
         try:
             doc_to_delete = self.container.read_item(item=doc_id, partition_key=[username])
             self.container.delete_item(item=doc_to_delete, partition_key=[username])
-        except exceptions.CosmosResourceNotFoundError as e:
-            logger.warning(f"Cosmos resource with doc_id {doc_id} and username {username} was not found")
-            raise e
-        except exceptions.CosmosHttpResponseError as e:
-            raise e
-        except Exception as e:
-            logger.info(f"DELETE METHOD CRASHED: Error Type: {type(e).__name__}, Message: {e}")
-            raise e
+        except exceptions.CosmosResourceNotFoundError:
+            return False
+        return True

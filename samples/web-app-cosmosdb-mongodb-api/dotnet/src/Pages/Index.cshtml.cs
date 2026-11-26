@@ -26,6 +26,8 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
         try
         {
             Activities = await store.ListAsync(cancellationToken);
+            // The values of a message template's placeholders reach Application Insights as custom dimensions
+            logger.LogInformation("Activities read: {Count}", Activities.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -44,14 +46,21 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
             {
                 if (!string.IsNullOrEmpty(id))
                 {
-                    await store.UpdateAsync(id, text, cancellationToken);
-                    logger.LogInformation("Activity updated: {Id}", id);
-                    TempData["Flash"] = "Activity updated!";
+                    if (await store.UpdateAsync(id, text, cancellationToken))
+                    {
+                        logger.LogInformation("Activity updated: {ActivityId} ({Activity})", id, text);
+                        TempData["Flash"] = "Activity updated!";
+                    }
+                    else
+                    {
+                        logger.LogWarning("Activity not found: {ActivityId}", id);
+                        TempData["Flash"] = "Activity not found.";
+                    }
                 }
                 else
                 {
-                    await store.AddAsync(text, cancellationToken);
-                    logger.LogInformation("Activity added: {Activity}", text);
+                    var newId = await store.AddAsync(text, cancellationToken);
+                    logger.LogInformation("Activity added: {ActivityId} ({Activity})", newId, text);
                     TempData["Flash"] = "Activity added!";
                 }
             }
