@@ -133,7 +133,7 @@ cd bicep
 bash deploy.sh
 ```
 
-The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix) for the validation script.
+The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials and the other deployment secrets to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix), for the validation script and for its next run, which reuses them.
 
 ## Testing
 

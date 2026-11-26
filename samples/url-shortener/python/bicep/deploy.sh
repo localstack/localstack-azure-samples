@@ -40,10 +40,20 @@ else
 	echo "[$RESOURCE_GROUP_NAME] resource group already exists in the [$SUBSCRIPTION_NAME] subscription"
 fi
 
-# Generate the deployment secrets; main.bicepparam reads them from the environment
-export POSTGRES_ADMIN_PASSWORD=$(openssl rand -hex 10)
-export SIGN_KEY=$(openssl rand -hex 16)
-export INTERNAL_TOKEN=$(openssl rand -hex 12)
+# The deployment secrets, which main.bicepparam reads from the environment. The first run generates them; a second
+# run keeps them, because the PostgreSQL server, the key vault and both apps already use them and the signing key
+# signed the existing links: the first run saved them, with the PostgreSQL host, in the file it writes for
+# scripts/validate.sh.
+STATE_FILE="$CURRENT_DIR/../scripts/.last_deploy.${PREFIX}.env"
+POSTGRES_SERVER_COUNT=$(az postgres flexible-server list --resource-group "$RESOURCE_GROUP_NAME" --query "length(@)" --output tsv --only-show-errors 2>/dev/null | tr -d '\r')
+if [[ -f "$STATE_FILE" && ${POSTGRES_SERVER_COUNT:-0} -gt 0 ]]; then
+	echo "Reusing the deployment secrets of the previous run from [$STATE_FILE]"
+	# shellcheck disable=SC1090
+	source "$STATE_FILE"
+fi
+export POSTGRES_ADMIN_PASSWORD="${POSTGRES_ADMIN_PASSWORD:-$(openssl rand -hex 10)}"
+export SIGN_KEY="${SIGN_KEY:-$(openssl rand -hex 16)}"
+export INTERNAL_TOKEN="${INTERNAL_TOKEN:-$(openssl rand -hex 12)}"
 
 # Validate the Bicep template
 echo "Validating the [$TEMPLATE] Bicep template..."
@@ -91,12 +101,14 @@ if [[ -z "$WEB_APP_NAME" || -z "$FUNCTION_APP_NAME" ]]; then
 	exit 1
 fi
 
-# Persist the PostgreSQL credentials for scripts/validate.sh, matching the
-# contract of scripts/deploy.sh.
-cat >"$CURRENT_DIR/../scripts/.last_deploy.${PREFIX}.env" <<EOF
+# Persist the PostgreSQL credentials for scripts/validate.sh, matching the contract of scripts/deploy.sh, and the
+# other deployment secrets for the next run of this script
+cat >"$STATE_FILE" <<EOF
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 POSTGRES_HOST=$POSTGRES_HOST
 POSTGRES_PORT=$POSTGRES_PORT
+SIGN_KEY=$SIGN_KEY
+INTERNAL_TOKEN=$INTERNAL_TOKEN
 EOF
 
 # Create the zip package of the web app
