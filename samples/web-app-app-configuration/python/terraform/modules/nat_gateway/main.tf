@@ -39,6 +39,10 @@ resource "azurerm_subnet_nat_gateway_association" "example" {
   for_each       = var.subnet_ids
   subnet_id      = each.value
   nat_gateway_id = azurerm_nat_gateway.example.id
+
+  # Azure refuses two concurrent writes to the same NAT gateway (ConflictingConcurrentWriteNotAllowed), so the subnet
+  # joins the gateway after its public IP association
+  depends_on = [azurerm_nat_gateway_public_ip_association.example]
 }
 
 # The public IP of the NAT Gateway exports the DDoS protection logs and its metrics
