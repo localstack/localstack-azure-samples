@@ -23,13 +23,11 @@ provider "azurerm" {
     }
   }
 
-  # Set the hostname of the Azure Metadata Service (for example management.azure.com)
-  # used to obtain the Cloud Environment when using LocalStack's Azure emulator.
-  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints.
-  metadata_host = "azure.localhost.localstack.cloud:4566"
-
-  # Set the subscription ID to a dummy value when using LocalStack's Azure emulator.
-  subscription_id = "00000000-0000-0000-0000-000000000000"
+  # Dual-target, deliberately: nothing emulator-specific is hardcoded here. deploy.sh exports ARM_SUBSCRIPTION_ID and
+  # ARM_TENANT_ID on both targets and, only when the active az cloud is LocalStack, ARM_METADATA_HOSTNAME (the
+  # emulator's metadata endpoint, from which the provider discovers every other endpoint). Authentication uses the
+  # Azure CLI session on both targets. Running terraform directly rather than through deploy.sh needs those variables
+  # exported.
 
   storage_use_azuread = false
 }

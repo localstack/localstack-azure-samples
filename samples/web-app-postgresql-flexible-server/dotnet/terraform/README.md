@@ -39,6 +39,7 @@ The Terraform configuration provisions:
 
 [`deploy.sh`](deploy.sh) performs:
 
+- Exports `ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID` from `az account show` and, when the active `az` cloud is `LocalStack`, `ARM_METADATA_HOSTNAME`: `providers.tf` hardcodes no endpoint and no subscription, so the same files deploy to the emulator and to Azure.
 - `terraform init -upgrade`
 - `terraform plan -out=tfplan` (passing `pg_admin_password`)
 - `terraform apply -auto-approve tfplan`

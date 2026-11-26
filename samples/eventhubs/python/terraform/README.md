@@ -8,8 +8,7 @@ application code with the Azure CLI.
 - The LocalStack Azure emulator is running and `lstk az start-interception` has been run.
 - `terraform` and `az` are on the PATH.
 
-The provider is already pointed at the emulator in `providers.tf`
-(`metadata_host = "azure.localhost.localstack.cloud:4566"`), so no `tflocal` wrapper is needed.
+`providers.tf` hardcodes no endpoint and no subscription: `deploy.sh` exports `ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID` from `az account show` and, when the active `az` cloud is `LocalStack`, `ARM_METADATA_HOSTNAME`, so the same files deploy to the emulator and to Azure, and no `tflocal` wrapper is needed.
 
 ## Usage
 

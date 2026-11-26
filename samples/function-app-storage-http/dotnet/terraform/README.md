@@ -60,26 +60,14 @@ See [deploy.sh](deploy.sh) for the complete deployment automation. The script pe
 
 ## Configuration
 
-When using LocalStack for Azure, configure the `metadata_host` and `subscription_id` settings in the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) to ensure proper connectivity:
+`providers.tf` hardcodes no endpoint and no subscription. `deploy.sh` exports the variables the [Azure Provider for Terraform](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) reads natively, so the same files run unmodified against the LocalStack emulator and against Azure:
 
+| Variable                               | Exported when                         | Value                                                     |
+| -------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
+| `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID` | always                                | `az account show`                                         |
+| `ARM_METADATA_HOSTNAME`                | the active `az cloud` is `LocalStack` | host of `az cloud show --query endpoints.resourceManager` |
 
-```hcl
-provider "azurerm" {
-  features {
-    resource_group {
-      prevent_deletion_if_contains_resources = false
-    }
-  }
-
-  # Set the hostname of the Azure Metadata Service (for example management.azure.com) 
-  # used to obtain the Cloud Environment when using LocalStack's Azure emulator. 
-  # This allows the provider to correctly identify the environment and avoid making calls to the real Azure endpoints. 
-  metadata_host="azure.localhost.localstack.cloud:4566"
-
-  # Set the subscription ID to a dummy value when using LocalStack's Azure emulator.
-  subscription_id = "00000000-0000-0000-0000-000000000000"
-}
-```
+The provider discovers every endpoint of the emulator from `ARM_METADATA_HOSTNAME`, and authenticates with the Azure CLI session on both targets. Against Azure, `deploy.sh` unsets `ARM_METADATA_HOSTNAME`, so the provider uses the endpoints of the public cloud. Running `terraform` directly, rather than through `deploy.sh`, needs these variables exported.
 
 ## Deployment
 
