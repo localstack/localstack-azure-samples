@@ -106,12 +106,15 @@ def evaluate(payment: dict) -> list[str]:
 
 
 @app.function_name(name="FraudDetector")
+# The trigger hands the function the raw bodies (binary): with the host's default binding, which parses each body as
+# JSON, one event that is not JSON failed the whole batch before the function could skip it below
 @app.event_hub_message_trigger(
     arg_name="events",
     event_hub_name="%EVENT_HUB_NAME%",
     connection="EVENTHUB_LISTEN_CONNECTION",
     consumer_group="%FRAUD_CONSUMER_GROUP%",
     cardinality=func.Cardinality.MANY,
+    data_type=func.DataType.BINARY,
 )
 @app.event_hub_output(
     arg_name="alerts",
