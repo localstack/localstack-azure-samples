@@ -159,7 +159,7 @@ if [[ -z "$MYSQL_CHECK" ]]; then
 fi
 
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
-echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
+echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server, unless it exists..."
 MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -170,7 +170,7 @@ MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 		FLUSH PRIVILEGES;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$MYSQL_APP_USER] created successfully"
+	echo "Login [$MYSQL_APP_USER] is in place: created if it was missing"
 else
 	echo "Failed to create login [$MYSQL_APP_USER]"
 	exit 1
@@ -194,7 +194,7 @@ else
 fi
 
 # Create [activities] table
-echo "Creating [activities] table in the [$DATABASE_NAME] database..."
+echo "Creating [activities] table in the [$DATABASE_NAME] database, unless it exists..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -212,14 +212,14 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 		);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	echo "[activities] table is in place: created if it was missing"
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -238,7 +238,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 			(MD5('paolo_viareggio_promenade_seed'), 'paolo', 'Stroll along the Viareggio promenade');"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
 	echo "Failed to insert sample data into [activities] table"
 	exit 1
