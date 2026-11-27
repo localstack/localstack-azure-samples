@@ -310,7 +310,7 @@ current=$(az role assignment list \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
 	--output tsv 2>/dev/null)
 
-if [[ $current == $ROLE ]]; then
+if [[ $current == "$ROLE" ]]; then
 	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -354,7 +354,7 @@ current=$(az role assignment list \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
 	--output tsv 2>/dev/null)
 
-if [[ $current == $ROLE ]]; then
+if [[ $current == "$ROLE" ]]; then
 	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
