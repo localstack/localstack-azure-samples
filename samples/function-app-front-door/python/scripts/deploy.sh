@@ -33,8 +33,8 @@ RULE_SET_NAME='catalogrules'
 ORIGIN_PATH='/api'
 PROBE_PATH='/api/health'
 FUNCTION_ZIPFILE='catalog_function.zip'
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 # How long to wait for a deployed function app to list its functions, and when to restart it if it lists none
 FUNCTIONS_RETRY_COUNT=30
 FUNCTIONS_RETRY_SLEEP=10
@@ -416,8 +416,9 @@ create_function_app() {
 	done
 
 	echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$FUNCTION_ZIPFILE]..."
-	# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-	# attempt is retried
+	# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+	# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+	# retried for about five minutes
 	DEPLOYED=0
 	for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 		az functionapp deploy \

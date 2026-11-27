@@ -17,8 +17,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME="default"
 ZIPFILE="function_app.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 RETRY_COUNT=3
@@ -673,8 +673,9 @@ echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
 #	--resource-group "$RESOURCE_GROUP_NAME" \
 #	--name "$FUNCTION_APP_NAME" \
 #	--src "$ZIPFILE" 1>/dev/null
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+# retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deploy \

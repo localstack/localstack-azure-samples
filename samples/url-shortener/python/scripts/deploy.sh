@@ -30,8 +30,8 @@ WEB_APP_RUNTIME_VERSION='3.13'
 FUNCTIONS_VERSION='4'
 WEBAPP_ZIPFILE='linklet_webapp.zip'
 WORKER_ZIPFILE='linklet_worker.zip'
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 KEY_VAULT_SECRETS_OFFICER_ROLE="Key Vault Secrets Officer"
 SECRET_RETRY_COUNT=20
 SECRET_RETRY_SLEEP=30
@@ -1244,8 +1244,9 @@ zip -r "$WORKER_ZIPFILE" function_app.py host.json requirements.txt
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$WORKER_ZIPFILE]..."
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+# retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deploy \

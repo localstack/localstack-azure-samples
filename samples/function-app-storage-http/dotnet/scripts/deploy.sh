@@ -23,8 +23,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME="default"
 ZIPFILE="function_app.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 
@@ -497,7 +497,8 @@ echo "Deploying function app [$FUNCTION_APP_NAME]..."
 # The package is already built. On Linux, az functionapp deployment source config-zip sets
 # SCM_DO_BUILD_DURING_DEPLOYMENT to false and waits until the deployment site sees it: a deployment right after the app
 # settings changed got a remote build on Azure, which a published .NET app fails. On Azure the first deployment to a
-# new function app can also time out (504) while its deployment site starts, so a failed attempt is retried
+# new function app can also time out (504) while its deployment site starts, and the next attempt can find the upload
+# that timed out still being deployed (DeploymentInProgress): a failed attempt is retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deployment source config-zip \
