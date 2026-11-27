@@ -147,6 +147,71 @@ call_http_trigger_functions() {
 		exit 1
 	fi
 
+	player_name='Leo'
+	game_session='1'
+
+	# Only the LocalStack emulator runs the function app in a Docker container on this machine. On Azure, call the
+	# functions on the default host name over HTTPS with the default function key, which their Function authorization
+	# level requires.
+	cloud_name=$(az cloud show --query name --output tsv | tr -d '\r')
+	if [[ $cloud_name != "LocalStack" ]]; then
+		# Azure reads the keys from the Functions host, which can answer with a timeout while it starts after a
+		# deployment: ask again until it returns the default key
+		local attempt function_key=""
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			function_key=$(az functionapp keys list \
+				--name "$function_app_name" \
+				--resource-group "$resource_group_name" \
+				--query 'functionKeys.default' \
+				--output tsv 2>/dev/null | tr -d '\r')
+			[ -n "$function_key" ] && break
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: no default function key yet for function app [$function_app_name]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			fi
+		done
+		if [ -z "$function_key" ]; then
+			echo "Error: No default function key found for function app [$function_app_name]"
+			exit 1
+		fi
+
+		# The games live in the memory of the function app, and its timer function creates the first one when the host
+		# starts, so wait until the game exists
+		echo "Waiting for game session [$game_session] to exist in the [$function_app_name] function app on [$cloud_name]..."
+		local status_code body
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			status_code=$(curl --max-time 30 -s -o /dev/null -w "%{http_code}" -H "x-functions-key: $function_key" "https://$function_host_name/api/player/$game_session/$player_name/status")
+			if [[ $status_code == 200 ]]; then
+				echo "Game session [$game_session] exists in the [$function_app_name] function app"
+				break
+			fi
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: the function app answered [$status_code]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			else
+				echo "Error: game session [$game_session] still doesn't exist in the [$function_app_name] function app after ${RETRY_COUNT:-30} attempts"
+				exit 1
+			fi
+		done
+
+		# Call the GET HTTP trigger function that returns a player status in a specified game session
+		echo "Calling HTTP trigger function to retrieve player [$player_name] status in game session [$game_session] via function hostname [$function_host_name]..."
+		if ! body=$(curl --max-time 30 -fsS -H "x-functions-key: $function_key" "https://$function_host_name/api/player/$game_session/$player_name/status"); then
+			echo "Error: the player status call failed"
+			exit 1
+		fi
+		jq . <<<"$body"
+
+		# Call the POST HTTP trigger function that returns the game session details
+		echo "Calling HTTP trigger function to retrieve game session [$game_session] details via function hostname [$function_host_name]..."
+		if ! body=$(curl --max-time 30 -fsS -X POST -H "Content-Type: application/json" -H "x-functions-key: $function_key" -d "{\"gameId\": $game_session}" "https://$function_host_name/api/game/session"); then
+			echo "Error: the game session call failed"
+			exit 1
+		fi
+		jq . <<<"$body"
+		return 0
+	fi
+
 	# Get the Docker container name
 	echo "Finding container name with prefix [ls-$function_app_name]..."
 	container_name=$(get_docker_container_name_by_prefix "ls-$function_app_name")
@@ -161,8 +226,6 @@ call_http_trigger_functions() {
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	player_name='Leo'
-	game_session='1'
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"
@@ -191,6 +254,26 @@ call_http_trigger_functions() {
 		echo "Failed to get mapped host port for container [$container_name]"
 		exit 1
 	fi
+
+	# The games live in the memory of the function app, and its timer function creates the first one when the host
+	# starts. After a restart, such as the one a second deployment causes, the host waits for the lock lease of the
+	# previous instance to expire and starts the timer up to a minute later, so wait until the game exists.
+	echo "Waiting for game session [$game_session] to exist in the [$function_app_name] function app..."
+	local attempt status_code
+	for attempt in $(seq 1 "${RETRY_COUNT:-18}"); do
+		status_code=$(curl --max-time 10 -s -o /dev/null -w "%{http_code}" "http://$function_host_name/api/player/$game_session/$player_name/status")
+		if [[ $status_code == 200 ]]; then
+			echo "Game session [$game_session] exists in the [$function_app_name] function app"
+			break
+		fi
+		if [ "$attempt" -lt "${RETRY_COUNT:-18}" ]; then
+			echo "Attempt $attempt of ${RETRY_COUNT:-18}: the function app answered [$status_code]. Waiting [${SLEEP:-10}] seconds before retry..."
+			sleep "${SLEEP:-10}"
+		else
+			echo "Error: game session [$game_session] still doesn't exist in the [$function_app_name] function app after ${RETRY_COUNT:-18} attempts"
+			exit 1
+		fi
+	done
 
 	if [ -n "$function_host_name" ]; then
 		# Call the GET HTTP trigger function that returns a player status in a specified game session via the function hostname

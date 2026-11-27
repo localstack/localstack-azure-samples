@@ -19,7 +19,7 @@ The solution is composed of the following Azure resources:
    - The **catalog origin group**, holding the primary origin at priority 1 and the secondary as a priority-2 standby, with a [health probe](https://learn.microsoft.com/en-us/azure/frontdoor/health-probes) that sends `HEAD /api/health` every 30 seconds.
    - The **status origin group**, holding the secondary origin alone.
    - The **catalog route** (`/*`), which sends traffic to the catalog origin group with [caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching) switched on and the rule set attached.
-   - The **status route** (`/status`), a more specific pattern pointing at the other origin group, with the origin path `/api/status`, no caching and no rules. On Azure an origin path replaces the part of the request path the pattern matched, and an exact pattern matches the whole path, so this route's origin path is the function's full path.
+   - The **status route** (`/status`), a more specific pattern pointing at the other origin group, with the origin path `/api/status`, no caching and no rules. On Azure an origin path replaces the part of the request path the pattern matched, and an exact pattern matches the whole path, so this route's origin path is the function's full path. Azure Front Door forwards it with a trailing slash, `/api/status/`, which the Functions host serves like `/api/status`.
    - The **catalogrules** [rule set](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine): `stampHeader` (adds `X-Served-By` to every GET response, which is what its `RequestMethod Equal GET` condition matches), `rewriteShop` (`/shop/*` → `/catalog/*` on the way to the origin) and `redirectLegacy` (`/legacy` → `302` to `/status`, answered at the edge).
 6. [Azure Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/diagnostic-settings) of the Function Apps, of the plan, of the storage accounts and of their services, of the Front Door profile and of the workspace itself send to it.
 7. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): A workspace-based resource that both Function Apps send their telemetry to through OpenTelemetry: their requests, their log records, the exceptions they log, the `CatalogItemServed` custom event and the `catalog_items_served` custom metric.
@@ -133,7 +133,7 @@ bash scripts/call-front-door.sh
 | 11  | The endpoint disabled, then enabled again                                    | `enabledState` takes the endpoint out of service and back                                                                                               |
 | 12  | The Application Insights resource and the app settings of both Function Apps | The resource stores its telemetry in the workspace, and both apps send theirs to it (the check reads the names of the app settings, never their values) |
 
-`call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received.
+`call-front-door.sh` is the short version: read a catalog item, read it again from the cache, follow the rewrite and the redirect, and print what the origin received. On Azure, a change to the endpoint reaches the edge locations of Front Door one after the other, so the script retries the read, the rewrite and the origin call until the edge answers with status 200.
 
 ### Calling the endpoint by hand
 
@@ -245,6 +245,146 @@ az monitor log-analytics query \
 ```
 
 [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the endpoint to answer, calls its catalog, status and whoami routes `CALLS` times each (3 by default), then reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when the endpoint doesn't answer, or when a query still lacks its records, after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+### Query the telemetry on the Logs page
+
+Besides the `CatalogItemServed` custom event, each function app logs `Catalog item read: <id> (<sku>, origin <origin>)` for each catalog item it serves, and the warning `Catalog item not found: <id> (origin <origin>)` for an unknown item. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the `Catalog item read` traces of the items it asks for through Front Door.
+
+To query the telemetry yourself, open the `<prefix>-insights-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-insights-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                       |
+| -------------------- | ----------------------- | --------------------------------------------- |
+| `requests`           | `AppRequests`           | The invocations of the functions              |
+| `dependencies`       | `AppDependencies`       | The calls to other services                   |
+| `traces`             | `AppTraces`             | The records of the loggers                    |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace |
+| `customEvents`       | `AppEvents`             | The custom events                             |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                            |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the `CatalogItemServed` events carry the SKU and the origin in `catalog.sku` and `origin.name`, and the `catalog_items_served` metric carries the origin in `origin`. Each record also names the function app that sent it in `cloud_RoleName`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `CatalogItemServed` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "CatalogItemServed"
+| project timestamp, Origin = tostring(customDimensions["origin.name"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per function.** The 50th, 95th and 99th percentiles of the duration of each function, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The catalog items served.** The requests for one catalog item, by origin:
+
+  ```kusto
+  requests
+  | where name startswith "GET api/catalog/"
+  | project timestamp, name, resultCode, cloud_RoleName
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the catalog items served:
+
+  ```kusto
+  let text = "Catalog item read";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `catalog_items_served` custom metric per minute, by origin:
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "catalog_items_served"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Origin = tostring(customDimensions["origin"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

@@ -89,9 +89,9 @@ variable "sku" {
 }
 
 variable "auto_pause_delay" {
-  description = "Time in minutes after which database is automatically paused. A value of -1 means that automatic pause is disabled."
+  description = "(Optional) Specifies the time in minutes after which a serverless database automatically pauses; -1 disables automatic pausing. Only serverless SKUs pause: the default, null, leaves the setting to Azure, so that a provisioned database such as the default Standard one shows no difference on the next plan."
   type        = number
-  default     = -1
+  default     = null
 }
 
 variable "availability_zone" {
@@ -261,12 +261,11 @@ variable "sku_name" {
       "B1", "B2", "B3",
       "S1", "S2", "S3",
       "EP1", "EP2", "EP3",
-      "P1", "P2", "P3",
-      "P1V2", "P2V2", "P3V2",
-      "P0V3", "P1V3", "P2V3", "P3V3",
-      "P1MV3", "P2MV3", "P3MV3", "P4MV3", "P5MV3",
+      "P1v2", "P2v2", "P3v2",
+      "P0v3", "P1v3", "P2v3", "P3v3",
+      "P1mv3", "P2mv3", "P3mv3", "P4mv3", "P5mv3",
       "I1", "I2", "I3",
-      "I1V2", "I2V2", "I3V2", "I4V2", "I5V2", "I6V2",
+      "I1v2", "I2v2", "I3v2", "I4v2", "I5v2", "I6v2",
       "WS1", "WS2", "WS3",
       "FC1"
     ], var.sku_name)
@@ -367,4 +366,69 @@ variable "log_analytics_retention_in_days" {
   description = "Data retention of the Log Analytics workspace in days."
   type        = number
   default     = 30
+}
+
+variable "web_app_identity_type" {
+  description = "(Optional) Specifies the type of managed identity of the Web App. The user-assigned identity reads the Key Vault, and AZURE_CLIENT_ID selects it in the app. Defaults to UserAssigned."
+  type        = string
+  default     = "UserAssigned"
+}
+
+variable "managed_identity_principal_type" {
+  description = "(Optional) Specifies the principal type of the two user-assigned managed identities in their role assignments. Defaults to ServicePrincipal."
+  type        = string
+  default     = "ServicePrincipal"
+}
+
+variable "key_vault_rbac_authorization_enabled" {
+  description = "(Optional) Specifies whether the Key Vault uses the Azure RBAC permission model, which the role assignments on the vault need. Defaults to true."
+  type        = bool
+  default     = true
+}
+
+variable "key_vault_secrets_user_role_name" {
+  description = "(Optional) Specifies the role the Web App's identity reads the connection string and the private key of the certificate with. Defaults to Key Vault Secrets User."
+  type        = string
+  default     = "Key Vault Secrets User"
+}
+
+variable "key_vault_certificate_user_role_name" {
+  description = "(Optional) Specifies the role the Web App's identity reads the certificate with. Defaults to Key Vault Certificate User."
+  type        = string
+  default     = "Key Vault Certificate User"
+}
+
+variable "key_vault_crypto_service_encryption_user_role_name" {
+  description = "(Optional) Specifies the role the SQL server's identity wraps and unwraps its database encryption keys with. Defaults to Key Vault Crypto Service Encryption User."
+  type        = string
+  default     = "Key Vault Crypto Service Encryption User"
+}
+
+variable "deployer_object_id" {
+  description = "(Optional) Specifies the object id of the principal running terraform apply. It is granted the deployer roles on the Key Vault, so that the key, the secret and the certificate can be written through the data plane of an RBAC vault. Empty skips the assignments (deploy.sh resolves it)."
+  type        = string
+  default     = ""
+}
+
+variable "deployer_principal_type" {
+  description = "(Optional) Specifies the principal type of the deploying principal: User, ServicePrincipal or Group. Defaults to User."
+  type        = string
+  default     = "User"
+
+  validation {
+    condition     = contains(["User", "ServicePrincipal", "Group"], var.deployer_principal_type)
+    error_message = "The deployer_principal_type must be User, ServicePrincipal or Group."
+  }
+}
+
+variable "deployer_role_definition_names" {
+  description = "(Optional) Specifies the roles granted to the deploying principal on the Key Vault. Defaults to Key Vault Crypto Officer, Key Vault Secrets Officer and Key Vault Certificates Officer, for the key, the secret and the certificate."
+  type        = list(string)
+  default     = ["Key Vault Crypto Officer", "Key Vault Secrets Officer", "Key Vault Certificates Officer"]
+}
+
+variable "rbac_propagation_delay" {
+  description = "(Optional) Specifies how long to wait after a role assignment on the Key Vault before the role is used: Azure role assignments take a while to propagate. deploy.sh passes 0s on the emulator. Defaults to 60s."
+  type        = string
+  default     = "60s"
 }

@@ -11,7 +11,7 @@
 # that sent it in AppRoleName. Run it after run-pipeline.sh, which sends the payments the function screens.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -19,7 +19,13 @@ RESOURCE_GROUP_NAME="${PREFIX}-eventhubs-rg"
 LOG_ANALYTICS_NAME="${PREFIX}-eh-logs"
 WEB_APP_NAME="${PREFIX}-eh-dashboard"
 DASHBOARD_CALLS="${DASHBOARD_CALLS:-3}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -225,6 +231,12 @@ query_workspace \
 	"FraudDetected custom events, per channel (AppEvents)" \
 	"AppEvents | where Name == 'FraudDetected' | summarize Events = count(), Amount = round(sum(todouble(Properties['payment.amount'])), 2) by Channel = tostring(Properties['payment.channel']) | order by Channel asc" \
 	"[].{Channel:Channel,Events:Events,Amount:Amount}"
+
+# The traces that confirm the payment batches the function screened (AppTraces)
+query_workspace \
+	"Confirmation traces of the payment batches screened (AppTraces)" \
+	"AppTraces | where Message startswith 'FRAUD_BATCH ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the payments the function screened, by outcome (legitimate, flagged), exported once a
 # minute (AppMetrics): run-pipeline.sh sends both kinds

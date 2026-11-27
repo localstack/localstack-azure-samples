@@ -70,7 +70,7 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 ## Test
 
-You can use the `call-web-app.sh` Bash script below to call the web app. The script calls the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
+You can use the `call-web-app.sh` Bash script below to call the web app. The script calls the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`. It calls it again while the web app pulls its image and starts, which on Azure can take a few minutes after the deployment.
 
 ## Application Insights
 
@@ -116,7 +116,147 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`    | The `status_requests` custom metric, with the image in `image`                                                  |
 | `AppExceptions` | The exceptions of the requests that fail, with their stack trace                                                |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the home page and the status endpoint, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the home page and the status endpoint, and reads the tables back, retrying until their records arrive. While it waits it calls the web app again: on Azure, App Service applies the connection string that `deploy.sh` sets last by starting a new container about a minute after the deployment, and the calls an earlier container served may never reach the workspace. It shows the exceptions without waiting for them: a healthy run has none.
+
+### Query the telemetry on the Logs page
+
+Besides the `StatusRequested` custom event, the web app logs the trace `Status returned: <image> on <host>` for each status request it answers. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for these traces.
+
+To query the telemetry yourself, open the `<prefix>-insights-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-insights-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                       |
+| -------------------- | ----------------------- | --------------------------------------------- |
+| `requests`           | `AppRequests`           | The requests the web app serves               |
+| `dependencies`       | `AppDependencies`       | The calls to other services                   |
+| `traces`             | `AppTraces`             | The records of the loggers                    |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace |
+| `customEvents`       | `AppEvents`             | The custom events                             |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                            |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the `StatusRequested` events carry the image and the host in `image.name` and `hostname`, and the `status_requests` metric carries the image in `image`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `StatusRequested` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "StatusRequested"
+| project timestamp, Image = tostring(customDimensions["image.name"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per endpoint.** The 50th, 95th and 99th percentiles of the duration of each endpoint, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The status requests.** The requests of the status API:
+
+  ```kusto
+  requests
+  | where name startswith "GET /api/status"
+  | project timestamp, name, resultCode
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the status requests:
+
+  ```kusto
+  let text = "Status returned";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `status_requests` custom metric per minute, by image:
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "status_requests"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Image = tostring(customDimensions["image"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

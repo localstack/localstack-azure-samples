@@ -147,6 +147,50 @@ call_http_trigger_function() {
 		exit 1
 	fi
 
+	greeting_count=100
+
+	# Only the LocalStack emulator runs the function app in a Docker container on this machine. On Azure, call the
+	# function on the default host name over HTTPS with the default function key, which its Function authorization
+	# level requires, and retry while the function app starts.
+	cloud_name=$(az cloud show --query name --output tsv | tr -d '\r')
+	if [[ $cloud_name != "LocalStack" ]]; then
+		# Azure reads the keys from the Functions host, which can answer with a timeout while it starts after a
+		# deployment: ask again until it returns the default key
+		local attempt function_key=""
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			function_key=$(az functionapp keys list \
+				--name "$function_app_name" \
+				--resource-group "$resource_group_name" \
+				--query 'functionKeys.default' \
+				--output tsv 2>/dev/null | tr -d '\r')
+			[ -n "$function_key" ] && break
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: no default function key yet for function app [$function_app_name]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			fi
+		done
+		if [ -z "$function_key" ]; then
+			echo "Error: No default function key found for function app [$function_app_name]"
+			exit 1
+		fi
+		echo "Calling HTTP trigger function to retrieve the last [$greeting_count] greetings via function hostname [$function_host_name] on [$cloud_name]..."
+		local response status_code
+		for attempt in $(seq 1 "${RETRY_COUNT:-30}"); do
+			response=$(curl --max-time 30 -s -w '\n%{http_code}' -H "x-functions-key: $function_key" "https://$function_host_name/api/greetings?count=$greeting_count")
+			status_code=${response##*$'\n'}
+			if [[ $status_code == 200 ]]; then
+				jq . <<<"${response%$'\n'*}"
+				return 0
+			fi
+			if [ "$attempt" -lt "${RETRY_COUNT:-30}" ]; then
+				echo "Attempt $attempt of ${RETRY_COUNT:-30}: the function app answered [$status_code]. Waiting [${SLEEP:-10}] seconds before retry..."
+				sleep "${SLEEP:-10}"
+			fi
+		done
+		echo "Error: the function app [$function_app_name] didn't answer with status 200 after ${RETRY_COUNT:-30} attempts"
+		exit 1
+	fi
+
 	# Get the Docker container name
 	echo "Finding container name with prefix [ls-$function_app_name]..."
 	container_name=$(get_docker_container_name_by_prefix "ls-$function_app_name")
@@ -161,7 +205,6 @@ call_http_trigger_function() {
 	# Get the container IP address
 	echo "Getting IP address for container [$container_name]..."
 	container_ip=$(get_docker_container_ip_address_by_name "$container_name")
-	greeting_count=100
 
 	if [ $? -eq 0 ] && [ -n "$container_ip" ]; then
 		echo "IP address [$container_ip] retrieved successfully for container [$container_name]"

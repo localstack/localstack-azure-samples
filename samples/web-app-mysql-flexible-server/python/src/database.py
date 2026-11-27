@@ -19,6 +19,7 @@ import ssl
 import time
 
 import pymysql
+from pymysql.constants import CLIENT
 from pymysql.err import InterfaceError, OperationalError
 
 # A child of the application's logger, whose records the Microsoft OpenTelemetry Distro sends to Application Insights
@@ -99,6 +100,9 @@ class MySQLClient:
             charset="utf8mb4",
             connect_timeout=10,
             autocommit=False,
+            # An UPDATE returns the rows it matched, not the rows it changed, so updating an activity to the same
+            # text still counts as found
+            client_flag=CLIENT.FOUND_ROWS,
         )
         if self.ssl_enabled:
             # Azure MySQL Flexible Server defaults to require_secure_transport=ON (the LocalStack
@@ -128,7 +132,7 @@ class MySQLClient:
                 return
             except (OperationalError, InterfaceError) as exc:
                 last_err = exc
-                logger.info("MySQL not ready (attempt %d/%d): %s", attempt, retries, exc)
+                logger.warning("MySQL not ready (attempt %d/%d): %s", attempt, retries, exc)
                 time.sleep(delay)
         raise RuntimeError(
             f"MySQL did not become ready after {retries} attempts: {last_err}"

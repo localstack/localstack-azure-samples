@@ -63,6 +63,7 @@ def status():
         extra={"microsoft.custom_event.name": "StatusRequested", "image.name": image, "hostname": hostname},
     )
     status_counter.add(1, {"image": image})
+    logger.info("Status returned: %s on %s", image, hostname)
     return jsonify(
         {
             "status": "ok",

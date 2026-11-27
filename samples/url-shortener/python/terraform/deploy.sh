@@ -13,6 +13,28 @@ DEPLOY_RETRY_SLEEP=30
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Dual-target provider configuration. providers.tf hardcodes nothing: the azurerm provider reads its endpoints and the
+# target subscription from the ARM_* environment variables exported here.
+# - On both targets: the subscription and tenant of the active az account.
+# - Only when the active az cloud is LocalStack: the emulator's metadata endpoint, taken from the az cloud registration
+#   that `lstk az start-interception` created, so nothing is hardcoded here either.
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
+ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv --only-show-errors)
+ARM_TENANT_ID=$(az account show --query tenantId --output tsv --only-show-errors)
+export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
+
+if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+	RESOURCE_MANAGER_ENDPOINT=$(az cloud show --query endpoints.resourceManager --output tsv --only-show-errors)
+	METADATA_HOSTNAME="${RESOURCE_MANAGER_ENDPOINT#https://}"
+	export ARM_METADATA_HOSTNAME="${METADATA_HOSTNAME%/}"
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets the emulator at [$RESOURCE_MANAGER_ENDPOINT]"
+else
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in the same shell would
+	# keep the provider doing metadata discovery against the emulator while the CLI is on Azure.
+	unset ARM_METADATA_HOSTNAME
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets Azure subscription [$ARM_SUBSCRIPTION_ID]"
+fi
+
 # Resolve the object id of the deploying principal. azurerm_key_vault_secret writes through the Key Vault
 # data plane, so on Azure the principal running terraform apply needs Key Vault Secrets Officer on the
 # vault; the configuration assigns it when the id is known. The lookup goes through Microsoft Graph; when
@@ -130,14 +152,31 @@ zip -r "$WEBAPP_ZIPFILE" app.py gunicorn.conf.py requirements.txt
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$WEBAPP_ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$WEBAPP_ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$WEBAPP_ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
 
-if [ $? -eq 0 ]; then
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
 	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
 	echo "Failed to deploy web app [$WEB_APP_NAME]."

@@ -41,18 +41,22 @@ ZIPFILE="planner_website.zip"
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
-# Create a resource group
-echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
-az group create \
-	--name $RESOURCE_GROUP_NAME \
-	--location $LOCATION \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
 else
-	echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
-	exit 1
+	# Create a resource group
+	echo "Creating resource group [$RESOURCE_GROUP_NAME]..."
+	az group create \
+		--name $RESOURCE_GROUP_NAME \
+		--location $LOCATION \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Resource group [$RESOURCE_GROUP_NAME] created successfully."
+	else
+		echo "Failed to create resource group [$RESOURCE_GROUP_NAME]."
+		exit 1
+	fi
 fi
 
 # Check if the CosmosDB account already exists
@@ -635,21 +639,25 @@ else
 	echo "Private DNS zone group [$PRIVATE_DNS_ZONE_GROUP_NAME] for the [$PRIVATE_ENDPOINT_NAME] private endpoint already exists"
 fi
 
-# Create app service plan
-echo "Creating app service plan [$APP_SERVICE_PLAN_NAME]..."
-az appservice plan create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$APP_SERVICE_PLAN_NAME" \
-	--location "$LOCATION" \
-	--sku "$APP_SERVICE_PLAN_SKU" \
-	--is-linux \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "app service plan [$APP_SERVICE_PLAN_NAME] created successfully."
+if az appservice plan show --name "$APP_SERVICE_PLAN_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "App service plan [$APP_SERVICE_PLAN_NAME] already exists."
 else
-	echo "Failed to create app service plan [$APP_SERVICE_PLAN_NAME]."
-	exit 1
+	# Create app service plan
+	echo "Creating app service plan [$APP_SERVICE_PLAN_NAME]..."
+	az appservice plan create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$APP_SERVICE_PLAN_NAME" \
+		--location "$LOCATION" \
+		--sku "$APP_SERVICE_PLAN_SKU" \
+		--is-linux \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "app service plan [$APP_SERVICE_PLAN_NAME] created successfully."
+	else
+		echo "Failed to create app service plan [$APP_SERVICE_PLAN_NAME]."
+		exit 1
+	fi
 fi
 
 # Get the app service plan resource id
@@ -668,22 +676,26 @@ else
 	exit 1
 fi
 
-# Create the web app
-echo "Creating web app [$WEB_APP_NAME]..."
-az webapp create \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--name "$WEB_APP_NAME" \
-	--runtime "$RUNTIME:$RUNTIME_VERSION" \
-	--vnet "$VIRTUAL_NETWORK_NAME" \
-	--subnet "$WEB_APP_SUBNET_NAME" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+if az webapp show --name "$WEB_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Web app [$WEB_APP_NAME] already exists."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
-	exit 1
+	# Create the web app
+	echo "Creating web app [$WEB_APP_NAME]..."
+	az webapp create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--name "$WEB_APP_NAME" \
+		--runtime "$RUNTIME:$RUNTIME_VERSION" \
+		--vnet "$VIRTUAL_NETWORK_NAME" \
+		--subnet "$WEB_APP_SUBNET_NAME" \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Web app [$WEB_APP_NAME] created successfully."
+	else
+		echo "Failed to create web app [$WEB_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # Get the web app resource id
@@ -1192,12 +1204,36 @@ unzip -l "$ZIPFILE"
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
 echo "Using standard az webapp deploy command for AzureCloud environment."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
+
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
+	exit 1
+fi
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then

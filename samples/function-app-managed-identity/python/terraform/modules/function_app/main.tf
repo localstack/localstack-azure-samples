@@ -32,7 +32,13 @@ resource "azurerm_linux_function_app" "example" {
 
   lifecycle {
     ignore_changes = [
-      tags
+      tags,
+      # The provider writes AzureWebJobsStorage and FUNCTIONS_EXTENSION_VERSION from storage_account_name,
+      # storage_account_access_key and functions_extension_version, and leaves both out of app_settings when it reads
+      # the app back, so every plan would add them again. The values in app_settings still apply when the app is
+      # created.
+      app_settings["AzureWebJobsStorage"],
+      app_settings["FUNCTIONS_EXTENSION_VERSION"],
     ]
   }
 }

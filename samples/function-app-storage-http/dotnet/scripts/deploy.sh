@@ -23,8 +23,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME="default"
 ZIPFILE="function_app.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 
@@ -183,25 +183,29 @@ else
 	echo "App Service plan [$APP_SERVICE_PLAN_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
 fi
 
-# Create the function app on the App Service plan, which also turns on Always On, so that the timer, queue and blob
-# triggers keep running. The --app-insights parameter connects the function app to the Application Insights component
-# through its APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
-echo "Creating function app [$FUNCTION_APP_NAME]..."
-az functionapp create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--runtime $RUNTIME \
-	--runtime-version $RUNTIME_VERSION \
-	--functions-version 4 \
-	--name $FUNCTION_APP_NAME \
-	--app-insights "$APPLICATION_INSIGHTS_NAME" \
-	--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Function app [$FUNCTION_APP_NAME] created successfully."
+if az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Function app [$FUNCTION_APP_NAME] already exists."
 else
-	echo "Failed to create function app [$FUNCTION_APP_NAME]."
-	exit 1
+	# Create the function app on the App Service plan, which also turns on Always On, so that the timer, queue and blob
+	# triggers keep running. The --app-insights parameter connects the function app to the Application Insights component
+	# through its APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
+	echo "Creating function app [$FUNCTION_APP_NAME]..."
+	az functionapp create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--runtime $RUNTIME \
+		--runtime-version $RUNTIME_VERSION \
+		--functions-version 4 \
+		--name $FUNCTION_APP_NAME \
+		--app-insights "$APPLICATION_INSIGHTS_NAME" \
+		--storage-account $STORAGE_ACCOUNT_NAME 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Function app [$FUNCTION_APP_NAME] created successfully."
+	else
+		echo "Failed to create function app [$FUNCTION_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # Construct the storage connection string for LocalStack
@@ -493,7 +497,8 @@ echo "Deploying function app [$FUNCTION_APP_NAME]..."
 # The package is already built. On Linux, az functionapp deployment source config-zip sets
 # SCM_DO_BUILD_DURING_DEPLOYMENT to false and waits until the deployment site sees it: a deployment right after the app
 # settings changed got a remote build on Azure, which a published .NET app fails. On Azure the first deployment to a
-# new function app can also time out (504) while its deployment site starts, so a failed attempt is retried
+# new function app can also time out (504) while its deployment site starts, and the next attempt can find the upload
+# that timed out still being deployed (DeploymentInProgress): a failed attempt is retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deployment source config-zip \

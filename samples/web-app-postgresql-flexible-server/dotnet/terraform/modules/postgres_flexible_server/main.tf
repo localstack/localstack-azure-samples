@@ -15,6 +15,12 @@ resource "azurerm_postgresql_flexible_server" "this" {
   public_network_access_enabled = true
 
   tags = var.tags
+
+  lifecycle {
+    # Azure picks the availability zone of a zone-redundancy-disabled server; the provider refuses to
+    # "change" it back to unset on the next plan, so the assigned zone is left alone.
+    ignore_changes = [zone, high_availability[0].standby_availability_zone]
+  }
 }
 
 resource "azurerm_postgresql_flexible_server_database" "this" {

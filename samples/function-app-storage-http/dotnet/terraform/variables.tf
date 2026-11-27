@@ -126,12 +126,11 @@ variable "sku_name" {
       "B1", "B2", "B3",
       "S1", "S2", "S3",
       "EP1", "EP2", "EP3",
-      "P1", "P2", "P3",
-      "P1V2", "P2V2", "P3V2",
-      "P0V3", "P1V3", "P2V3", "P3V3",
-      "P1MV3", "P2MV3", "P3MV3", "P4MV3", "P5MV3",
+      "P1v2", "P2v2", "P3v2",
+      "P0v3", "P1v3", "P2v3", "P3v3",
+      "P1mv3", "P2mv3", "P3mv3", "P4mv3", "P5mv3",
       "I1", "I2", "I3",
-      "I1V2", "I2V2", "I3V2", "I4V2", "I5V2", "I6V2",
+      "I1v2", "I2v2", "I3v2", "I4v2", "I5v2", "I6v2",
       "WS1", "WS2", "WS3",
       "FC1"
     ], var.sku_name)

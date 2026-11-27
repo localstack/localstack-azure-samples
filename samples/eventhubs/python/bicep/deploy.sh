@@ -41,7 +41,7 @@ fail() {
 	exit 1
 }
 
-# Store a secret in the key vault. The deploying principal can write through the Key Vault data plane only once its
+# Store a secret in the key vault, unless it already holds the same value. The deploying principal can write through the Key Vault data plane only once its
 # Key Vault Secrets Officer assignment has propagated, which takes a few minutes on Azure, so the write is retried. The
 # value is never printed.
 # $1: the secret name
@@ -49,7 +49,14 @@ fail() {
 set_secret() {
 	local secret_name=$1
 	local secret_value=$2
-	local attempt error
+	local attempt error current
+
+	current=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
+		--query value --output tsv --only-show-errors 2>/dev/null)
+	if [[ -n $current && $current == "$secret_value" ]]; then
+		echo "The [$secret_name] secret already holds the expected value."
+		return 0
+	fi
 
 	for attempt in $(seq 1 "$SECRET_RETRY_COUNT"); do
 		if error=$(az keyvault secret set --vault-name "$KEY_VAULT_NAME" --name "$secret_name" \
@@ -93,11 +100,15 @@ else
 fi
 
 echo "=== Creating the resource group ==="
-az group create \
-	--name "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create \
+		--name "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 echo ""
 echo "=== Validating the Bicep template ==="
@@ -255,13 +266,44 @@ cd "$CURRENT_DIR" || exit 1
 echo "Deploying the dashboard..."
 # Asynchronous, as in the other web app samples: the CLI polls the deployment until the build ends. A synchronous
 # request timed out on Azure (504) while the build was still running
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$WEB_APP_ZIP" \
-	--type zip \
-	--async true 1>/dev/null || fail "could not deploy the web app"
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$WEB_APP_ZIP" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
+[[ $WEBAPP_DEPLOYED == 1 ]] || fail "could not deploy the web app"
 rm -f "$WEB_APP_ZIP"
+
+# A function app on the Consumption plan runs only when the platform's scale controller starts it for the events its
+# trigger watches. On Azure, after two deployments in a row, the scale controller watched no trigger and never started
+# the function app (2026-11-26). Registering the triggers again at the end of the deployment, once the remote build of
+# the package has had time to finish, makes it start the function app when the events arrive.
+WEB_API_VERSION="${WEB_API_VERSION:-2024-04-01}"
+echo "Syncing the triggers of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
+	--query id --output tsv --only-show-errors)
+[[ -n "$FUNCTION_APP_ID" ]] || fail "could not read the id of function app [$FUNCTION_APP_NAME]"
+az rest --method post --url "$FUNCTION_APP_ID/syncfunctiontriggers?api-version=$WEB_API_VERSION" --only-show-errors \
+	1>/dev/null || fail "could not sync the triggers of function app [$FUNCTION_APP_NAME]"
+echo "Synced the triggers of the [$FUNCTION_APP_NAME] function app."
 
 # -----------------------------------------------------------------------------
 echo ""

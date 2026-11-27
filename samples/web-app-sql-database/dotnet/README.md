@@ -13,7 +13,7 @@ The following diagram illustrates the architecture of the solution:
 - **Azure App Service Plan**: Provides compute resources for the web app
 - **Azure SQL Database**: Stores activity data in a relational table, encrypted at rest with TDE
 - **Azure Key Vault**: Stores the database connection string, the certificate used to secure HTTPS traffic, and the RSA key that serves as the TDE protector of the SQL server
-- **User-Assigned Managed Identity**: The identity the SQL server uses to wrap and unwrap its database encryption keys with the Key Vault key
+- **User-Assigned Managed Identities**: The identity the web app reads the connection string and the certificate from Key Vault with, and the identity the SQL server uses to wrap and unwrap its database encryption keys with the Key Vault key. Each gets its access to the vault through Azure role assignments: see [Azure Key Vault Integration](#azure-key-vault-integration).
 - **Azure Log Analytics Workspace**: Stores the telemetry of Application Insights, and the resource logs and platform metrics that the diagnostic settings of the web app, the App Service plan, the database, the key vault and the workspace itself send to it. See [Logs and metrics](#logs-and-metrics).
 - **Azure Application Insights**: A workspace-based resource that collects the requests, the calls to Azure SQL Database and Key Vault, the log records, the exceptions, the custom events and the custom metric of the web app, which the Microsoft OpenTelemetry Distro sends to the connection string of the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting. See [Application Insights](#application-insights).
 
@@ -61,9 +61,20 @@ Secrets: The SQL connection string is stored as a secret in Key Vault. At runtim
 
 Certificates: A self-signed certificate is created in Key Vault during deployment. The app exposes a GET /api/certificate endpoint that retrieves the certificate using the Azure Key Vault Certificates SDK and returns its name, confirming the integration works. This is configured via the KEYVAULT_URI and CERT_NAME environment variables.
 
-Keys: An RSA key in Key Vault is the TDE protector of the SQL server, the customer-managed key that encrypts the database encryption key of every database on the server. The server reaches the key through its user-assigned managed identity, which holds the `get`, `wrapKey` and `unwrapKey` key permissions, and picks up new versions of the key automatically (auto-rotation). Azure requires soft delete and purge protection on the vault. With purge protection, a deleted vault cannot be purged: after the resource group is deleted, the vault stays soft-deleted for the 7-day retention period, and its name cannot be reused anywhere until then. Vault names are global, so a soft-deleted vault from any earlier deployment of this sample, yours or someone else's, blocks the name for everyone. To deploy to Azure under a new name, change `PREFIX` or `SUFFIX` in the deployment script you use and in `scripts/validate.sh`; `scripts/call-web-app.sh` finds the web app by itself.
+Keys: An RSA key in Key Vault is the TDE protector of the SQL server, the customer-managed key that encrypts the database encryption key of every database on the server. The server reaches the key through its user-assigned managed identity, which holds the Key Vault Crypto Service Encryption User role on the vault, and picks up new versions of the key automatically (auto-rotation). Azure requires soft delete and purge protection on the vault. With purge protection, a deleted vault cannot be purged: after the resource group is deleted, the vault stays soft-deleted for the 7-day retention period, and its name cannot be reused anywhere until then. Vault names are global, so a soft-deleted vault from any earlier deployment of this sample, yours or someone else's, blocks the name for everyone. To deploy to Azure under a new name, change `PREFIX` or `SUFFIX` in the deployment script you use and in `scripts/validate.sh`; `scripts/call-web-app.sh` finds the web app by itself.
 
-On LocalStack, the emulator registers the key on the server and checks that the key exists and that the server identity holds `get`, `wrapKey` and `unwrapKey` on it, but it does not encrypt the database with it, and unlike Azure it does not require purge protection on the vault. The Azure CLI variant registers the key and the protector with `az resource create`, because `az sql server key create` and `az sql server tde-key set` only accept key ids on the public Key Vault domains and reject the ones the emulator issues.
+On LocalStack, the emulator registers the key on the server and checks that the key exists and that the server's identity can get it and wrap and unwrap with it, but it does not encrypt the database with it, and unlike Azure it does not require purge protection on the vault. The Azure CLI variant registers the key and the protector with `az resource create`, because `az sql server key create` and `az sql server tde-key set` only accept key ids on the public Key Vault domains and reject the ones the emulator issues.
+
+The vault uses the [Azure RBAC permission model](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide): each principal gets its access through a role assignment on the vault, not an access policy.
+
+| Principal                                       | Role on the vault                                                                      | Why                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The web app's user-assigned managed identity    | Key Vault Secrets User                                                                 | Reads the connection string, and the private key of the certificate, which Key Vault keeps as a secret                                                                                                                                                                                                                                          |
+| The web app's user-assigned managed identity    | Key Vault Certificate User                                                             | Reads the certificate for `GET /api/certificate`                                                                                                                                                                                                                                                                                                |
+| The SQL server's user-assigned managed identity | Key Vault Crypto Service Encryption User                                               | Wraps and unwraps the database encryption keys with the TDE protector key                                                                                                                                                                                                                                                                       |
+| The principal that runs the deployment          | Key Vault Secrets Officer, Key Vault Certificates Officer and Key Vault Crypto Officer | Writes the secret, the certificate and the key through the Key Vault data plane. The Bicep template writes the secret and the key through Azure Resource Manager, so with Bicep the principal gets only Key Vault Certificates Officer, to create the certificate, and Key Vault Secrets Officer, for `scripts/validate.sh` to read the secret. |
+
+The web app authenticates with `DefaultAzureCredential`, and the `AZURE_CLIENT_ID` app setting, which all three deployment methods set to the client id of the web app's identity, makes it use that identity. The deployment resolves the object id of the principal that runs it through Microsoft Graph, or from its own access token; when neither works, it skips that principal's role assignments, and the principal must already hold the roles. On Azure a new role assignment can take a few minutes to apply: the scripts retry the Key Vault writes and the registration of the TDE key until it does, and the Terraform configuration waits for it (`rbac_propagation_delay`, 60 seconds by default). The emulator stores the role assignments but evaluates them only when it runs with `LS_AZURE_ENFORCE_RBAC=1`; see [Enabling RBAC enforcement](https://docs.localstack.cloud/azure/services/role-assignment/#enabling-rbac-enforcement).
 
 ## Deployment
 
@@ -151,6 +162,8 @@ You can use the `call-web-app.sh` Bash script below to call the web app. The scr
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the web app from the Docker host machine.
 4. **Via the default hostname**: Call the web app via the default hostname `<web-app-name>.azurewebsites.azure.localhost.localstack.cloud:4566`.
 
+Before these calls, the script reads the certificate through the web app's `GET /api/certificate` endpoint at its default hostname, which proves that the web app's identity can read the vault. That check runs on Azure too, where the script stops after it: the four calls above need the app's Docker container, which only the emulator runs.
+
 ## Application Insights
 
 The web app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` workspace. The three deployment methods set the `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting to the connection string of the resource, and the application turns on the [Microsoft OpenTelemetry Distro](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=aspnetcore) when the setting is present. The distro's SQL Client instrumentation, on by default, traces the commands the app sends to Azure SQL Database through `Microsoft.Data.SqlClient`. The application also sends a [custom event](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#send-custom-events) for each activity it adds, updates or deletes, counts these operations in the `activities` [custom metric](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-add-modify#add-custom-metrics), and logs the exceptions it catches:
@@ -186,7 +199,147 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
 | `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to the database or to Key Vault fails                        |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. When the custom metric is three minutes late, it adds another activity once a minute: the web app exports its metrics once a minute, and on Azure the restart that follows a deployment can stop it before it exported the point of the first activity. It shows the exceptions without waiting for them: a healthy run has none.
+
+### Query the telemetry on the Logs page
+
+Besides the custom events, the web app logs a trace at the end of each operation on the activities, with the id of the activity: `Activities read: <count>` when it reads the list, `Activity added: <id> (<text>)`, `Activity updated: <id> (<text>)` and `Activity deleted: <id>`. An update or a delete that finds no activity logs the warning `Activity not found: <id>`, and a failure logs the exception with its stack trace. The traces use message templates, so the values in braces, such as `ActivityId`, `Activity` and `Count`, also reach the `customDimensions` column. The **Edit** button logs `Activity read: <id> (<text>)`, and `/api/certificate` logs `Certificate read: <name> (thumbprint <thumbprint>)` when it reads the certificate from Key Vault. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the `Activity added` trace of the activity it adds.
+
+To query the telemetry yourself, open the `<prefix>-insights-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-insights-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                       |
+| -------------------- | ----------------------- | --------------------------------------------- |
+| `requests`           | `AppRequests`           | The requests the web app serves               |
+| `dependencies`       | `AppDependencies`       | The calls to other services                   |
+| `traces`             | `AppTraces`             | The records of the loggers                    |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace |
+| `customEvents`       | `AppEvents`             | The custom events                             |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                            |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the `ActivityAdded`, `ActivityUpdated` and `ActivityDeleted` events carry the id of the activity in `activity.id`, and the `activities` metric carries the operation in `operation`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `ActivityAdded` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "ActivityAdded"
+| project timestamp, ActivityId = tostring(customDimensions["activity.id"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per endpoint.** The 50th, 95th and 99th percentiles of the duration of each endpoint, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The deletes.** The delete requests:
+
+  ```kusto
+  requests
+  | where name startswith "POST delete/"
+  | project timestamp, name
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the activities added:
+
+  ```kusto
+  let text = "Activity added";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `activities` custom metric per minute, by operation (`add`, `update`, `delete`):
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "activities"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Operation = tostring(customDimensions["operation"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

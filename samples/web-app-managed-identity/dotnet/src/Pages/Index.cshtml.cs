@@ -23,6 +23,8 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
         try
         {
             Activities = await store.ListAsync(cancellationToken);
+            // The values of a message template's placeholders reach Application Insights as custom dimensions
+            logger.LogInformation("Activities read: {Count}", Activities.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -42,13 +44,20 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
             {
                 try
                 {
-                    await store.UpdateAsync(id, text, cancellationToken);
-                    logger.LogInformation("Activity updated: {Id}", id);
-                    TempData["Flash"] = "Activity updated successfully.";
+                    if (await store.UpdateAsync(id, text, cancellationToken))
+                    {
+                        logger.LogInformation("Activity updated: {ActivityId} ({Activity})", id, text);
+                        TempData["Flash"] = "Activity updated successfully.";
+                    }
+                    else
+                    {
+                        logger.LogWarning("Activity not found: {ActivityId}", id);
+                        TempData["Flash"] = "Activity not found.";
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    logger.LogError(ex, "Failed to update the activity {Id}.", id);
+                    logger.LogError(ex, "Failed to update the activity {ActivityId}.", id);
                     TempData["Flash"] = "Failed to update the activity.";
                 }
             }
@@ -56,8 +65,8 @@ public class IndexModel(IActivityStore store, ILogger<IndexModel> logger) : Page
             {
                 try
                 {
-                    await store.AddAsync(text, cancellationToken);
-                    logger.LogInformation("Activity added: {Activity}", text);
+                    var newId = await store.AddAsync(text, cancellationToken);
+                    logger.LogInformation("Activity added: {ActivityId} ({Activity})", newId, text);
                     TempData["Flash"] = "Activity added successfully.";
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)

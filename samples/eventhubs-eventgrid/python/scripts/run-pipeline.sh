@@ -143,14 +143,17 @@ echo "stream event, which is why a plain Event Hubs trigger can consume it."
 # -----------------------------------------------------------------------------
 step "Step 4/5 - The processor decodes the archive and curates it"
 # -----------------------------------------------------------------------------
-echo "Waiting for the first device summary (up to ${SUMMARY_WAIT_SECONDS}s on a cold container)..."
+# The processor curates each archive when its notification arrives, and the archives of different partitions can arrive
+# minutes apart (after a redeployment, a partition waits for the previous host's lease to expire): wait until the
+# summary of the device with the excursions is among them, not just for the first summary.
+echo "Waiting for the device summaries, up to ${SUMMARY_WAIT_SECONDS}s on a cold container, until '$EXCURSION_DEVICE' is among them..."
 DEADLINE=$((SECONDS + SUMMARY_WAIT_SECONDS))
 SUMMARY_OUTPUT=""
 while [ $SECONDS -lt $DEADLINE ]; do
 	SUMMARY_OUTPUT=$(EVENTHUB_LISTEN_CONNECTION_STRING="$EVENTHUB_LISTEN_CONNECTION_STRING" \
 		CURATED_HUB_NAME="$CURATED_HUB_NAME" \
 		"$PYTHON_BIN" "$(native_path "$CURRENT_DIR/read_curated.py")" 2>/dev/null)
-	if [[ "$SUMMARY_OUTPUT" == SUMMARIES_OK* ]]; then
+	if [[ "$SUMMARY_OUTPUT" == SUMMARIES_OK* ]] && echo "$SUMMARY_OUTPUT" | grep -q "$EXCURSION_DEVICE"; then
 		break
 	fi
 	sleep 15

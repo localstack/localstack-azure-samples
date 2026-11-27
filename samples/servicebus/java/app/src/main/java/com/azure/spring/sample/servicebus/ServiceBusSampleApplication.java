@@ -12,13 +12,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+import java.util.UUID;
+
 @SpringBootApplication
 public class ServiceBusSampleApplication {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ServiceBusSampleApplication.class);
     public static void main(String[] args) {
         SpringApplication.run(ServiceBusSampleApplication.class, args);
-        sendMessage();
+        try {
+            sendMessage();
+        } catch (RuntimeException e) {
+            // The listener stops the application when the message arrives: without a sent message it would wait forever
+            LOGGER.error("Failed to send the message to the queue", e);
+            System.exit(1);
+        }
     }
 
     static void sendMessage()
@@ -33,8 +41,9 @@ public class ServiceBusSampleApplication {
                 .queueName(queueName)
                 .buildClient();
 
-        // send one message to the queue
-        senderClient.sendMessage(new ServiceBusMessage("Hello, World!"));
+        // send one message to the queue, with a message id: a partitioned queue with duplicate detection, which the
+        // Terraform configuration creates by default, refuses a message that has neither a message id nor a partition key
+        senderClient.sendMessage(new ServiceBusMessage("Hello, World!").setMessageId(UUID.randomUUID().toString()));
         LOGGER.info("Sent a single message to the queue: " + queueName);
     }
 }

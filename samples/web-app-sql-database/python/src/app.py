@@ -3,6 +3,7 @@ import logging
 import os
 from typing import List, Tuple
 
+import pyodbc
 from microsoft.opentelemetry import use_microsoft_opentelemetry
 
 # The logger of the application: the loggers of the other modules are its children
@@ -17,7 +18,6 @@ if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
 
     # The distro instruments no ODBC driver: the generic DB-API instrumentation wraps pyodbc.connect, so that the
     # statements the app runs on Azure SQL Database arrive as dependencies too
-    import pyodbc
     from opentelemetry.instrumentation.dbapi import trace_integration
 
     trace_integration(pyodbc, "connect", "mssql")
@@ -89,7 +89,8 @@ def read_activities_from_db(username: str | None = None) -> List[Tuple[str, str]
             activity_list = activities_helper.read_activities(username)
             for activity in activity_list:
                 result.append((activity["id"], activity["activity"]))
-    except (ConnectionError, ValueError, KeyError):
+            logger.info("Activities read: %d", len(result))
+    except (pyodbc.Error, ConnectionError, ValueError, KeyError):
         # The distro sends a log record that carries an exception to Application Insights as an exception
         logger.exception("Error reading activities.")
     return result
@@ -115,8 +116,11 @@ def index():
                     updated_activity = activities_helper.update_activity_by_id(row_id, activity_text)
                     if updated_activity:
                         flash('Activity updated.')
-                        logger.info(f"Activity updated: {row_id}")
+                        logger.info("Activity updated: %s (%s)", row_id, activity_text)
                         track_activity_event("ActivityUpdated", "update", row_id)
+                    else:
+                        logger.warning("Activity not found: %s", row_id)
+                        flash('Activity not found.')
                 else:
                     # Create an activity document with the activity text provided
                     activity_doc: dict = create_activity(activity_text)
@@ -128,9 +132,12 @@ def index():
                         # Append the activity to the in-memory list
                         activities.append((inserted_activity["id"], inserted_activity["activity"]))
                         flash('Activity added.')
-                        logger.info(f"Activity created: {inserted_activity['id']}")
+                        logger.info("Activity added: %s (%s)", inserted_activity["id"], inserted_activity["activity"])
                         track_activity_event("ActivityAdded", "add", inserted_activity["id"])
-            except (ConnectionError, ValueError):
+                    else:
+                        logger.error("The database returned no row for the new activity.")
+                        flash('Failed to save the activity.')
+            except (pyodbc.Error, ConnectionError, ValueError):
                 logger.exception("Error creating/updating activity.")
 
         return redirect(url_for('index'))
@@ -157,11 +164,14 @@ def delete(activity_id: int):
             
             if rows_deleted > 0:
                 flash('Activity deleted.')
-                logger.info(f"Activity deleted: {db_activity_id}")
+                logger.info("Activity deleted: %s", db_activity_id)
                 track_activity_event("ActivityDeleted", "delete", db_activity_id)
             else:
-                logger.warning(f"No activity found with ID: {db_activity_id}")
-    except (ConnectionError, ValueError):
+                logger.warning("Activity not found: %s", db_activity_id)
+                flash('Activity not found.')
+        else:
+            logger.warning("Activity not found: position %d", activity_id)
+    except (pyodbc.Error, ConnectionError, ValueError):
         logger.exception("Error deleting activity.")
 
     return redirect(url_for('index'))
@@ -173,8 +183,10 @@ def update(activity_id: int):
         if 0 <= activity_id < len(activities):
             db_activity_id = activities[activity_id][0]
             activity_text = activities[activity_id][1]
+            logger.info("Activity read: %s (%s)", db_activity_id, activity_text)
             # Redirect to index with edit parameters
             return redirect(url_for('index', edit_id=db_activity_id, edit_activity=activity_text))
+        logger.warning("Activity not found: position %d", activity_id)
     except (ConnectionError, ValueError):
         logger.exception("Error preparing activity for update.")
 
@@ -195,6 +207,7 @@ def validate_certificate():
 
     try:
         info = get_certificate_info(vault_uri, cert_name)
+        logger.info("Certificate read: %s (thumbprint %s)", info["name"], info["thumbprint"])
         return jsonify(info), 200
     except Exception as e:
         logger.exception("Error validating certificate.")

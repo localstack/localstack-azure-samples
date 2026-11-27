@@ -41,9 +41,11 @@ The [deploy.sh](deploy.sh) script creates the [Azure Resource Group](https://lea
 4. [Azure Web App](https://learn.microsoft.com/en-us/azure/app-service/overview): Hosts the ASP.NET Core Razor Pages single-page application (*Vacation Planner*), connected to Azure SQL Database. The app setting `APPLICATIONINSIGHTS_CONNECTION_STRING` holds the connection string of the Application Insights resource.
 5. [App Service Source Control](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/create-or-update-source-control?view=rest-appservice-2024-11-01): (Optional) Configures automatic deployment from a public GitHub repository.
 6. [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/general/overview): Stores the SQL connection string in a secret and the RSA key that serves as the [TDE protector](https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-byok-overview) of the SQL server, registered by the [transparent-data-encryption.bicep](modules/transparent-data-encryption.bicep) module.
-7. [User-Assigned Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the SQL server uses to reach its TDE protector key in Key Vault.
+7. [User-Assigned Managed Identities](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview): The identity the web app reads the connection string and the certificate from Key Vault with, which holds the Key Vault Secrets User and Key Vault Certificate User roles on the vault, and the identity the SQL server uses to reach its TDE protector key in Key Vault, which holds the Key Vault Crypto Service Encryption User role. The vault uses the [Azure RBAC permission model](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide), and the web app's `AZURE_CLIENT_ID` app setting selects its identity.
 8. [Azure Log Analytics Workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview): Stores the telemetry of Application Insights, and the resource logs and platform metrics that the diagnostic settings of the web app, the App Service plan, the database, the key vault and the workspace itself send to it.
 9. [Azure Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview): workspace-based, it stores the telemetry of the web app in the Log Analytics workspace.
+
+On Azure the SQL server can use its TDE protector key only once the role of its identity on the vault applies, which can take a few minutes after the deployment assigns it: while Azure answers `UmiMissingAkvPermissions`, [deploy.sh](deploy.sh) runs the deployment again, up to `KEY_VAULT_RETRY_COUNT` times.
 
 Bicep cannot create a Key Vault certificate, so after the deployment [deploy.sh](deploy.sh) creates the self-signed certificate the web app serves HTTPS with on port 8443, under the name of its `CERT_NAME` app setting, before it deploys the code.
 
@@ -135,7 +137,30 @@ WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 KEY_VAULT_NAME="${PREFIX}-kv-${SUFFIX}"
 SECRET_NAME="${PREFIX}-secret-${SUFFIX}"
 TDE_KEY_NAME="${PREFIX}-tde-key-${SUFFIX}"
+SQL_SERVER_IDENTITY_NAME="${PREFIX}-tde-identity-${SUFFIX}"
+WEB_APP_IDENTITY_NAME="${PREFIX}-webapp-identity-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
+
+# Exit with an error unless a principal holds a role on the key vault.
+# $1: the principal (object) id
+# $2: the role name
+# $3: the description of the principal, used in messages
+require_key_vault_role() {
+	local count
+	count=$(az role assignment list \
+		--assignee "$1" \
+		--scope "$KEY_VAULT_ID" \
+		--query "length([?roleDefinitionName=='$2'])" \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $count -ge 1 ]]; then
+		echo "The $3 holds the [$2] role on the [$KEY_VAULT_NAME] key vault"
+	else
+		echo "The $3 does not hold the [$2] role on the [$KEY_VAULT_NAME] key vault"
+		exit 1
+	fi
+}
 
 # Check resource group
 echo -e "[$RESOURCE_GROUP_NAME] resource group:\n"
@@ -218,6 +243,72 @@ az keyvault secret show \
 --name "$SECRET_NAME" \
 --query "{name:name, enabled:attributes.enabled, created:attributes.created}" \
 --output table
+
+# Check that the key vault uses the Azure RBAC permission model: the role assignments below only work on such a vault
+KEY_VAULT_RBAC=$(az keyvault show \
+--name "$KEY_VAULT_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "properties.enableRbacAuthorization" \
+--output tsv)
+echo -e "\n[$KEY_VAULT_NAME] Key Vault RBAC authorization: [$KEY_VAULT_RBAC]"
+if [[ $KEY_VAULT_RBAC != "true" ]]; then
+	echo "The [$KEY_VAULT_NAME] key vault does not use the Azure RBAC permission model"
+	exit 1
+fi
+
+# Check that the web app runs with its user-assigned managed identity, which AZURE_CLIENT_ID selects in the app
+echo -e "\n[$WEB_APP_IDENTITY_NAME] managed identity of the [$WEB_APP_NAME] web app:\n"
+# tr drops the carriage return the Azure CLI ends each line with on Windows: mapfile keeps it, even with bash's igncr option
+mapfile -t WEB_APP_IDENTITY_FIELDS < <(az identity show \
+--name "$WEB_APP_IDENTITY_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "[id, clientId, principalId]" \
+--output tsv | tr -d '\r')
+WEB_APP_IDENTITY_ID="${WEB_APP_IDENTITY_FIELDS[0]:-}"
+WEB_APP_IDENTITY_CLIENT_ID="${WEB_APP_IDENTITY_FIELDS[1]:-}"
+WEB_APP_IDENTITY_PRINCIPAL_ID="${WEB_APP_IDENTITY_FIELDS[2]:-}"
+if [[ -z $WEB_APP_IDENTITY_ID || -z $WEB_APP_IDENTITY_CLIENT_ID || -z $WEB_APP_IDENTITY_PRINCIPAL_ID ]]; then
+	echo "Failed to retrieve the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+if az webapp identity show \
+	--name "$WEB_APP_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "keys(userAssignedIdentities || \`{}\`)" \
+	--output tsv | tr -d '\r' | grep -q -i -x -F "$WEB_APP_IDENTITY_ID"; then
+	echo "The [$WEB_APP_NAME] web app uses the [$WEB_APP_IDENTITY_NAME] managed identity"
+else
+	echo "The [$WEB_APP_NAME] web app does not use the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+AZURE_CLIENT_ID_SETTING=$(az webapp config appsettings list \
+--name "$WEB_APP_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "[?name=='AZURE_CLIENT_ID'].value | [0]" \
+--output tsv)
+if [[ $AZURE_CLIENT_ID_SETTING == "$WEB_APP_IDENTITY_CLIENT_ID" ]]; then
+	echo "The AZURE_CLIENT_ID app setting holds the client id of the [$WEB_APP_IDENTITY_NAME] managed identity"
+else
+	echo "The AZURE_CLIENT_ID app setting [$AZURE_CLIENT_ID_SETTING] is not the client id [$WEB_APP_IDENTITY_CLIENT_ID] of the [$WEB_APP_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+
+# Check the roles of the managed identities on the key vault: the web app reads the connection string and the private
+# key of its certificate as secrets, and the certificate itself; the SQL server wraps and unwraps its database
+# encryption keys with the TDE protector key
+echo -e "\n[$KEY_VAULT_NAME] Key Vault role assignments:\n"
+SQL_SERVER_IDENTITY_PRINCIPAL_ID=$(az identity show \
+--name "$SQL_SERVER_IDENTITY_NAME" \
+--resource-group "$RESOURCE_GROUP_NAME" \
+--query "principalId" \
+--output tsv)
+if [[ -z $SQL_SERVER_IDENTITY_PRINCIPAL_ID ]]; then
+	echo "Failed to retrieve the principalId of the [$SQL_SERVER_IDENTITY_NAME] managed identity"
+	exit 1
+fi
+require_key_vault_role "$WEB_APP_IDENTITY_PRINCIPAL_ID" "Key Vault Secrets User" "[$WEB_APP_IDENTITY_NAME] managed identity"
+require_key_vault_role "$WEB_APP_IDENTITY_PRINCIPAL_ID" "Key Vault Certificate User" "[$WEB_APP_IDENTITY_NAME] managed identity"
+require_key_vault_role "$SQL_SERVER_IDENTITY_PRINCIPAL_ID" "Key Vault Crypto Service Encryption User" "[$SQL_SERVER_IDENTITY_NAME] managed identity"
 
 # Check Application Insights component
 echo -e "\n[$APPLICATION_INSIGHTS_NAME] Application Insights component:\n"

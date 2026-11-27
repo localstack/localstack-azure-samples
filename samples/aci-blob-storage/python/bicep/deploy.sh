@@ -55,14 +55,21 @@ fi
 
 # Create ACR first so we can push the image
 ACR_NAME="${PREFIX}aciacr${SUFFIX}"
-echo "Creating ACR [$ACR_NAME] for image push..."
-az acr create \
-	--name "$ACR_NAME" \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--location "$LOCATION" \
-	--sku Basic \
-	--admin-enabled true \
-	--only-show-errors 1>/dev/null
+if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "ACR [$ACR_NAME] already exists."
+else
+	echo "Creating ACR [$ACR_NAME] for image push..."
+	if ! az acr create \
+		--name "$ACR_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--location "$LOCATION" \
+		--sku Basic \
+		--admin-enabled true \
+		--only-show-errors 1>/dev/null; then
+		echo "Failed to create ACR [$ACR_NAME]."
+		exit 1
+	fi
+fi
 
 LOGIN_SERVER=$(az acr show \
 	--name "$ACR_NAME" \

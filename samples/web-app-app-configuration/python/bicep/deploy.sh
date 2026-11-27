@@ -294,7 +294,7 @@ fi
 # Create application role [$PG_APP_USER] on the PostgreSQL flexible server. Its name and password are
 # already in Key Vault (pg-user, pg-password) and referenced from the App Configuration store; this step
 # creates the role the web app logs in with.
-echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
+echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server, unless it exists..."
 PGPASSWORD="$PG_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -311,7 +311,7 @@ END
 \$\$;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$PG_APP_USER] created successfully"
+	echo "Login [$PG_APP_USER] is in place: created if it was missing"
 else
 	echo "Failed to create login [$PG_APP_USER]"
 	exit 1
@@ -373,7 +373,7 @@ else
 fi
 
 # Create [activities] table
-echo "Creating [activities] table in the [$DATABASE_NAME] database..."
+echo "Creating [activities] table in the [$DATABASE_NAME] database, unless it exists..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -391,14 +391,14 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at DESC);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	echo "[activities] table is in place: created if it was missing"
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -419,7 +419,7 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		ON CONFLICT (id) DO NOTHING;"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
 	echo "Failed to insert sample data into [activities] table"
 	exit 1
@@ -478,14 +478,31 @@ if [[ $DEPLOY_APP == 1 ]]; then
 
 	# Deploy the web app
 	echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-	az webapp deploy \
-		--resource-group "$RESOURCE_GROUP_NAME" \
-		--name "$WEB_APP_NAME" \
-		--src-path "$ZIPFILE" \
-		--type zip \
-		--async true 1>/dev/null
+	# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+	# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+	# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+	# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+	WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+	WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+	WEBAPP_DEPLOYED=0
+	for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+		if az webapp deploy \
+			--resource-group "$RESOURCE_GROUP_NAME" \
+			--name "$WEB_APP_NAME" \
+			--src-path "$ZIPFILE" \
+			--type zip \
+			--async true \
+			--track-status false 1>/dev/null; then
+			WEBAPP_DEPLOYED=1
+			break
+		fi
+		if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+			echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+			sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+		fi
+	done
 
-	if [ $? -eq 0 ]; then
+	if [ $WEBAPP_DEPLOYED -eq 1 ]; then
 		echo "Web app [$WEB_APP_NAME] deployment started successfully."
 	else
 		echo "Failed to deploy web app [$WEB_APP_NAME]."

@@ -22,6 +22,18 @@ variable "eventhub_sku" {
   default     = "Standard"
 }
 
+variable "function_plan_sku_name" {
+  description = "SKU of the App Service plan of the fraud detector function app: Y1 is the Linux Consumption plan."
+  type        = string
+  default     = "Y1"
+}
+
+variable "web_plan_sku_name" {
+  description = "SKU of the App Service plan of the dashboard web app."
+  type        = string
+  default     = "S1"
+}
+
 variable "eventhub_capacity" {
   description = "Throughput units allocated to the namespace."
   type        = number

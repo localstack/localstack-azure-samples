@@ -15,10 +15,10 @@ APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
 ZIPFILE="${WEB_APP_NAME}.zip"
 
-RANDOM_SUFFIX=$(echo $RANDOM)
-NEW_DB_NAME="vacationplanner_${RANDOM_SUFFIX}"
-AZURECOSMOSDB_DATABASENAME=$NEW_DB_NAME
-AZURECOSMOSDB_CONTAINERNAME="activities_${RANDOM_SUFFIX}"
+# The database and the container keep their names from run to run, so that a second run finds them instead of
+# creating new ones and pointing the web app at an empty container
+AZURECOSMOSDB_DATABASENAME="${AZURECOSMOSDB_DATABASENAME:-vacationplanner}"
+AZURECOSMOSDB_CONTAINERNAME="${AZURECOSMOSDB_CONTAINERNAME:-activities}"
 AURECOSMOSDB_PARTITION_KEY="/username"
 
 # run-samples.sh runs this script as `bash scripts/deploy.sh` from the sample root, so relative
@@ -96,20 +96,37 @@ if [[ -z $LOG_ANALYTICS_ID ]]; then
 	exit 1
 fi
 
-# Create the Cosmos DB account
-echo "Creating [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group..."
-AZURECOSMOSDB_ENDPOINT=$(az cosmosdb create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name $COSMOSDB_ACCOUNT_NAME \
-	--locations regionName=$LOCATION \
+# Check if the Cosmos DB account already exists
+echo "Checking if [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account exists in the [$RESOURCE_GROUP_NAME] resource group..."
+if az cosmosdb show --resource-group "$RESOURCE_GROUP_NAME" --name "$COSMOSDB_ACCOUNT_NAME" --only-show-errors &>/dev/null; then
+	echo "[$COSMOSDB_ACCOUNT_NAME] Cosmos DB account already exists in the [$RESOURCE_GROUP_NAME] resource group"
+else
+	# Create the Cosmos DB account
+	echo "Creating [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group..."
+	if az cosmosdb create \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$COSMOSDB_ACCOUNT_NAME" \
+		--locations regionName="$LOCATION" \
+		--only-show-errors 1>/dev/null; then
+		echo "[$COSMOSDB_ACCOUNT_NAME] Cosmos DB account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
+fi
+
+# Get the document endpoint of the Cosmos DB account
+AZURECOSMOSDB_ENDPOINT=$(az cosmosdb show \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--name "$COSMOSDB_ACCOUNT_NAME" \
 	--query "documentEndpoint" \
-	--output tsv)
+	--output tsv \
+	--only-show-errors)
 
 if [[ -n $AZURECOSMOSDB_ENDPOINT ]]; then
-	echo "[$COSMOSDB_ACCOUNT_NAME] Cosmos DB account successfully created in the [$RESOURCE_GROUP_NAME] resource group"
 	echo "AZURECOSMOSDB_ENDPOINT set to $AZURECOSMOSDB_ENDPOINT"
 else
-	echo "Failed to create [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account in the [$RESOURCE_GROUP_NAME] resource group"
+	echo "Failed to retrieve the document endpoint of the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account"
 	exit 1
 fi
 export AZURECOSMOSDB_ENDPOINT
@@ -169,37 +186,45 @@ else
 	echo "[$DIAGNOSTIC_SETTINGS_NAME] diagnostic settings for the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account already exist"
 fi
 
-# Create the Cosmos DB database
-echo "Creating [$AZURECOSMOSDB_DATABASENAME] database in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account..."
-az cosmosdb sql database create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name $AZURECOSMOSDB_DATABASENAME \
-	--account-name $COSMOSDB_ACCOUNT_NAME \
-	--only-show-errors 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$AZURECOSMOSDB_DATABASENAME] database successfully created in the [$WEB_APP_NAME] Cosmos DB account"
+if az cosmosdb sql database show --resource-group "$RESOURCE_GROUP_NAME" --account-name "$COSMOSDB_ACCOUNT_NAME" --name "$AZURECOSMOSDB_DATABASENAME" --only-show-errors &>/dev/null; then
+	echo "[$AZURECOSMOSDB_DATABASENAME] database in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account already exists."
 else
-	echo "Failed to create [$AZURECOSMOSDB_DATABASENAME] database in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account"
-	exit 1
+	# Create the Cosmos DB database
+	echo "Creating [$AZURECOSMOSDB_DATABASENAME] database in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account..."
+	az cosmosdb sql database create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--name $AZURECOSMOSDB_DATABASENAME \
+		--account-name $COSMOSDB_ACCOUNT_NAME \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$AZURECOSMOSDB_DATABASENAME] database successfully created in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account"
+	else
+		echo "Failed to create [$AZURECOSMOSDB_DATABASENAME] database in the [$COSMOSDB_ACCOUNT_NAME] Cosmos DB account"
+		exit 1
+	fi
 fi
 
-# Create the Cosmos DB container
-echo "Creating [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database..."
-az cosmosdb sql container create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--account-name $COSMOSDB_ACCOUNT_NAME \
-	--database-name $AZURECOSMOSDB_DATABASENAME \
-	--name $AZURECOSMOSDB_CONTAINERNAME \
-	--partition-key-path $AURECOSMOSDB_PARTITION_KEY \
-	--throughput 400 \
-	--only-show-errors 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$AZURECOSMOSDB_CONTAINERNAME] container successfully created in the [$AZURECOSMOSDB_DATABASENAME] database"
+if az cosmosdb sql container show --resource-group "$RESOURCE_GROUP_NAME" --account-name "$COSMOSDB_ACCOUNT_NAME" --database-name "$AZURECOSMOSDB_DATABASENAME" --name "$AZURECOSMOSDB_CONTAINERNAME" --only-show-errors &>/dev/null; then
+	echo "[$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database already exists."
 else
-	echo "Failed to create [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database"
-	exit 1
+	# Create the Cosmos DB container
+	echo "Creating [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database..."
+	az cosmosdb sql container create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--account-name $COSMOSDB_ACCOUNT_NAME \
+		--database-name $AZURECOSMOSDB_DATABASENAME \
+		--name $AZURECOSMOSDB_CONTAINERNAME \
+		--partition-key-path $AURECOSMOSDB_PARTITION_KEY \
+		--throughput 400 \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$AZURECOSMOSDB_CONTAINERNAME] container successfully created in the [$AZURECOSMOSDB_DATABASENAME] database"
+	else
+		echo "Failed to create [$AZURECOSMOSDB_CONTAINERNAME] container in the [$AZURECOSMOSDB_DATABASENAME] database"
+		exit 1
+	fi
 fi
 
 # Retrieve the primary key of the Cosmos DB account
@@ -218,36 +243,44 @@ else
 fi
 export AZURECOSMOSDB_PRIMARY_KEY
 
-# Create the App Service plan
-echo "Creating [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group..."
-az appservice plan create \
-	--name $APP_SERVICE_PLAN_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--sku $APP_SERVICE_PLAN_SKU \
-	--is-linux \
-	--only-show-errors 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$APP_SERVICE_PLAN_NAME] App Service plan successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+if az appservice plan show --name "$APP_SERVICE_PLAN_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "App service plan [$APP_SERVICE_PLAN_NAME] already exists."
 else
-	echo "Failed to create [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group"
-	exit 1
+	# Create the App Service plan
+	echo "Creating [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group..."
+	az appservice plan create \
+		--name $APP_SERVICE_PLAN_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--sku $APP_SERVICE_PLAN_SKU \
+		--is-linux \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$APP_SERVICE_PLAN_NAME] App Service plan successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$APP_SERVICE_PLAN_NAME] App Service plan in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 fi
 
-# Create the web app
-echo "Creating [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group..."
-az webapp create \
-	--name $WEB_APP_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--plan $APP_SERVICE_PLAN_NAME \
-	--runtime PYTHON:3.13 \
-	--only-show-errors 1>/dev/null
-
-if [[ $? == 0 ]]; then
-	echo "[$WEB_APP_NAME] web app successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+if az webapp show --name "$WEB_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Web app [$WEB_APP_NAME] already exists."
 else
-	echo "Failed to create [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group"
-	exit 1
+	# Create the web app
+	echo "Creating [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group..."
+	az webapp create \
+		--name $WEB_APP_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--plan $APP_SERVICE_PLAN_NAME \
+		--runtime PYTHON:3.13 \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$WEB_APP_NAME] web app successfully created in the [$RESOURCE_GROUP_NAME] resource group"
+	else
+		echo "Failed to create [$WEB_APP_NAME] web app in the [$RESOURCE_GROUP_NAME] resource group"
+		exit 1
+	fi
 fi
 
 # Check if the Application Insights component already exists
@@ -468,14 +501,31 @@ zip -r "$ZIPFILE" app.py cosmosdb_client.py gunicorn.conf.py static templates re
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
 echo "Using az webapp deploy command for LocalStack emulator environment."
-az webapp deploy \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--name $WEB_APP_NAME \
-	--src-path ${ZIPFILE} \
-	--type zip \
-	--async true
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--name $WEB_APP_NAME \
+		--src-path ${ZIPFILE} \
+		--type zip \
+		--async true \
+		--track-status false; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
 
-if [[ $? == 0 ]]; then
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
 	echo "[$ZIPFILE] zip package successfully deployed to the [$WEB_APP_NAME] web app"
 else
 	echo "Failed to deploy [$ZIPFILE] zip package to the [$WEB_APP_NAME] web app"

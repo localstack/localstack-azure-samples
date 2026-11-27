@@ -82,9 +82,13 @@ step() {
 # -----------------------------------------------------------------------------
 step "[1/11] Resource group"
 # -----------------------------------------------------------------------------
-az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 # -----------------------------------------------------------------------------
 step "[2/11] Log Analytics workspace and Application Insights"
@@ -153,10 +157,15 @@ STORAGE_TABLE=$(az storage account show -n "$STORAGE_ACCOUNT_NAME" -g "$RESOURCE
 # carries a port, which it does against the emulator.
 STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_KEY};BlobEndpoint=${STORAGE_BLOB};QueueEndpoint=${STORAGE_QUEUE};TableEndpoint=${STORAGE_TABLE}"
 
-az storage container create --name "$CAPTURE_CONTAINER_NAME" \
-	--connection-string "$STORAGE_CONNECTION_STRING" --only-show-errors 1>/dev/null ||
-	fail "could not create the capture container"
-echo "Blob container [$CAPTURE_CONTAINER_NAME] ready for Capture archives."
+if [[ $(az storage container exists --name "$CAPTURE_CONTAINER_NAME" --connection-string "$STORAGE_CONNECTION_STRING" \
+	--query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "Blob container [$CAPTURE_CONTAINER_NAME] for Capture archives already exists."
+else
+	az storage container create --name "$CAPTURE_CONTAINER_NAME" \
+		--connection-string "$STORAGE_CONNECTION_STRING" --only-show-errors 1>/dev/null ||
+		fail "could not create the capture container"
+	echo "Blob container [$CAPTURE_CONTAINER_NAME] ready for Capture archives."
+fi
 
 # -----------------------------------------------------------------------------
 step "[4/11] Event Hubs namespace (Standard tier - Capture needs it)"
@@ -483,6 +492,19 @@ diagnostic_settings "$FUNCTION_PLAN_ID" "plan of the [$FUNCTION_APP_NAME] functi
 diagnostic_settings "$LOG_ANALYTICS_ID" "[$LOG_ANALYTICS_NAME] Log Analytics workspace" \
 	--logs '[{"category": "Audit", "enabled": true}]' \
 	--metrics '[{"category": "AllMetrics", "enabled": true}]'
+
+# A function app on the Consumption plan runs only when the platform's scale controller starts it for the events its
+# trigger watches. On Azure, after two deployments in a row, the scale controller watched no trigger and never started
+# the function app (2026-11-26). Registering the triggers again at the end of the deployment, once the remote build of
+# the package has had time to finish, makes it start the function app when the events arrive.
+WEB_API_VERSION="${WEB_API_VERSION:-2024-04-01}"
+echo "Syncing the triggers of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
+	--query id --output tsv --only-show-errors)
+[[ -n "$FUNCTION_APP_ID" ]] || fail "could not read the id of function app [$FUNCTION_APP_NAME]"
+az rest --method post --url "$FUNCTION_APP_ID/syncfunctiontriggers?api-version=$WEB_API_VERSION" --only-show-errors \
+	1>/dev/null || fail "could not sync the triggers of function app [$FUNCTION_APP_NAME]"
+echo "Synced the triggers of the [$FUNCTION_APP_NAME] function app."
 
 # -----------------------------------------------------------------------------
 step "[11/11] Connection details"

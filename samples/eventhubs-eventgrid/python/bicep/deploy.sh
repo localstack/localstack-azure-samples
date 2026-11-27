@@ -35,9 +35,13 @@ fail() {
 }
 
 echo "=== Creating the resource group ==="
-az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
-	--only-show-errors 1>/dev/null || fail "could not create the resource group"
-echo "Resource group [$RESOURCE_GROUP_NAME] ready."
+if az group show --name "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Resource group [$RESOURCE_GROUP_NAME] already exists."
+else
+	az group create --name "$RESOURCE_GROUP_NAME" --location "$LOCATION" \
+		--only-show-errors 1>/dev/null || fail "could not create the resource group"
+	echo "Resource group [$RESOURCE_GROUP_NAME] created."
+fi
 
 echo ""
 echo "=== Validating the Bicep template ==="
@@ -168,6 +172,19 @@ for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 done
 [[ $DEPLOYED == 1 ]] || fail "could not deploy the function app"
 rm -f "$FUNCTION_ZIP"
+
+# A function app on the Consumption plan runs only when the platform's scale controller starts it for the events its
+# trigger watches. On Azure, after two deployments in a row, the scale controller watched no trigger and never started
+# the function app (2026-11-26). Registering the triggers again at the end of the deployment, once the remote build of
+# the package has had time to finish, makes it start the function app when the events arrive.
+WEB_API_VERSION="${WEB_API_VERSION:-2024-04-01}"
+echo "Syncing the triggers of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
+	--query id --output tsv --only-show-errors)
+[[ -n "$FUNCTION_APP_ID" ]] || fail "could not read the id of function app [$FUNCTION_APP_NAME]"
+az rest --method post --url "$FUNCTION_APP_ID/syncfunctiontriggers?api-version=$WEB_API_VERSION" --only-show-errors \
+	1>/dev/null || fail "could not sync the triggers of function app [$FUNCTION_APP_NAME]"
+echo "Synced the triggers of the [$FUNCTION_APP_NAME] function app."
 
 # -----------------------------------------------------------------------------
 echo ""

@@ -17,6 +17,8 @@ DATABASE_USER_PASSWORD='TestP@ssw0rd123'
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIPFILE="planner_website.zip"
 DEPLOY_APP=1
+KEY_VAULT_RETRY_COUNT=20
+KEY_VAULT_RETRY_SLEEP=30
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
@@ -44,15 +46,19 @@ else
 	echo "Resource group [$RESOURCE_GROUP_NAME] already exists in the subscription [$SUBSCRIPTION_NAME]"
 fi
 
-# Resolve the object id of the deploying principal. The template gives it the certificate permissions of the key vault
-# this script needs to create the certificate the web app serves HTTPS with, after the deployment: Bicep cannot create
-# a Key Vault certificate. The lookup goes through Microsoft Graph, then the oid claim of the CLI's own access token.
+# Resolve the object id and the principal type of the deploying principal. The template gives it the Key Vault
+# Certificates Officer role this script needs to create the certificate the web app serves HTTPS with, after the
+# deployment (Bicep cannot create a Key Vault certificate), and the Key Vault Secrets Officer role validate.sh needs to
+# read the connection string secret. The lookup goes through Microsoft Graph, then the oid claim of the CLI's own
+# access token.
 ACCOUNT_USER_TYPE=$(az account show --query user.type --output tsv --only-show-errors)
 ACCOUNT_USER_NAME=$(az account show --query user.name --output tsv --only-show-errors)
 
 if [[ $ACCOUNT_USER_TYPE == "user" ]]; then
+	DEPLOYER_PRINCIPAL_TYPE="User"
 	DEPLOYER_OBJECT_ID=$(az ad signed-in-user show --query id --output tsv --only-show-errors 2>/dev/null)
 else
+	DEPLOYER_PRINCIPAL_TYPE="ServicePrincipal"
 	DEPLOYER_OBJECT_ID=$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id --output tsv --only-show-errors 2>/dev/null)
 fi
 
@@ -65,9 +71,9 @@ if [[ -z $DEPLOYER_OBJECT_ID ]]; then
 fi
 
 if [[ -n $DEPLOYER_OBJECT_ID ]]; then
-	echo "Deploying principal [$ACCOUNT_USER_NAME] has object id [$DEPLOYER_OBJECT_ID]"
+	echo "Deploying principal [$ACCOUNT_USER_NAME] ($DEPLOYER_PRINCIPAL_TYPE) has object id [$DEPLOYER_OBJECT_ID]"
 else
-	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the key vault gives it no access policy, and creating the certificate can fail"
+	echo "WARNING: could not resolve the object id of the deploying principal [$ACCOUNT_USER_NAME]; the Key Vault Certificates Officer and Key Vault Secrets Officer roles on the key vault must already be assigned to it"
 	DEPLOYER_OBJECT_ID=""
 fi
 
@@ -123,23 +129,40 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 	fi
 fi
 
-# Deploy the Bicep template
+# Deploy the Bicep template. On Azure the SQL server can use its TDE protector key only once the role that the
+# deployment gives the server's identity on the vault applies, which can take a few minutes: while Azure answers
+# UmiMissingAkvPermissions, the deployment runs again.
 echo "Deploying Bicep template [$TEMPLATE]..."
-if DEPLOYMENT_OUTPUTS=$(az deployment group create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--only-show-errors \
-	--template-file $TEMPLATE \
-	--parameters $PARAMETERS \
-	--parameters location=$LOCATION \
-	prefix=$PREFIX \
-	suffix=$SUFFIX \
-	administratorLogin=$ADMIN_USER \
-	administratorLoginPassword=$ADMIN_PASSWORD \
-	sqlDatabaseUsername=$DATABASE_USER_NAME \
-	sqlDatabasePassword=$DATABASE_USER_PASSWORD \
-	deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
-	--query 'properties.outputs' \
-	--output json); then
+DEPLOYMENT_ERRORS_FILE=$(mktemp)
+for ATTEMPT in $(seq 1 "$KEY_VAULT_RETRY_COUNT"); do
+	DEPLOYMENT_STATUS=0
+	DEPLOYMENT_OUTPUTS=$(az deployment group create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--only-show-errors \
+		--template-file $TEMPLATE \
+		--parameters $PARAMETERS \
+		--parameters location=$LOCATION \
+		prefix=$PREFIX \
+		suffix=$SUFFIX \
+		administratorLogin=$ADMIN_USER \
+		administratorLoginPassword=$ADMIN_PASSWORD \
+		sqlDatabaseUsername=$DATABASE_USER_NAME \
+		sqlDatabasePassword=$DATABASE_USER_PASSWORD \
+		deployerPrincipalId="$DEPLOYER_OBJECT_ID" \
+		deployerPrincipalType="$DEPLOYER_PRINCIPAL_TYPE" \
+		--query 'properties.outputs' \
+		--output json 2>"$DEPLOYMENT_ERRORS_FILE") || DEPLOYMENT_STATUS=$?
+	cat "$DEPLOYMENT_ERRORS_FILE" >&2
+	if [ "$DEPLOYMENT_STATUS" -eq 0 ] || ! grep -q 'UmiMissingAkvPermissions' "$DEPLOYMENT_ERRORS_FILE"; then
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$KEY_VAULT_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $KEY_VAULT_RETRY_COUNT to deploy Bicep template [$TEMPLATE] failed (the Key Vault Crypto Service Encryption User role of the SQL server's identity may still be propagating); retrying in $KEY_VAULT_RETRY_SLEEP seconds..."
+		sleep "$KEY_VAULT_RETRY_SLEEP"
+	fi
+done
+rm -f "$DEPLOYMENT_ERRORS_FILE"
+if [ "$DEPLOYMENT_STATUS" -eq 0 ]; then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
 	echo "Bicep template [$TEMPLATE] deployed successfully. Outputs:"
@@ -179,38 +202,50 @@ if [ -z "$SQL_SERVER_FQDN" ]; then
 	exit 1
 fi
 
-# Create server-level login
-echo "Creating login [$DATABASE_USER_NAME] at server level..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d master \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME') 
-			CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "Login [$DATABASE_USER_NAME] created successfully"
+echo "Checking if login [$DATABASE_USER_NAME] exists at server level..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d master -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "Login [$DATABASE_USER_NAME] already exists at server level"
 else
-	echo "Failed to create login [$DATABASE_USER_NAME]"
-	exit 1
+	# Create server-level login
+	echo "Creating login [$DATABASE_USER_NAME] at server level..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d master \
+		-U "$ADMIN_USER" \
+		-P "$ADMIN_PASSWORD" \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = '$DATABASE_USER_NAME') 
+				CREATE LOGIN [$DATABASE_USER_NAME] WITH PASSWORD = '$DATABASE_USER_PASSWORD';" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Login [$DATABASE_USER_NAME] created successfully"
+	else
+		echo "Failed to create login [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
-# Create database user
-echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$ADMIN_USER" \
-	-P "$ADMIN_PASSWORD" \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME') 
-      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+echo "Checking if user [$DATABASE_USER_NAME] exists in database [$SQL_DATABASE_NAME]..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME';" | tr -d '[:space:]') == 1 ]]; then
+	echo "User [$DATABASE_USER_NAME] already exists in database [$SQL_DATABASE_NAME]"
 else
-	echo "Failed to create user [$DATABASE_USER_NAME]"
-	exit 1
+	# Create database user
+	echo "Creating user [$DATABASE_USER_NAME] in database [$SQL_DATABASE_NAME]..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d "$SQL_DATABASE_NAME" \
+		-U "$ADMIN_USER" \
+		-P "$ADMIN_PASSWORD" \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '$DATABASE_USER_NAME') 
+	      CREATE USER [$DATABASE_USER_NAME] FOR LOGIN [$DATABASE_USER_NAME];" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "User [$DATABASE_USER_NAME] created successfully in database [$SQL_DATABASE_NAME]"
+	else
+		echo "Failed to create user [$DATABASE_USER_NAME]"
+		exit 1
+	fi
 fi
 
 # Grant permissions including DDL rights
@@ -247,50 +282,60 @@ else
 	exit 1
 fi
 
-# Create table
-echo "Creating test [Products] table..."
-sqlcmd -S "$SQL_SERVER_FQDN" \
-	-d "$SQL_DATABASE_NAME" \
-	-U "$DATABASE_USER_NAME" \
-	-P "$DATABASE_USER_PASSWORD" \
-	-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
-		CREATE TABLE dbo.Activities (
-			-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
-			id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
-
-			-- Username field
-			username VARCHAR(32) NOT NULL,
-
-			-- Description of the activity
-			activity VARCHAR(128) NOT NULL,
-
-			-- Timestamp of the activity
-			timestamp DATETIME NOT NULL
-		);" \
-	-V 1
-
-if [ $? -eq 0 ]; then
-	echo "Test [Activities] table created successfully"
+echo "Checking if the [Activities] table exists..."
+if [[ $(sqlcmd -S "$SQL_SERVER_FQDN" -d "$SQL_DATABASE_NAME" -U "$DATABASE_USER_NAME" -P "$DATABASE_USER_PASSWORD" -N -C -h -1 -W \
+	-Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo');" | tr -d '[:space:]') == 1 ]]; then
+	echo "[Activities] table already exists"
 else
-	echo "Failed to create test [Activities] table"
-	exit 1
+	# Create table
+	echo "Creating test [Activities] table..."
+	sqlcmd -S "$SQL_SERVER_FQDN" \
+		-d "$SQL_DATABASE_NAME" \
+		-U "$DATABASE_USER_NAME" \
+		-P "$DATABASE_USER_PASSWORD" \
+		-Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Activities' AND schema_id = SCHEMA_ID('dbo'))
+			CREATE TABLE dbo.Activities (
+				-- Primary Key: UNIQUEIDENTIFIER with a default of a new sequential GUID (best for indexing)
+				id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
+
+				-- Username field
+				username VARCHAR(32) NOT NULL,
+
+				-- Description of the activity
+				activity VARCHAR(128) NOT NULL,
+
+				-- Timestamp of the activity
+				timestamp DATETIME NOT NULL
+			);" \
+		-V 1
+
+	if [ $? -eq 0 ]; then
+		echo "Test [Activities] table created successfully"
+	else
+		echo "Failed to create test [Activities] table"
+		exit 1
+	fi
 fi
 
-# Insert data
-echo "Inserting test data into [Activities] table..."
+# Insert the test data, only the rows the table does not hold yet, so that a second run adds no duplicates
+echo "Inserting the missing test data into [Activities] table..."
 sqlcmd -S "$SQL_SERVER_FQDN" \
 	-d "$SQL_DATABASE_NAME" \
 	-U "$DATABASE_USER_NAME" \
 	-P "$DATABASE_USER_PASSWORD" \
-	-Q "INSERT INTO Activities (username, activity, timestamp) 
-			VALUES 
-			('paolo', 'Go to Paris', GETDATE()),
-			('paolo', 'Go to London', GETDATE()),
-			('paolo', 'Go to Mexico', GETDATE());" \
+	-Q "INSERT INTO Activities (username, activity, timestamp)
+			SELECT seed.username, seed.activity, GETDATE()
+			FROM (VALUES
+				('paolo', 'Go to Paris'),
+				('paolo', 'Go to London'),
+				('paolo', 'Go to Mexico')) AS seed (username, activity)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM Activities existing
+				WHERE existing.username = seed.username AND existing.activity = seed.activity);" \
 	-V 1
 
 if [ $? -eq 0 ]; then
-	echo "Test data inserted successfully into [Activities] table"
+	echo "Missing test data inserted successfully into [Activities] table"
 else
 	echo "Failed to insert test data into [Activities] table"
 	exit 1
@@ -318,21 +363,35 @@ if [[ $DEPLOY_APP -eq 0 ]]; then
 fi
 
 # Create the certificate the web app serves HTTPS with on port 8443 (its CERT_NAME app setting), before the
-# code is deployed and the app starts: Bicep cannot create a Key Vault certificate.
+# code is deployed and the app starts: Bicep cannot create a Key Vault certificate. The Key Vault Certificates Officer
+# role the template assigned to the deploying principal can take a few minutes to apply on Azure, and until then the
+# vault refuses the certificate, so the creation is retried.
 if az keyvault certificate show --vault-name "$KEY_VAULT_NAME" --name "$CERT_NAME" --only-show-errors &>/dev/null; then
 	echo "Certificate [$CERT_NAME] already exists in Key Vault [$KEY_VAULT_NAME]."
 else
 	echo "Creating certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]..."
-	if az keyvault certificate create \
-		--vault-name "$KEY_VAULT_NAME" \
-		--name "$CERT_NAME" \
-		--policy '{
-			"issuerParameters": {"name": "Self"},
-			"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
-			"secretProperties": {"contentType": "application/x-pkcs12"},
-			"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
-		}' \
-		--only-show-errors 1>/dev/null; then
+	CERTIFICATE_CREATED=0
+	for ATTEMPT in $(seq 1 "$KEY_VAULT_RETRY_COUNT"); do
+		if az keyvault certificate create \
+			--vault-name "$KEY_VAULT_NAME" \
+			--name "$CERT_NAME" \
+			--policy '{
+				"issuerParameters": {"name": "Self"},
+				"keyProperties": {"exportable": true, "keySize": 2048, "keyType": "RSA", "reuseKey": false},
+				"secretProperties": {"contentType": "application/x-pkcs12"},
+				"x509CertificateProperties": {"subject": "CN=sample-web-app-sql", "validityInMonths": 12}
+			}' \
+			--only-show-errors 1>/dev/null; then
+			CERTIFICATE_CREATED=1
+			break
+		fi
+		if [ "$ATTEMPT" -lt "$KEY_VAULT_RETRY_COUNT" ]; then
+			echo "Attempt $ATTEMPT of $KEY_VAULT_RETRY_COUNT to create certificate [$CERT_NAME] failed (the Key Vault Certificates Officer role may still be propagating); retrying in $KEY_VAULT_RETRY_SLEEP seconds..."
+			sleep "$KEY_VAULT_RETRY_SLEEP"
+		fi
+	done
+
+	if [[ $CERTIFICATE_CREATED == 1 ]]; then
 		echo "Certificate [$CERT_NAME] created successfully in Key Vault [$KEY_VAULT_NAME]."
 	else
 		echo "Failed to create certificate [$CERT_NAME] in Key Vault [$KEY_VAULT_NAME]."
@@ -354,17 +413,34 @@ zip -r "$ZIPFILE" . -x "bin/*" "obj/*" "publish/*" "*.zip"
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
 
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

@@ -120,20 +120,72 @@ else
 	exit 1
 fi
 
-# Create blob container
-echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
-az storage container create \
-	--name $CONTAINER_NAME \
-	--account-name $STORAGE_ACCOUNT_NAME \
-	--account-key "$STORAGE_ACCOUNT_KEY" \
-	--public-access off 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
+if [[ $(az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$STORAGE_ACCOUNT_KEY" --query exists --output tsv --only-show-errors 2>/dev/null | tr -d '\r') == "true" ]]; then
+	echo "Blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account already exists."
 else
-	echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
-	exit 1
+	# Create blob container
+	echo "Creating blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account..."
+	az storage container create \
+		--name $CONTAINER_NAME \
+		--account-name $STORAGE_ACCOUNT_NAME \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--public-access off 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Blob container [$CONTAINER_NAME] created successfully in the [$STORAGE_ACCOUNT_NAME] storage account."
+	else
+		echo "Failed to create blob container [$CONTAINER_NAME] in the [$STORAGE_ACCOUNT_NAME] storage account."
+		exit 1
+	fi
 fi
+
+# Seed the container with sample activities, one blob per activity, as the other samples seed their databases. Every
+# blob has a fixed name, so a second run finds the ones already there and uploads only the missing ones.
+SAMPLE_ACTIVITIES=(
+	"pisa|Visit the Leaning Tower in Pisa"
+	"volterra|Explore Etruscan walls in Volterra"
+	"san-gimignano|Climb Torre Grossa in San Gimignano"
+	"siena|Walk across Piazza del Campo in Siena"
+	"montalcino|Taste Brunello wine in Montalcino"
+	"pienza|Sample Pecorino cheese in Pienza"
+	"florence|Admire Michelangelo's David in Florence"
+	"viareggio-beach|Relax by the beach in Viareggio"
+	"viareggio-promenade|Stroll along the Viareggio promenade"
+)
+echo "Seeding the [$CONTAINER_NAME] container of the [$STORAGE_ACCOUNT_NAME] storage account with sample activities..."
+for SAMPLE_ACTIVITY in "${SAMPLE_ACTIVITIES[@]}"; do
+	SAMPLE_BLOB_NAME="sample-${SAMPLE_ACTIVITY%%|*}-activity.txt"
+	SAMPLE_BLOB_EXISTS=$(az storage blob exists \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--query exists \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $SAMPLE_BLOB_EXISTS == "true" ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] already exists in the [$CONTAINER_NAME] container."
+		continue
+	fi
+
+	az storage blob upload \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--data "${SAMPLE_ACTIVITY#*|}" \
+		--content-type "text/plain" \
+		--no-progress \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] uploaded to the [$CONTAINER_NAME] container."
+	else
+		echo "Failed to upload sample activity [$SAMPLE_BLOB_NAME] to the [$CONTAINER_NAME] container."
+		exit 1
+	fi
+done
 
 # Check if the Log Analytics workspace already exists
 echo "Checking if [$LOG_ANALYTICS_NAME] Log Analytics workspace exists in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -347,7 +399,7 @@ current=$(az role assignment list \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
 	--output tsv 2>/dev/null)
 
-if [[ $current == $ROLE ]]; then
+if [[ $current == "$ROLE" ]]; then
 	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -640,17 +692,34 @@ zip -r "$ZIPFILE" . -x "bin/*" "obj/*" "publish/*" "*.zip"
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
 
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

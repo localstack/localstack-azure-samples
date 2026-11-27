@@ -26,6 +26,28 @@ native_path() {
 
 cd "$CURRENT_DIR" || exit 1
 
+# Dual-target provider configuration. providers.tf hardcodes nothing: the azurerm provider reads its endpoints and the
+# target subscription from the ARM_* environment variables exported here.
+# - On both targets: the subscription and tenant of the active az account.
+# - Only when the active az cloud is LocalStack: the emulator's metadata endpoint, taken from the az cloud registration
+#   that `lstk az start-interception` created, so nothing is hardcoded here either.
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
+ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv --only-show-errors)
+ARM_TENANT_ID=$(az account show --query tenantId --output tsv --only-show-errors)
+export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
+
+if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+	RESOURCE_MANAGER_ENDPOINT=$(az cloud show --query endpoints.resourceManager --output tsv --only-show-errors)
+	METADATA_HOSTNAME="${RESOURCE_MANAGER_ENDPOINT#https://}"
+	export ARM_METADATA_HOSTNAME="${METADATA_HOSTNAME%/}"
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets the emulator at [$RESOURCE_MANAGER_ENDPOINT]"
+else
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in the same shell would
+	# keep the provider doing metadata discovery against the emulator while the CLI is on Azure.
+	unset ARM_METADATA_HOSTNAME
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets Azure subscription [$ARM_SUBSCRIPTION_ID]"
+fi
+
 fail() {
 	echo "ERROR: $1"
 	exit 1
@@ -152,13 +174,44 @@ cd "$CURRENT_DIR" || exit 1
 echo "Deploying the dashboard..."
 # Asynchronous, as in the other web app samples: the CLI polls the deployment until the build ends. A synchronous
 # request timed out on Azure (504) while the build was still running
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$WEB_APP_ZIP" \
-	--type zip \
-	--async true 1>/dev/null || fail "could not deploy the web app"
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$WEB_APP_ZIP" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
+[[ $WEBAPP_DEPLOYED == 1 ]] || fail "could not deploy the web app"
 rm -f "$WEB_APP_ZIP"
+
+# A function app on the Consumption plan runs only when the platform's scale controller starts it for the events its
+# trigger watches. On Azure, after two deployments in a row, the scale controller watched no trigger and never started
+# the function app (2026-11-26). Registering the triggers again at the end of the deployment, once the remote build of
+# the package has had time to finish, makes it start the function app when the events arrive.
+WEB_API_VERSION="${WEB_API_VERSION:-2024-04-01}"
+echo "Syncing the triggers of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
+	--query id --output tsv --only-show-errors)
+[[ -n "$FUNCTION_APP_ID" ]] || fail "could not read the id of function app [$FUNCTION_APP_NAME]"
+az rest --method post --url "$FUNCTION_APP_ID/syncfunctiontriggers?api-version=$WEB_API_VERSION" --only-show-errors \
+	1>/dev/null || fail "could not sync the triggers of function app [$FUNCTION_APP_NAME]"
+echo "Synced the triggers of the [$FUNCTION_APP_NAME] function app."
 
 # -----------------------------------------------------------------------------
 echo ""

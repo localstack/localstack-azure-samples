@@ -10,11 +10,14 @@ public interface IActivityStore
 
     Task<IReadOnlyList<Activity>> ListAsync(CancellationToken cancellationToken);
 
-    Task AddAsync(string text, CancellationToken cancellationToken);
+    /// <summary>Stores a new activity and returns its id.</summary>
+    Task<string> AddAsync(string text, CancellationToken cancellationToken);
 
-    Task UpdateAsync(string id, string text, CancellationToken cancellationToken);
+    /// <summary>Changes the text of an activity; returns <c>false</c> when no activity has the id.</summary>
+    Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken);
 
-    Task DeleteAsync(string id, CancellationToken cancellationToken);
+    /// <summary>Deletes an activity; returns <c>false</c> when no activity has the id.</summary>
+    Task<bool> DeleteAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Cheap connectivity probe used by <c>GET /health</c>.</summary>
     Task<bool> IsHealthyAsync(CancellationToken cancellationToken);

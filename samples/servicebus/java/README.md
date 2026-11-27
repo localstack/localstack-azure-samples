@@ -91,9 +91,9 @@ The deploy script performs the following steps:
 The application then:
 
 1. Connects to the configured Service Bus namespace using the connection string.
-2. Sends a `Hello, World!` message to the `myqueue` queue.
+2. Sends a `Hello, World!` message to the `myqueue` queue, with a random message id: the Terraform configuration creates the queue partitioned and with duplicate detection by default, and Azure refuses a message to such a queue unless it has a message id or a partition key.
 3. Receives the message via a `@ServiceBusListener` consumer.
-4. Shuts down after receiving the message.
+4. Shuts down after receiving the message. If the message can't be sent, it logs the error and stops with exit code 1, so the deployment script doesn't wait for a message that never comes.
 
 ## References
 

@@ -15,14 +15,21 @@ public class DeleteModel(IActivityStore store, ILogger<DeleteModel> logger) : Pa
         {
             try
             {
-                await store.DeleteAsync(id, cancellationToken);
-                logger.LogInformation("Activity deleted: {Id}", id);
-                TempData["Flash"] = "Activity deleted successfully.";
+                if (await store.DeleteAsync(id, cancellationToken))
+                {
+                    logger.LogInformation("Activity deleted: {ActivityId}", id);
+                    TempData["Flash"] = "Activity deleted successfully.";
+                }
+                else
+                {
+                    logger.LogWarning("Activity not found: {ActivityId}", id);
+                    TempData["Flash"] = "Activity not found.";
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // The distro sends a log record that carries an exception to Application Insights as an exception
-                logger.LogError(ex, "Failed to delete the activity {Id}.", id);
+                logger.LogError(ex, "Failed to delete the activity {ActivityId}.", id);
                 TempData["Flash"] = "Failed to delete the activity.";
             }
         }

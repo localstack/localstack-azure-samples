@@ -9,7 +9,7 @@
 # the exceptions of the requests that failed, if any (AppExceptions).
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so the wait and every
-# query are retried: raise RETRY_COUNT there.
+# query are retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as deploy.sh)
 PREFIX="${PREFIX:-local}"
@@ -18,9 +18,24 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
+
+# Call the home page and the status endpoint once, quietly. Every wait for records calls the web app again: on Azure,
+# App Service applies the APPLICATIONINSIGHTS_CONNECTION_STRING app setting that deploy.sh sets last by starting a new
+# container about a minute after the deployment ends, and the calls an earlier container served may never reach the
+# workspace
+call_web_app_once() {
+	curl --max-time 30 --silent --output /dev/null "https://$WEB_APP_HOST_NAME/"
+	curl --max-time 30 --silent --output /dev/null "https://$WEB_APP_HOST_NAME/api/status"
+}
 
 # Run a KQL query on the Log Analytics workspace and print the records it returns as a table, retrying while the
 # records are still on their way to the workspace
@@ -60,7 +75,8 @@ query_workspace() {
 			return 0
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
-				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Waiting [$SLEEP] seconds before retry..."
+				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Calling the web app again and waiting [$SLEEP] seconds before retry..."
+				call_web_app_once
 				sleep $SLEEP
 			fi
 			attempt=$((attempt + 1))
@@ -217,6 +233,12 @@ query_workspace \
 	"Latest StatusRequested custom events of the [$WEB_APP_NAME] web app (AppEvents)" \
 	"AppEvents | where Name == 'StatusRequested' | project TimeGenerated, Name, Image = tostring(Properties['image.name']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Image:Image}"
+
+# The traces that confirm the status requests the web app answered (AppTraces)
+query_workspace \
+	"Confirmation traces of the status requests (AppTraces)" \
+	"AppTraces | where Message startswith 'Status returned: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the status requests by image, exported once a minute (AppMetrics)
 query_workspace \

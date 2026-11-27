@@ -71,6 +71,13 @@ param mysqlPort string = '3306'
 @description('Specifies the name of the database to connect to.')
 param mysqlDatabase string = 'sampledb'
 
+@description('Specifies the application user the web app connects with.')
+param mysqlUser string
+
+@description('Specifies the password of the application user.')
+@secure()
+param mysqlPassword string
+
 @description('Specifies the name of the virtual network.')
 param virtualNetworkName string
 
@@ -175,13 +182,14 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   properties: {
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     ENABLE_ORYX_BUILD: 'true'
-    // MYSQL_USER and MYSQL_PASSWORD are NOT set here. The post-deploy script connects to the
-    // server via the firewall-allowed public endpoint to (a) create the application user
-    // `testuser` and (b) write `MYSQL_USER` / `MYSQL_PASSWORD` onto this Web App via `az webapp
-    // config appsettings set`. The server-admin login is never exposed to the Web App at runtime.
+    // MYSQL_USER and MYSQL_PASSWORD name the application user, which the post-deploy script creates on the
+    // server through the firewall-allowed public endpoint. The template sets them, so a second deployment, which
+    // writes this whole collection again, keeps them. The server-admin login is never exposed to the Web App.
     MYSQL_HOST: mysqlHost
     MYSQL_PORT: mysqlPort
     MYSQL_DATABASE: mysqlDatabase
+    MYSQL_USER: mysqlUser
+    MYSQL_PASSWORD: mysqlPassword
     MYSQL_SSL: 'true'
     WEBSITES_PORT: '8000'
     LOGIN_NAME: username

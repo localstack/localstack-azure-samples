@@ -89,6 +89,13 @@ resource "azurerm_container_app_environment" "example" {
   location            = azurerm_resource_group.example.location
   tags                = var.tags
 
+  # Azure gives every new environment the Consumption workload profile, and every container app in it that profile:
+  # declaring both keeps a second terraform apply from removing them, which Azure would only add back
+  workload_profile {
+    name                  = var.workload_profile_name
+    workload_profile_type = var.workload_profile_type
+  }
+
   lifecycle {
     ignore_changes = [
       tags
@@ -102,6 +109,7 @@ resource "azurerm_container_app" "example" {
   container_app_environment_id = azurerm_container_app_environment.example.id
   resource_group_name          = azurerm_resource_group.example.name
   revision_mode                = "Multiple"
+  workload_profile_name        = var.workload_profile_name
   tags                         = var.tags
 
   dynamic "identity" {

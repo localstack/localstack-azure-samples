@@ -9,7 +9,7 @@
 # counts the activities (AppMetrics), and the exceptions the application logged, if any (AppExceptions).
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so the wait and every
-# query are retried: raise RETRY_COUNT there.
+# query are retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as deploy.sh)
 PREFIX="${PREFIX:-local}"
@@ -18,7 +18,13 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 WEB_APP_NAME="${PREFIX}-webapp-${SUFFIX}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 WEB_APP_CALLS="${WEB_APP_CALLS:-5}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -28,13 +34,19 @@ EXIT_CODE=0
 # $2: the KQL query
 # $3: the JMESPath projection that names and orders the columns of the table
 # $4: the number of records the query must return (1 when not given)
+# $5: a command that produces new records, run once a minute when the records are three minutes late (none when not
+#     given): the apps export their custom metrics once a minute, and on Azure the restart that follows a deployment
+#     can stop an app before it exported the points of the calls this script made
 query_workspace() {
 	local description=$1
 	local query=$2
 	local columns=$3
 	local minimum_records=${4:-1}
+	local produce_again=${5:-}
 	local records
 	local attempt=1
+	local started=$SECONDS
+	local last_produced=$SECONDS
 
 	echo -e "\n$description:\n"
 	while [ $attempt -le $RETRY_COUNT ]; do
@@ -61,6 +73,10 @@ query_workspace() {
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
 				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Waiting [$SLEEP] seconds before retry..."
+				if [[ -n $produce_again ]] && ((SECONDS - started >= 180 && SECONDS - last_produced >= 60)); then
+					$produce_again
+					last_produced=$SECONDS
+				fi
 				sleep $SLEEP
 			fi
 			attempt=$((attempt + 1))
@@ -194,28 +210,43 @@ for CALL in $(seq 1 "$WEB_APP_CALLS"); do
 	echo "Call $CALL of $WEB_APP_CALLS to the [$WEB_APP_NAME] web app answered with status code [$STATUS_CODE]"
 done
 
+# Post an activity with the web app's form and print the status code of the answer: the app redirects to its page
+# (302) once it stored the activity. The form of the .NET app carries an antiforgery token, without which ASP.NET Core
+# refuses the post: the function reads the form first and sends the token back with the cookie that came with it. The
+# Python app has no such token.
+# $1: the activity
+post_activity() {
+	local cookie_jar form_token
+	cookie_jar=$(mktemp)
+	form_token=$(curl --max-time 30 --silent --cookie-jar "$cookie_jar" "https://$WEB_APP_HOST_NAME/" |
+		grep -o 'name="__RequestVerificationToken"[^>]*value="[^"]*"' |
+		head -n 1 |
+		sed 's/.*value="//; s/"$//')
+	curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" \
+		--cookie "$cookie_jar" \
+		--data-urlencode "activity=$1" \
+		--data-urlencode "__RequestVerificationToken=$form_token" \
+		"https://$WEB_APP_HOST_NAME/"
+	rm -f "$cookie_jar"
+}
+
+# Add another activity, so that the activities custom metric gets a new point: the web app exports its metrics once a
+# minute, and on Azure the restart that follows a deployment can stop it before it exported the point of the activity
+# added below
+add_another_activity() {
+	local activity
+	activity="Telemetry check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	echo "Adding the [$activity] activity, so that the custom metric gets a new point: status code [$(post_activity "$activity")]"
+}
+
 # Add an activity, so that AppEvents holds its ActivityAdded custom event and AppMetrics the activities custom metric.
-# The form of the .NET app carries an antiforgery token, without which ASP.NET Core refuses the post: the script reads
-# the form first and sends the token back with the cookie that came with it. The Python app has no such token. Right
-# after a deployment, Azure answered the post with 405 before the app served it (2026-11-17), so the post is retried
-# until the app stores the activity.
+# Right after a deployment, Azure answered the post with 405 before the app served it (2026-11-17), so the post is
+# retried until the app stores the activity.
 ACTIVITY="Telemetry check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "Adding the [$ACTIVITY] activity with the [$WEB_APP_NAME] web app..."
 ATTEMPT=1
 while [ $ATTEMPT -le $RETRY_COUNT ]; do
-	COOKIE_JAR=$(mktemp)
-	FORM_TOKEN=$(curl --max-time 30 --silent --cookie-jar "$COOKIE_JAR" "https://$WEB_APP_HOST_NAME/" |
-		grep -o 'name="__RequestVerificationToken"[^>]*value="[^"]*"' |
-		head -n 1 |
-		sed 's/.*value="//; s/"$//')
-	STATUS_CODE=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" \
-		--cookie "$COOKIE_JAR" \
-		--data-urlencode "activity=$ACTIVITY" \
-		--data-urlencode "__RequestVerificationToken=$FORM_TOKEN" \
-		"https://$WEB_APP_HOST_NAME/")
-	rm -f "$COOKIE_JAR"
-
-	# The app redirects to its page once it stored the activity
+	STATUS_CODE=$(post_activity "$ACTIVITY")
 	if [[ $STATUS_CODE == 302 ]]; then
 		break
 	fi
@@ -257,11 +288,20 @@ query_workspace \
 	"AppEvents | where Name == 'ActivityAdded' | project TimeGenerated, Name, ActivityId = tostring(Properties['activity.id']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Activity:ActivityId}"
 
-# The custom metric that counts the activities by operation, exported once a minute (AppMetrics)
+# The trace that confirms the activity added above, with its id and text (AppTraces)
+query_workspace \
+	"Confirmation trace of the [$ACTIVITY] activity (AppTraces)" \
+	"AppTraces | where Message startswith 'Activity added: ' and Message endswith '($ACTIVITY)' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
+# The custom metric that counts the activities by operation, exported once a minute (AppMetrics). When it is three
+# minutes late, the script adds another activity once a minute.
 query_workspace \
 	"Custom metric of the activities (AppMetrics)" \
 	"AppMetrics | where Name == 'activities' | summarize Total = sum(Sum) by Name, Operation = tostring(Properties['operation'])" \
-	"[].{Metric:Name,Operation:Operation,Total:Total}"
+	"[].{Metric:Name,Operation:Operation,Total:Total}" \
+	1 \
+	add_another_activity
 
 # The exceptions the application logged with their stack trace (AppExceptions): a call to MySQL that fails produces one
 show_workspace_records \

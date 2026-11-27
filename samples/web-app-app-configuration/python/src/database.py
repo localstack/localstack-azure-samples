@@ -97,7 +97,7 @@ class PostgresClient:
                 return
             except OperationalError as exc:
                 last_err = exc
-                logger.info(
+                logger.warning(
                     "PostgreSQL not ready (attempt %d/%d): %s", attempt, retries, exc
                 )
                 time.sleep(delay)

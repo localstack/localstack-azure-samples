@@ -68,6 +68,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+			mysqlAppUser="$MYSQL_APP_USER" \
+			mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 			--only-show-errors
 
 		if [[ $? == 0 ]]; then
@@ -87,6 +89,8 @@ if [[ $VALIDATE_TEMPLATE == 1 ]]; then
 			prefix=$PREFIX \
 			suffix=$SUFFIX \
 			mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+			mysqlAppUser="$MYSQL_APP_USER" \
+			mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 			--only-show-errors)
 
 		if [[ $? == 0 ]]; then
@@ -110,6 +114,8 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	prefix=$PREFIX \
 	suffix=$SUFFIX \
 	mysqlAdminPassword="$MYSQL_ADMIN_PASSWORD" \
+	mysqlAppUser="$MYSQL_APP_USER" \
+	mysqlAppPassword="$MYSQL_APP_PASSWORD" \
 	--query 'properties.outputs' -o json); then
 	# Extract only the JSON portion (everything from first { to the end)
 	DEPLOYMENT_JSON=$(echo "$DEPLOYMENT_OUTPUTS" | sed -n '/{/,$ p')
@@ -153,7 +159,7 @@ if [[ -z "$MYSQL_CHECK" ]]; then
 fi
 
 # Create application user [$MYSQL_APP_USER] on the MySQL flexible server
-echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server..."
+echo "Creating login [$MYSQL_APP_USER] on the [$MYSQL_SERVER_NAME] MySQL flexible server, unless it exists..."
 MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -164,7 +170,7 @@ MYSQL_PWD="$MYSQL_ADMIN_PASSWORD" mysql \
 		FLUSH PRIVILEGES;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$MYSQL_APP_USER] created successfully"
+	echo "Login [$MYSQL_APP_USER] is in place: created if it was missing"
 else
 	echo "Failed to create login [$MYSQL_APP_USER]"
 	exit 1
@@ -188,7 +194,7 @@ else
 fi
 
 # Create [activities] table
-echo "Creating [activities] table in the [$DATABASE_NAME] database..."
+echo "Creating [activities] table in the [$DATABASE_NAME] database, unless it exists..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -206,14 +212,14 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 		);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	echo "[activities] table is in place: created if it was missing"
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 	--host="$MYSQL_FQDN" \
 	--port="$MYSQL_PORT" \
@@ -232,7 +238,7 @@ MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql \
 			(MD5('paolo_viareggio_promenade_seed'), 'paolo', 'Stroll along the Viareggio promenade');"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
 	echo "Failed to insert sample data into [activities] table"
 	exit 1
@@ -252,21 +258,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set MYSQL_USER + MYSQL_PASSWORD on the web app to point at the application user
-echo "Setting MYSQL_USER=[$MYSQL_APP_USER] and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings MYSQL_USER="$MYSQL_APP_USER" MYSQL_PASSWORD="$MYSQL_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "MYSQL_USER and MYSQL_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set MYSQL_USER and MYSQL_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 
@@ -293,12 +284,36 @@ zip -r "$ZIPFILE" . -x "bin/*" "obj/*" "publish/*" "*.zip"
 # Deploy the web app
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
+
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
+	exit 1
+fi
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then
@@ -322,17 +337,18 @@ echo "You can visit your app at: $WEB_APP_URL"
 
 echo "Pinging [$WEB_APP_URL] to verify the web app responds..."
 HTTP_CODE="000"
-for attempt in $(seq 1 12); do
+# The site starts after the deployment, which doesn't wait for it: wait as long as App Service gives a site to start
+for attempt in $(seq 1 60); do
 	HTTP_CODE=$(curl -s -o "$(null_device)" -w '%{http_code}' --max-time 10 "$WEB_APP_URL" || echo "000")
 	if [ "$HTTP_CODE" = "200" ]; then
 		echo "Web app responded with HTTP 200. Deployment verified successfully."
 		break
 	fi
-	echo "Web app not ready yet (attempt $attempt/12, HTTP $HTTP_CODE)..."
-	sleep 5
+	echo "Web app not ready yet (attempt $attempt/60, HTTP $HTTP_CODE)..."
+	sleep 10
 done
 
 if [ "$HTTP_CODE" != "200" ]; then
-	echo "Web app did not return HTTP 200 after 12 attempts (last code: $HTTP_CODE). Deployment verification failed."
+	echo "Web app did not return HTTP 200 after 60 attempts (last code: $HTTP_CODE). Deployment verification failed."
 	exit 1
 fi

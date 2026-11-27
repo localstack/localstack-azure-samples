@@ -72,6 +72,13 @@ param pgPort string = '5432'
 @description('Specifies the name of the database to connect to.')
 param pgDatabase string = 'sampledb'
 
+@description('Specifies the application role the web app connects with.')
+param pgUser string
+
+@description('Specifies the password of the application role.')
+@secure()
+param pgPassword string
+
 @description('Specifies the name of the virtual network.')
 param virtualNetworkName string
 
@@ -176,13 +183,14 @@ resource configAppSettings 'Microsoft.Web/sites/config@2024-11-01' = {
   properties: {
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     ENABLE_ORYX_BUILD: 'true'
-    // PG_USER and PG_PASSWORD are NOT set here. The post-deploy script connects to the server
-    // via the firewall-allowed public endpoint to (a) create the application role `testuser`
-    // and (b) write `PG_USER` / `PG_PASSWORD` onto this Web App via `az webapp config
-    // appsettings set`. The server-admin login is never exposed to the Web App at runtime.
+    // PG_USER and PG_PASSWORD name the application role, which the post-deploy script creates on the
+    // server through the firewall-allowed public endpoint. The template sets them, so a second deployment, which
+    // writes this whole collection again, keeps them. The server-admin login is never exposed to the Web App.
     PG_HOST: pgHost
     PG_PORT: pgPort
     PG_DATABASE: pgDatabase
+    PG_USER: pgUser
+    PG_PASSWORD: pgPassword
     WEBSITES_PORT: '8000'
     LOGIN_NAME: username
     APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString

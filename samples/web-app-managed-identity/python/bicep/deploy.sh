@@ -103,15 +103,78 @@ if DEPLOYMENT_OUTPUTS=$(az deployment group create \
 	WEB_APP_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppName.value')
 	WEB_APP_URL=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.webAppUrl.value')
 	STORAGE_ACCOUNT_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageAccountName.value')
+	CONTAINER_NAME=$(echo "$DEPLOYMENT_OUTPUTS" | jq -r '.storageContainerName.value')
 	echo "Deployment details:"
 	echo "- appServicePlanName: $APP_SERVICE_PLAN_NAME"
 	echo "- webAppName: $WEB_APP_NAME"
 	echo "- webAppUrl: $WEB_APP_URL"
 	echo "- storageAccountName: $STORAGE_ACCOUNT_NAME"
+	echo "- storageContainerName: $CONTAINER_NAME"
 else
 	echo "Failed to deploy Bicep template [$TEMPLATE]"
 	exit 1
 fi
+
+# The key of the storage account, which uploads the sample activities as the Azure CLI scripts do
+STORAGE_ACCOUNT_KEY=$(az storage account keys list \
+	--account-name "$STORAGE_ACCOUNT_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "[0].value" \
+	--output tsv \
+	--only-show-errors)
+
+if [[ -z $STORAGE_ACCOUNT_KEY ]]; then
+	echo "Failed to retrieve the key of the [$STORAGE_ACCOUNT_NAME] storage account."
+	exit 1
+fi
+
+# Seed the container with sample activities, one blob per activity, as the other samples seed their databases. Every
+# blob has a fixed name, so a second run finds the ones already there and uploads only the missing ones.
+SAMPLE_ACTIVITIES=(
+	"pisa|Visit the Leaning Tower in Pisa"
+	"volterra|Explore Etruscan walls in Volterra"
+	"san-gimignano|Climb Torre Grossa in San Gimignano"
+	"siena|Walk across Piazza del Campo in Siena"
+	"montalcino|Taste Brunello wine in Montalcino"
+	"pienza|Sample Pecorino cheese in Pienza"
+	"florence|Admire Michelangelo's David in Florence"
+	"viareggio-beach|Relax by the beach in Viareggio"
+	"viareggio-promenade|Stroll along the Viareggio promenade"
+)
+echo "Seeding the [$CONTAINER_NAME] container of the [$STORAGE_ACCOUNT_NAME] storage account with sample activities..."
+for SAMPLE_ACTIVITY in "${SAMPLE_ACTIVITIES[@]}"; do
+	SAMPLE_BLOB_NAME="sample-${SAMPLE_ACTIVITY%%|*}-activity.txt"
+	SAMPLE_BLOB_EXISTS=$(az storage blob exists \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--query exists \
+		--output tsv \
+		--only-show-errors)
+
+	if [[ $SAMPLE_BLOB_EXISTS == "true" ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] already exists in the [$CONTAINER_NAME] container."
+		continue
+	fi
+
+	az storage blob upload \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--account-key "$STORAGE_ACCOUNT_KEY" \
+		--container-name "$CONTAINER_NAME" \
+		--name "$SAMPLE_BLOB_NAME" \
+		--data "${SAMPLE_ACTIVITY#*|}" \
+		--content-type "text/plain" \
+		--no-progress \
+		--only-show-errors 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "Sample activity [$SAMPLE_BLOB_NAME] uploaded to the [$CONTAINER_NAME] container."
+	else
+		echo "Failed to upload sample activity [$SAMPLE_BLOB_NAME] to the [$CONTAINER_NAME] container."
+		exit 1
+	fi
+done
 
 # Validation before deploying the web app
 if [[ -z "$WEB_APP_NAME" ]]; then
@@ -133,17 +196,34 @@ zip -r "$ZIPFILE" app.py gunicorn.conf.py requirements.txt static templates
 
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
 
-if [ $? -eq 0 ]; then
-	echo "Web app [$WEB_APP_NAME] created successfully."
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
 else
-	echo "Failed to create web app [$WEB_APP_NAME]."
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
 	exit 1
 fi
 

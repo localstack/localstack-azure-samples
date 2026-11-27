@@ -17,8 +17,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME="default"
 ZIPFILE="function_app.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 RETRY_COUNT=3
@@ -260,27 +260,31 @@ else
 	echo "App Service plan [$APP_SERVICE_PLAN_NAME] already exists in the [$RESOURCE_GROUP_NAME] resource group."
 fi
 
-# Create the function app on the App Service plan, which also turns on Always On, so that the blob trigger keeps
-# running. The --app-insights parameter connects the function app to the Application Insights component through its
-# APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
-echo "Creating function app [$FUNCTION_APP_NAME]..."
-az functionapp create \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--plan "$APP_SERVICE_PLAN_NAME" \
-	--assign-identity '[system]' \
-	--runtime $RUNTIME \
-	--runtime-version $RUNTIME_VERSION \
-	--functions-version 4 \
-	--name $FUNCTION_APP_NAME \
-	--app-insights "$APPLICATION_INSIGHTS_NAME" \
-	--storage-account $STORAGE_ACCOUNT_NAME \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "Function app [$FUNCTION_APP_NAME] created successfully."
+if az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "Function app [$FUNCTION_APP_NAME] already exists."
 else
-	echo "Failed to create function app [$FUNCTION_APP_NAME]."
-	exit 1
+	# Create the function app on the App Service plan, which also turns on Always On, so that the blob trigger keeps
+	# running. The --app-insights parameter connects the function app to the Application Insights component through its
+	# APPLICATIONINSIGHTS_CONNECTION_STRING app setting.
+	echo "Creating function app [$FUNCTION_APP_NAME]..."
+	az functionapp create \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--plan "$APP_SERVICE_PLAN_NAME" \
+		--assign-identity '[system]' \
+		--runtime $RUNTIME \
+		--runtime-version $RUNTIME_VERSION \
+		--functions-version 4 \
+		--name $FUNCTION_APP_NAME \
+		--app-insights "$APPLICATION_INSIGHTS_NAME" \
+		--storage-account $STORAGE_ACCOUNT_NAME \
+		--only-show-errors 1>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "Function app [$FUNCTION_APP_NAME] created successfully."
+	else
+		echo "Failed to create function app [$FUNCTION_APP_NAME]."
+		exit 1
+	fi
 fi
 
 # Retrieve the principalId of the system-assigned managed identity
@@ -306,7 +310,7 @@ current=$(az role assignment list \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
 	--output tsv 2>/dev/null)
 
-if [[ $current == $ROLE ]]; then
+if [[ $current == "$ROLE" ]]; then
 	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -350,7 +354,7 @@ current=$(az role assignment list \
 	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
 	--output tsv 2>/dev/null)
 
-if [[ $current == $ROLE ]]; then
+if [[ $current == "$ROLE" ]]; then
 	echo "Managed identity already has the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
 else
 	echo "Managed identity does not have the [$ROLE] role assignment on storage account [$STORAGE_ACCOUNT_NAME]"
@@ -669,8 +673,9 @@ echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
 #	--resource-group "$RESOURCE_GROUP_NAME" \
 #	--name "$FUNCTION_APP_NAME" \
 #	--src "$ZIPFILE" 1>/dev/null
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+# retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deploy \

@@ -361,5 +361,5 @@ class SqlHelper:
                 cursor.fetchone()
             return True
         except Exception as e:
-            print(f"Connection test failed: {e}")
+            logger.warning("Connection test failed: %s", e)
             return False

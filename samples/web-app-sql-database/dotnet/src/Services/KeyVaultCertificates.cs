@@ -29,7 +29,7 @@ public static class KeyVaultCertificates
     }
 
     /// <summary>Returns the certificate's name, subject and SHA-1 thumbprint (lowercase hex), as the Python sample does.</summary>
-    public static async Task<object> GetCertificateInfoAsync(string vaultUri, string certificateName, CancellationToken cancellationToken)
+    public static async Task<CertificateInfo> GetCertificateInfoAsync(string vaultUri, string certificateName, CancellationToken cancellationToken)
     {
         var client = new CertificateClient(new Uri(vaultUri), new DefaultAzureCredential());
         var certificate = (await client.GetCertificateAsync(certificateName, cancellationToken)).Value;
@@ -43,11 +43,12 @@ public static class KeyVaultCertificates
             throw new InvalidOperationException($"Certificate '{certificateName}' has no policy");
         }
 
-        return new
-        {
-            name = certificate.Name,
-            subject = certificate.Policy.Subject,
-            thumbprint = Convert.ToHexStringLower(SHA1.HashData(certificate.Cer)),
-        };
+        return new CertificateInfo(
+            certificate.Name,
+            certificate.Policy.Subject,
+            Convert.ToHexStringLower(SHA1.HashData(certificate.Cer)));
     }
 }
+
+/// <summary>The properties of a Key Vault certificate; the web JSON options write them as name, subject and thumbprint.</summary>
+public sealed record CertificateInfo(string Name, string? Subject, string Thumbprint);

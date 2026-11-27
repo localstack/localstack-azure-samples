@@ -10,7 +10,7 @@
 # logged, if any (AppExceptions). The timers keep the function app busy by themselves, so the script calls nothing.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -19,7 +19,13 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 FUNCTION_APP_NAME="${PREFIX}-func-${SUFFIX}"
 TIMER_FUNCTION_NAME="GreetingRequester"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -175,6 +181,12 @@ query_workspace \
 	"AppEvents | where Name in ('GreetingRequested', 'GreetingProcessed', 'GreetingReceived') | summarize Events = count() by Name | order by Name asc" \
 	"[].{Event:Name,Events:Events}" \
 	3
+
+# The traces that confirm the greeting requests the handler processed (AppTraces)
+query_workspace \
+	"Confirmation traces of the processed greetings (AppTraces)" \
+	"AppTraces | where Message startswith '[GreetingHandler] Processed message' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the greetings by operation, exported once a minute (AppMetrics)
 query_workspace \

@@ -59,7 +59,7 @@ public sealed class CosmosActivityStore : IActivityStore
         return activities;
     }
 
-    public async Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(string text, CancellationToken cancellationToken)
     {
         var document = new ActivityDocument
         {
@@ -76,9 +76,10 @@ public sealed class CosmosActivityStore : IActivityStore
             text
         );
         ActivityTelemetry.Track(_logger, "ActivityAdded", "add", document.Id);
+        return document.Id;
     }
 
-    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken)
     {
         try
         {
@@ -87,24 +88,26 @@ public sealed class CosmosActivityStore : IActivityStore
             await Container.ReplaceItemAsync(item.Resource, id, new PartitionKey(_options.Username), cancellationToken: cancellationToken);
             _logger.LogInformation("Updated item {Id} in container '{Container}'", id, _options.ContainerName);
             ActivityTelemetry.Track(_logger, "ActivityUpdated", "update", id);
+            return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            _logger.LogWarning("Activity {Id} was not found; nothing to update", id);
+            return false;
         }
     }
 
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         try
         {
             _logger.LogInformation("Deleting item {Id} from container '{Container}'", id, _options.ContainerName);
             await Container.DeleteItemAsync<ActivityDocument>(id, new PartitionKey(_options.Username), cancellationToken: cancellationToken);
             ActivityTelemetry.Track(_logger, "ActivityDeleted", "delete", id);
+            return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            _logger.LogWarning("Activity {Id} was not found; nothing to delete", id);
+            return false;
         }
     }
 

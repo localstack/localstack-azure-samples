@@ -11,7 +11,7 @@
 # so the script makes five and waits as long as the gateway asks when it answers 429.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -22,7 +22,13 @@ APIM_API_VERSION='2022-08-01'
 API_PATH='inventory'
 APIM_SUBSCRIPTION_ID='partner-subscription'
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -267,6 +273,12 @@ query_workspace \
 	"InventoryItemServed custom events, per SKU (AppEvents)" \
 	"AppEvents | where Name == 'InventoryItemServed' | summarize Events = count() by Sku = tostring(Properties['inventory.sku']) | order by Sku asc" \
 	"[].{Sku:Sku,Events:Events}"
+
+# The traces that confirm the inventory items the backend served (AppTraces)
+query_workspace \
+	"Confirmation traces of the inventory items read (AppTraces)" \
+	"AppTraces | where Message startswith 'Inventory item read: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the inventory items served per SKU, exported once a minute (AppMetrics)
 query_workspace \

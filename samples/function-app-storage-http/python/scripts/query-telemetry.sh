@@ -10,7 +10,7 @@
 # timer keeps the function app busy by itself, so the script calls nothing.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -19,7 +19,13 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"
 TIMER_FUNCTION_NAME="CreateGame"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -174,6 +180,12 @@ query_workspace \
 	"AppEvents | where Name in ('GameCreated', 'GameWinnerDetermined') | summarize Events = count() by Name, Source = tostring(Properties['game.source']) | order by Name asc" \
 	"[].{Event:Name,Source:Source,Events:Events}" \
 	2
+
+# The traces that confirm the games the timer function created (AppTraces)
+query_workspace \
+	"Confirmation traces of the games created (AppTraces)" \
+	"AppTraces | where Message contains 'scoreboard entries for game' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the completed games by the source of the request, exported once a minute (AppMetrics)
 query_workspace \

@@ -40,7 +40,7 @@ public class ProcessTextFunction(ILogger<ProcessTextFunction> logger)
         {
             // Process the text: convert it to uppercase
             var processedText = StrictUtf8.GetString(content).ToUpperInvariant();
-            logger.LogInformation("Text processed and saved successfully.");
+            logger.LogInformation("Blob processed: {BlobName} ({BlobSize} bytes)", blobName, content.Length);
             BlobTelemetry.TrackBlobProcessed(logger, blobName, content.Length, outputContainer);
             return processedText;
         }

@@ -8,21 +8,6 @@ moved {
 }
 
 moved {
-  from = azurerm_key_vault_access_policy.deployer
-  to   = module.key_vault.azurerm_key_vault_access_policy.deployer
-}
-
-moved {
-  from = azurerm_key_vault_access_policy.sql_server
-  to   = module.key_vault.azurerm_key_vault_access_policy.sql_server
-}
-
-moved {
-  from = azurerm_key_vault_access_policy.web_app
-  to   = module.web_app_key_vault_access_policy.azurerm_key_vault_access_policy.example
-}
-
-moved {
   from = azurerm_key_vault_certificate.example
   to   = module.key_vault.azurerm_key_vault_certificate.example
 }

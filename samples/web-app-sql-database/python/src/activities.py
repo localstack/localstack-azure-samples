@@ -252,7 +252,6 @@ class ActivitiesHelper:
                 logger.info(f"Updated activity with ID: {activity_id}")
                 return updated_data
             
-            logger.warning(f"No activity found with ID: {activity_id}")
             return None
             
         except Exception as e:

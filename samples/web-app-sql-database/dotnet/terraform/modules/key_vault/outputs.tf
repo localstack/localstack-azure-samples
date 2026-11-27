@@ -15,9 +15,7 @@ output "vault_uri" {
 
 output "tde_key_id" {
   value       = azurerm_key_vault_key.tde.id
-  description = "Specifies the versioned id of the TDE protector key, available once the SQL server's identity may use it"
-  # The TDE protector can only be set once the server's identity has its access policy
-  depends_on = [azurerm_key_vault_access_policy.sql_server]
+  description = "Specifies the versioned id of the TDE protector key"
 }
 
 output "secret_name" {

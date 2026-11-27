@@ -15,13 +15,20 @@ public class DeleteModel(IActivityStore store, ILogger<DeleteModel> logger) : Pa
         {
             try
             {
-                await store.DeleteAsync(id, cancellationToken);
-                logger.LogInformation("Activity deleted: {Id}", id);
-                TempData["Flash"] = "Activity deleted.";
+                if (await store.DeleteAsync(id, cancellationToken))
+                {
+                    logger.LogInformation("Activity deleted: {ActivityId}", id);
+                    TempData["Flash"] = "Activity deleted.";
+                }
+                else
+                {
+                    logger.LogWarning("Activity not found: {ActivityId}", id);
+                    TempData["Flash"] = "Activity not found.";
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogError(ex, "Could not delete the activity");
+                logger.LogError(ex, "Could not delete the activity {ActivityId}", id);
                 TempData["Flash"] = IndexModel.DatabaseUnavailable;
             }
         }

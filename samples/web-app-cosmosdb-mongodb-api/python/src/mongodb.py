@@ -428,7 +428,11 @@ class MongoDbClient:
             update: dict,
             database_name: str | None = None,
             collection_name: str | None = None) -> int:
-        """Update a document by ID in a MongoDB collection."""
+        """Update a document by ID in a MongoDB collection.
+
+        Return the number of documents that matched the ID: an update to the same values matches the document without
+        modifying it, so 0 means that no document has the ID.
+        """
         try:
             database_name, collection_name = (
                 self._resolve_database_and_collection(
@@ -438,7 +442,7 @@ class MongoDbClient:
             logger.info(
                 "Updated %d document(s) with id %s in collection %s",
                 result.modified_count, doc_id, collection_name)
-            return result.modified_count
+            return result.matched_count
         except Exception as ex:
             logger.error("Failed to update document by id: %s", ex)
             raise

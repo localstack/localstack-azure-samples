@@ -55,7 +55,7 @@ def ProcessTextFunction(input_blob: func.InputStream, output_blob: func.Out[str]
 
         # Write the processed text to the output blob
         output_blob.set(processed_text)
-        logger.info("Text processed and saved successfully.")
+        logger.info("Blob processed: %s (%d bytes)", input_blob.name, input_blob.length or 0)
 
         # A custom event (customEvents table): the worker sends a log record that carries the
         # microsoft.custom_event.name attribute as a custom event named after its value, with the other attributes as

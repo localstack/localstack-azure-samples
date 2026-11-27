@@ -209,6 +209,8 @@ module "web_app" {
     MYSQL_HOST                            = local.mysql_host
     MYSQL_PORT                            = local.mysql_port
     MYSQL_DATABASE                        = module.mysql_flexible_server.database_name
+    MYSQL_USER                            = var.mysql_app_user
+    MYSQL_PASSWORD                        = var.mysql_app_password
     MYSQL_SSL                             = "true"
     LOGIN_NAME                            = var.login_name
     APPLICATIONINSIGHTS_CONNECTION_STRING = module.application_insights.connection_string

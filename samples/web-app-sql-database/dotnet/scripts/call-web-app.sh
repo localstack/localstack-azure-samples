@@ -4,6 +4,11 @@
 #
 # The web app to call is the one named by the first argument, else by WEB_APP_NAME, else the only web app in the
 # subscription. Name it when several are deployed.
+#
+# The certificate check retries until the web app answers, up to RETRY_COUNT attempts made SLEEP seconds apart.
+
+RETRY_COUNT="${RETRY_COUNT:-30}"
+SLEEP="${SLEEP:-10}"
 
 get_docker_container_name_by_prefix() {
 	local app_prefix="$1"
@@ -153,6 +158,38 @@ call_web_app() {
 	else
 		echo "Error: No web app default host name found"
 		exit 1
+	fi
+
+	# Read the certificate through the web app: GET /api/certificate makes the app read it from Key Vault with its
+	# user-assigned managed identity, which holds the Key Vault Certificate User role. The default host name answers
+	# over HTTPS on Azure and on the emulator alike. The app is built after the deployment returns, so the call is
+	# retried until the app answers.
+	echo "Reading the Key Vault certificate through the web app [$web_app_name]..."
+	certificate_thumbprint=""
+	for attempt in $(seq 1 "$RETRY_COUNT"); do
+		certificate_info=$(curl --max-time 30 -fsS "https://$app_host_name/api/certificate" 2>/dev/null)
+		certificate_thumbprint=$(jq -r '.thumbprint // empty' <<<"$certificate_info" 2>/dev/null)
+		if [ -n "$certificate_thumbprint" ]; then
+			break
+		fi
+		if [ "$attempt" -lt "$RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $RETRY_COUNT: the certificate endpoint of the web app returned no thumbprint. Waiting [$SLEEP] seconds before retry..."
+			sleep "$SLEEP"
+		fi
+	done
+
+	if [ -n "$certificate_thumbprint" ]; then
+		echo "The web app read the [$(jq -r '.name' <<<"$certificate_info")] certificate from Key Vault: thumbprint [$certificate_thumbprint]"
+	else
+		echo "The certificate endpoint of the web app returned no thumbprint after $RETRY_COUNT attempts: ${certificate_info:-no response}"
+		exit 1
+	fi
+
+	# The checks below reach the Docker container of the web app, which only the LocalStack emulator runs
+	cloud_name=$(az cloud show --query name --output tsv | tr -d '\r')
+	if [[ $cloud_name != "LocalStack" ]]; then
+		echo "The checks of the web app's container apply to the LocalStack emulator only: skipping them on [$cloud_name]."
+		return 0
 	fi
 
 	# Get the Docker container name

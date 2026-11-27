@@ -20,7 +20,7 @@ from opentelemetry import metrics
 
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.storage.blob import BlobServiceClient
-from azure.core.exceptions import ResourceExistsError
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from flask import Flask, flash, render_template, request, redirect, url_for
 
 # The application's logger also writes its records to the console, which App Service collects as the container's output
@@ -76,7 +76,7 @@ def get_environment_variables():
         # Get container name from environment variable with a default value
         container_name = os.environ.get("CONTAINER_NAME", "activities")
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
     except Exception:
         logger.exception("An error occurred while reading the configuration.")
 
@@ -135,7 +135,7 @@ def create_container_if_not_exists():
         else:
             logger.info(f"Container '{container_name}' already exists.")
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
     except ResourceExistsError:
         logger.info(f"Container '{container_name}' already exists.")
     except Exception:
@@ -173,10 +173,10 @@ def read_blobs_from_container() -> bool:
                 logger.info(f"Content of blob '{blob.name}': {blob_content}")
                 activities.append((blob.name, blob_content))
 
-        logger.info(f"Read {len(activities)} activities from container '{container_name}'.")
+        logger.info("Activities read: %d", len(activities))
         return True
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
     except Exception:
         logger.exception("An error occurred while reading blobs from the container.")
     return False
@@ -206,11 +206,11 @@ def create_blob_if_not_exists(name: str | None, content: str | None) -> bool:
         logger.info(f"Creating blob '{name}' in container '{container_name}'.")
         with io.BytesIO(content.encode("utf-8")) as content_stream:
             blob_client.upload_blob(content_stream, blob_type="BlockBlob", overwrite=True)
-        logger.info(f"Blob '{name}' created successfully.")
+        logger.info("Activity added: %s (%s)", name, content)
         track_activity_event("ActivityAdded", "add", name)
         return True
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
     except ResourceExistsError:
         logger.info(f"Blob '{name}' already exists in container '{container_name}'.")
         return True
@@ -237,11 +237,13 @@ def delete_blob(name: str) -> bool:
         # Delete the blob
         logger.info(f"Deleting blob '{name}' from container '{container_name}'.")
         blob_client.delete_blob()
-        logger.info(f"Blob '{name}' deleted successfully.")
+        logger.info("Activity deleted: %s", name)
         track_activity_event("ActivityDeleted", "delete", name)
         return True
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
+    except ResourceNotFoundError:
+        logger.warning("Activity not found: %s", name)
     except Exception:
         logger.exception("An error occurred while deleting the blob.")
     return False
@@ -258,14 +260,18 @@ def update_blob(name: str, content: str) -> bool:
             raise ValueError("Container name is not set.")
         container_client = blob_service_client.get_container_client(container_name)
         blob_client = container_client.get_blob_client(name)
+        # An upload creates the blob when it is missing, so an update checks first that the activity exists
+        if not blob_client.exists():
+            logger.warning("Activity not found: %s", name)
+            return False
         logger.info(f"Updating blob '{name}' in container '{container_name}'.")
         with io.BytesIO(content.encode("utf-8")) as content_stream:
             blob_client.upload_blob(content_stream, blob_type="BlockBlob", overwrite=True)
-        logger.info(f"Blob '{name}' updated successfully.")
+        logger.info("Activity updated: %s (%s)", name, content)
         track_activity_event("ActivityUpdated", "update", name)
         return True
     except ValueError as ve:
-        logger.error(f"Configuration Error: {ve}")
+        logger.exception("Configuration error: %s", ve)
     except Exception:
         logger.exception("An error occurred while updating the blob.")
     return False
@@ -311,6 +317,8 @@ def delete(activity_id):
             flash('Activity deleted successfully.')
         else:
             flash('Failed to delete the activity.')
+    else:
+        logger.warning("Activity not found: position %d", activity_id)
     return redirect(url_for('index'))
 
 # Initialize the application and Azure services when the module is loaded.

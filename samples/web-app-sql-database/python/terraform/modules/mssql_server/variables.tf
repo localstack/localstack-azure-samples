@@ -83,9 +83,9 @@ variable "sku_name" {
 }
 
 variable "auto_pause_delay" {
-  description = "(Optional) Specifies the time in minutes after which the database automatically pauses. A value of -1 disables automatic pausing."
+  description = "(Optional) Specifies the time in minutes after which a serverless database automatically pauses; -1 disables automatic pausing. Null leaves the setting to Azure, which a provisioned database needs: Azure reports 0 for it, so any other value shows as a difference on every plan."
   type        = number
-  default     = -1
+  default     = null
 }
 
 variable "collation" {

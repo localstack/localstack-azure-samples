@@ -133,7 +133,7 @@ cd bicep
 bash deploy.sh
 ```
 
-The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix) for the validation script.
+The Bicep variant validates and deploys `main.bicep` into the resource group and then performs the two zip deployments with the Azure CLI. It also persists the generated PostgreSQL credentials and the other deployment secrets to `scripts/.last_deploy.<prefix>.env` (`.last_deploy.local.env` for the default prefix), for the validation script and for its next run, which reuses them.
 
 ## Testing
 
@@ -164,7 +164,147 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`      | The `links` custom metric, with the operation in `operation`, and the `link_scans` custom metric, with the verdict in `verdict` |
 | `AppExceptions`   | The exceptions the apps log with their stack trace, when a call fails                                                           |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) shortens a link, follows it, waits until the workers scanned it and rendered its QR code, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) shortens a link, follows it, waits until the workers scanned it and rendered its QR code, and reads the tables back, retrying until their records arrive. When the custom metrics are three minutes late, it shortens and follows another link once a minute: the apps export their metrics once a minute, and on Azure the restart that follows a deployment can stop an app before it exported the points of the first link. It shows the exceptions without waiting for them: a healthy run has none. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
+
+### Query the telemetry on the Logs page
+
+Besides the custom events, the web app logs a trace at the end of each operation on a link: `Links read: <count>` when it reads the list, `Link created: <code> (<url>)`, `Link read: <code>`, `Link followed: <code> (<url>, <hits> hits)`, `Link scan updated: <code> (<verdict>)` and `Link QR code created: <code>`. An unknown code logs the warning `Link not found: <code>`, and an unavailable dependency of the health check logs a warning too. The functions log `AbuseScan: <code> -> <verdict>` and `QrGenerator: <code>` for each link they process. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the `Link created` trace of the link it shortens.
+
+To query the telemetry yourself, open the `<prefix>-urlshort-insights-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-urlshort-insights-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                                          |
+| -------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `requests`           | `AppRequests`           | The requests of the web app and the invocations of the functions |
+| `dependencies`       | `AppDependencies`       | The calls to other services                                      |
+| `traces`             | `AppTraces`             | The records of the loggers                                       |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace                    |
+| `customEvents`       | `AppEvents`             | The custom events                                                |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                                               |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the `LinkCreated` and `LinkFollowed` events carry the code in `link.code`, the `LinkScanned` events add the verdict in `scan.verdict`, the `links` metric carries the operation in `operation` and the `link_scans` metric the verdict in `verdict`. Each record also names the app that sent it in `cloud_RoleName`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `LinkCreated` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "LinkCreated"
+| project timestamp, Code = tostring(customDimensions["link.code"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per endpoint.** The 50th, 95th and 99th percentiles of the duration of each endpoint, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The links followed.** The requests that follow a short link:
+
+  ```kusto
+  requests
+  | where name startswith "GET /l/"
+  | project timestamp, name, resultCode
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the links created:
+
+  ```kusto
+  let text = "Link created";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `links` custom metric per minute, by operation (`create`, `follow`):
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "links"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Operation = tostring(customDimensions["operation"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

@@ -95,6 +95,8 @@ All deployment methods have been fully tested against Azure and the LocalStack f
 
 Once the resources and function app have been deployed, you can use the [call-http-trigger.sh](./scripts/call-http-trigger.sh) Bash script to invoke the **GetGreetings** HTTP-triggered function. This function returns the most recent greetings stored in the in-memory circular buffer, allowing you to verify that the entire message pipeline is working end to end. The output should look like this:
 
+On Azure, where the function app runs in no container on your machine, the script calls the function on its default host name over HTTPS instead, with the function app's default key, which its `Function` authorization level requires.
+
 ```bash
 Getting function app name...
 Function app [local-func-test] successfully retrieved.
@@ -262,6 +264,146 @@ The workspace keeps the telemetry in these tables:
 | `AppExceptions` | The exceptions the functions log, with their stack trace                                                                            |
 
 [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) reads the tables back, retrying until their records arrive. The timers keep the function app busy by themselves, so the script calls nothing.
+
+### Query the telemetry on the Logs page
+
+The functions log a trace at the end of each step: the handler logs `[GreetingHandler] Processed message [<id>] successfully: <greeting>`, and `GetGreetings` logs `[GetGreetings] Greetings read: the last <count> entries of each list`. A message whose body isn't a greeting request logs a warning, and a failure, including one of the one-time initialization, logs the exception with its stack trace. The traces use message templates, so the values in braces also reach the `customDimensions` column. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the traces of the handler.
+
+To query the telemetry yourself, open the `<prefix>-func-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-func-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                       |
+| -------------------- | ----------------------- | --------------------------------------------- |
+| `requests`           | `AppRequests`           | The invocations of the functions              |
+| `dependencies`       | `AppDependencies`       | The calls to other services                   |
+| `traces`             | `AppTraces`             | The records of the loggers                    |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace |
+| `customEvents`       | `AppEvents`             | The custom events                             |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                            |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the custom events carry the name of the person to greet, or the greeting, in `greeting.name`, and the `greetings` metric carries the operation in `operation`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `GreetingProcessed` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "GreetingProcessed"
+| project timestamp, Name = tostring(customDimensions["greeting.name"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per function.** The 50th, 95th and 99th percentiles of the duration of each function, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The invocations of the timer function.** The invocations of `GreetingRequester`, which sends a greeting request every minute:
+
+  ```kusto
+  requests
+  | where name startswith "GreetingRequester"
+  | project timestamp, name, success, duration
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the greetings processed:
+
+  ```kusto
+  let text = "[GreetingHandler] Processed message";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `greetings` custom metric per minute, by operation:
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "greetings"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Operation = tostring(customDimensions["operation"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

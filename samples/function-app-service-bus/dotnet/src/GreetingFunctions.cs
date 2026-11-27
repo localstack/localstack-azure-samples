@@ -54,8 +54,10 @@ public class HelloWorld
     private static readonly CircularBuffer _handlerSent = new(MaxHistory);
     private static readonly CircularBuffer _consumerReceived = new(MaxHistory);
 
-    // Static initialization - runs once per application lifetime
-    private static readonly Lazy<bool> _initialized = new Lazy<bool>(() => { Initialize(); return true; });
+    // Static initialization - runs once per application lifetime, started by the first function that needs it with its
+    // logger, whose records the Functions worker sends to Application Insights
+    private static bool _initialized;
+    private static readonly object _initializationLock = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HelloWorld"/> class.
@@ -67,11 +69,27 @@ public class HelloWorld
     }
 
     /// <summary>
+    /// Runs <see cref="Initialize"/> once per application lifetime, with the logger of this instance.
+    /// </summary>
+    private void EnsureInitialized()
+    {
+        lock (_initializationLock)
+        {
+            if (!_initialized)
+            {
+                Initialize(_logger);
+                _initialized = true;
+            }
+        }
+    }
+
+    /// <summary>
     /// One-time initialization of Azure Storage infrastructure (queues, containers, tables).
     /// This method runs exactly once per application lifetime and stores configuration values in static fields.
     /// </summary>
     /// <returns>A task representing the asynchronous initialization operation.</returns>
-    private static void Initialize()
+    /// <param name="logger">The logger of the instance that runs the initialization.</param>
+    private static void Initialize(ILogger logger)
     {
         try
         {
@@ -80,10 +98,6 @@ public class HelloWorld
                 .AddEnvironmentVariables()
                 .AddJsonFile("local.settings.json", optional: true);
             var config = configBuilder.Build();
-
-            // Create a temporary logger for initialization
-            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-            var logger = loggerFactory.CreateLogger<HelloWorld>();
 
             logger.LogInformation("[Initialize] Starting one-time initialization...");
 
@@ -111,8 +125,8 @@ public class HelloWorld
         }
         catch (Exception ex)
         {
-            // Log error but don't throw - let functions continue to work even if initialization fails
-            Console.WriteLine("[Initialize] Initialization failed: {0}", ex.Message);
+            // Log the error but don't throw - let functions continue to work even if initialization fails
+            logger.LogError(ex, "[Initialize] Initialization failed.");
             _configurationValid = false;
         }
     }
@@ -190,7 +204,7 @@ public class HelloWorld
         // Check that the bodyBytes is not null or empty
         if (bodyBytes == null || bodyBytes.Length == 0)
         {
-            _logger.LogError("[GreetingHandler] Received message [{messageId}] body is empty or null.", message.MessageId);
+            _logger.LogWarning("[GreetingHandler] Received message [{messageId}] body is empty or null.", message.MessageId);
             return null;
         }
         // Convert the byte array to a string
@@ -199,7 +213,7 @@ public class HelloWorld
         // Check that the JSON is not null or empty
         if (string.IsNullOrEmpty(json))
         {
-            _logger.LogError("[GreetingHandler] Received message [{messageId}] body is empty or invalid.", message.MessageId);
+            _logger.LogWarning("[GreetingHandler] Received message [{messageId}] body is empty or invalid.", message.MessageId);
             return null;
         }
 
@@ -209,7 +223,7 @@ public class HelloWorld
         // Check that the request message is not null or empty
         if (requestMessage == null || string.IsNullOrWhiteSpace(requestMessage?.Name))
         {
-            _logger.LogError("[GreetingHandler] Received request message [{messageId}] body is empty or invalid.", message.MessageId);
+            _logger.LogWarning("[GreetingHandler] Received request message [{messageId}] body is empty or invalid.", message.MessageId);
             return null;
         }
 
@@ -253,7 +267,7 @@ public class HelloWorld
         _logger.LogInformation("[GreetingRequester] Timer trigger function started.");
 
         // Ensure one-time initialization has run
-        _ = _initialized.Value;
+        EnsureInitialized();
 
         // Fast configuration validation using pre-loaded static values
         if (!IsConfigurationValid())
@@ -325,7 +339,7 @@ public class HelloWorld
         _logger.LogInformation("[GreetingConsumer] Timer trigger function started.");
 
         // Ensure one-time initialization has run
-        _ = _initialized.Value;
+        EnsureInitialized();
 
         // Fast configuration validation using pre-loaded static values
         if (!IsConfigurationValid())
@@ -413,14 +427,18 @@ public class HelloWorld
                 {
                     await receiver.CloseAsync(cts.Token);
                 }
-                catch
-                { /* timeout or error on close */ }
+                catch (Exception ex)
+                {
+                    // A timeout or an error while closing doesn't fail the function: the messages are already settled
+                    _logger.LogWarning("[GreetingConsumer] Could not close the receiver: {message}", ex.Message);
+                }
                 try
                 {
                     await client.DisposeAsync();
                 }
-                catch
-                { /* benign */
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("[GreetingConsumer] Could not dispose of the Service Bus client: {message}", ex.Message);
                 }
             }
         }
@@ -491,6 +509,7 @@ public class HelloWorld
             };
         }
 
+        _logger.LogInformation("[GetGreetings] Greetings read: the last {count} entries of each list.", count);
         var response = request.CreateResponse(HttpStatusCode.OK);
         response.Headers.Add("Content-Type", "application/json");
         await response.WriteStringAsync(JsonSerializer.Serialize(history));

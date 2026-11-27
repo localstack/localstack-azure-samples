@@ -9,7 +9,7 @@
 # the exceptions the function logged, if any (AppExceptions).
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -18,7 +18,15 @@ RESOURCE_GROUP_NAME="${PREFIX}-rg"
 FUNCTION_APP_NAME="${PREFIX}-functionapp-${SUFFIX}"
 FUNCTION_NAME="ProcessTextFunction"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+STORAGE_ACCOUNT_NAME="${PREFIX}storage${SUFFIX}"
+INPUT_CONTAINER_NAME="input"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXIT_CODE=0
@@ -29,13 +37,19 @@ EXIT_CODE=0
 # $2: the KQL query
 # $3: the JMESPath projection that names and orders the columns of the table
 # $4: the number of records the query must return (1 when not given)
+# $5: a command that produces new records, run once a minute when the records are three minutes late (none when not
+#     given): the apps export their custom metrics once a minute, and on Azure the restart that follows a deployment
+#     can stop an app before it exported the points of the calls this script made
 query_workspace() {
 	local description=$1
 	local query=$2
 	local columns=$3
 	local minimum_records=${4:-1}
+	local produce_again=${5:-}
 	local records
 	local attempt=1
+	local started=$SECONDS
+	local last_produced=$SECONDS
 
 	echo -e "\n$description:\n"
 	while [ $attempt -le $RETRY_COUNT ]; do
@@ -62,6 +76,10 @@ query_workspace() {
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
 				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Waiting [$SLEEP] seconds before retry..."
+				if [[ -n $produce_again ]] && ((SECONDS - started >= 180 && SECONDS - last_produced >= 60)); then
+					$produce_again
+					last_produced=$SECONDS
+				fi
 				sleep $SLEEP
 			fi
 			attempt=$((attempt + 1))
@@ -160,6 +178,25 @@ else
 	exit 1
 fi
 
+# Upload another copy of test.sh's text file to the input container, so that the custom metric gets a new point: the
+# function app exports its metrics once a minute, and on Azure the Functions host can restart right after the first
+# invocation that follows a deployment, before it exported the point of the file test.sh uploaded
+upload_another_file() {
+	local blob_name
+	blob_name="input-$(date +%Y-%m-%d-%H-%M-%S).txt"
+	if (cd "$CURRENT_DIR" && az storage blob upload \
+		--container-name "$INPUT_CONTAINER_NAME" \
+		--file input.txt \
+		--name "$blob_name" \
+		--account-name "$STORAGE_ACCOUNT_NAME" \
+		--auth-mode login \
+		--only-show-errors 1>/dev/null); then
+		echo "Uploaded the [$blob_name] file to the [$INPUT_CONTAINER_NAME] container, so that the custom metric gets a new point"
+	else
+		echo "Failed to upload the [$blob_name] file to the [$INPUT_CONTAINER_NAME] container"
+	fi
+}
+
 # The invocations of the function (AppRequests)
 query_workspace \
 	"Latest invocations of the [$FUNCTION_NAME] function (AppRequests)" \
@@ -178,11 +215,20 @@ query_workspace \
 	"AppEvents | where Name == 'BlobProcessed' | project TimeGenerated, Name, Blob = tostring(Properties['blob.name']), Size = tostring(Properties['blob.size']) | order by TimeGenerated desc | take 10" \
 	"[].{Time:TimeGenerated,Name:Name,Blob:Blob,Size:Size}"
 
-# The custom metric that counts the processed files, exported once a minute (AppMetrics)
+# The traces that confirm the blobs the function processed, including the one above (AppTraces)
+query_workspace \
+	"Confirmation traces of the processed blobs (AppTraces)" \
+	"AppTraces | where Message startswith 'Blob processed: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
+
+# The custom metric that counts the processed files, exported once a minute (AppMetrics). When it is three minutes
+# late, the script uploads another file once a minute.
 query_workspace \
 	"Custom metric of the processed files (AppMetrics)" \
 	"AppMetrics | where Name == 'processed_blobs' | summarize Total = sum(Sum) by Name, Container = tostring(Properties['container'])" \
-	"[].{Metric:Name,Container:Container,Total:Total}"
+	"[].{Metric:Name,Container:Container,Total:Total}" \
+	1 \
+	upload_another_file
 
 # The exceptions the function logged with their stack trace (AppExceptions): a file that isn't UTF-8 text, for example,
 # produces one

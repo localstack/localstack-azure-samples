@@ -33,8 +33,8 @@ RULE_SET_NAME='catalogrules'
 ORIGIN_PATH='/api'
 PROBE_PATH='/api/health'
 FUNCTION_ZIPFILE='catalog_function.zip'
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 # How long to wait for a deployed function app to list its functions, and when to restart it if it lists none
 FUNCTIONS_RETRY_COUNT=30
 FUNCTIONS_RETRY_SLEEP=10
@@ -416,8 +416,9 @@ create_function_app() {
 	done
 
 	echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$FUNCTION_ZIPFILE]..."
-	# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-	# attempt is retried
+	# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+	# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+	# retried for about five minutes
 	DEPLOYED=0
 	for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 		az functionapp deploy \
@@ -674,22 +675,32 @@ else
 fi
 
 # The endpoint is the address clients call; its host name is assigned by Azure
-echo "Creating the [$ENDPOINT_NAME] endpoint..."
-az afd endpoint create \
-	--endpoint-name $ENDPOINT_NAME \
-	--profile-name $PROFILE_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--enabled-state Enabled 1>/dev/null
+if az afd endpoint show --endpoint-name "$ENDPOINT_NAME" --profile-name "$PROFILE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "The [$ENDPOINT_NAME] endpoint already exists"
+else
+	echo "Creating the [$ENDPOINT_NAME] endpoint..."
+	az afd endpoint create \
+		--endpoint-name $ENDPOINT_NAME \
+		--profile-name $PROFILE_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--enabled-state Enabled 1>/dev/null
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [$ENDPOINT_NAME] endpoint"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [$ENDPOINT_NAME] endpoint"
+		exit 1
+	fi
 fi
 
 # Origin groups carry the health probe and the load-balancing settings. The probe is a HEAD
 # request to a path the Function App answers; an origin that fails it is taken out of rotation.
 create_origin_group() {
 	local ORIGIN_GROUP_NAME=$1
+
+	if az afd origin-group show --origin-group-name "$ORIGIN_GROUP_NAME" --profile-name "$PROFILE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+		echo "The [$ORIGIN_GROUP_NAME] origin group already exists"
+		return 0
+	fi
 
 	echo "Creating the [$ORIGIN_GROUP_NAME] origin group..."
 	az afd origin-group create \
@@ -724,6 +735,12 @@ create_origin() {
 	local HTTPS_PORT=$6
 	local PRIORITY=$7
 
+	if az afd origin show --origin-name "$ORIGIN_NAME" --origin-group-name "$ORIGIN_GROUP_NAME" \
+		--profile-name "$PROFILE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+		echo "The [$ORIGIN_NAME] origin already exists in the [$ORIGIN_GROUP_NAME] origin group"
+		return 0
+	fi
+
 	echo "Creating the [$ORIGIN_NAME] origin in the [$ORIGIN_GROUP_NAME] origin group..."
 	az afd origin create \
 		--origin-name "$ORIGIN_NAME" \
@@ -749,15 +766,19 @@ create_origin $PRIMARY_ORIGIN_GROUP $STANDBY_ORIGIN "$SECONDARY_HOST_NAME" "$SEC
 create_origin $STATUS_ORIGIN_GROUP $SECONDARY_ORIGIN "$SECONDARY_HOST_NAME" "$SECONDARY_HOST_HEADER" "$SECONDARY_HTTP_PORT" "$SECONDARY_HTTPS_PORT" 1
 
 # The rule set: three rules, each one action, applied to the catch-all route.
-echo "Creating the [$RULE_SET_NAME] rule set..."
-az afd rule-set create \
-	--rule-set-name $RULE_SET_NAME \
-	--profile-name $PROFILE_NAME \
-	--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+if az afd rule-set show --rule-set-name "$RULE_SET_NAME" --profile-name "$PROFILE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "The [$RULE_SET_NAME] rule set already exists"
+else
+	echo "Creating the [$RULE_SET_NAME] rule set..."
+	az afd rule-set create \
+		--rule-set-name $RULE_SET_NAME \
+		--profile-name $PROFILE_NAME \
+		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [$RULE_SET_NAME] rule set"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [$RULE_SET_NAME] rule set"
+		exit 1
+	fi
 fi
 
 # `az afd rule create` comes in two spellings. Up to Azure CLI 2.83 the command is part of the CLI
@@ -771,88 +792,107 @@ else
 fi
 echo "Creating the rules ($AFD_RULE_SYNTAX syntax)..."
 
+# Whether a rule of the rule set already exists
+# $1: the rule name
+afd_rule_exists() {
+	az afd rule show --rule-name "$1" --rule-set-name "$RULE_SET_NAME" --profile-name "$PROFILE_NAME" \
+		--resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null
+}
+
 # Rule 1: stamp every response that came through Front Door. The condition matches the request
 # method, so it applies to all of the sample's traffic.
-if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
-	az afd rule create \
-		--rule-name stampHeader \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 1 \
-		--match-processing-behavior Continue \
-		--conditions "[{request-method:{parameters:{operator:Equal,match-values:[GET],negate-condition:false}}}]" \
-		--actions "[{modify-response-header:{parameters:{header-action:Overwrite,header-name:X-Served-By,value:front-door}}}]" 1>/dev/null
+if afd_rule_exists stampHeader; then
+	echo "The [stampHeader] rule already exists"
 else
-	az afd rule create \
-		--rule-name stampHeader \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 1 \
-		--match-processing-behavior Continue \
-		--match-variable RequestMethod --operator Equal --match-values GET \
-		--action-name ModifyResponseHeader --header-action Overwrite --header-name X-Served-By --header-value front-door 1>/dev/null
-fi
+	if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
+		az afd rule create \
+			--rule-name stampHeader \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 1 \
+			--match-processing-behavior Continue \
+			--conditions "[{request-method:{parameters:{operator:Equal,match-values:[GET],negate-condition:false}}}]" \
+			--actions "[{modify-response-header:{parameters:{header-action:Overwrite,header-name:X-Served-By,value:front-door}}}]" 1>/dev/null
+	else
+		az afd rule create \
+			--rule-name stampHeader \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 1 \
+			--match-processing-behavior Continue \
+			--match-variable RequestMethod --operator Equal --match-values GET \
+			--action-name ModifyResponseHeader --header-action Overwrite --header-name X-Served-By --header-value front-door 1>/dev/null
+	fi
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [stampHeader] rule"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [stampHeader] rule"
+		exit 1
+	fi
 fi
 
 # Rule 2: publish the catalog under a friendlier path. Note the match value: the UrlPath condition
 # sees the path *without* its leading slash, while UrlRewrite's source pattern keeps it.
-if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
-	az afd rule create \
-		--rule-name rewriteShop \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 2 \
-		--match-processing-behavior Continue \
-		--conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[shop],negate-condition:false}}}]" \
-		--actions "[{url-rewrite:{parameters:{source-pattern:/shop,destination:/catalog,preserve-unmatched-path:true}}}]" 1>/dev/null
+if afd_rule_exists rewriteShop; then
+	echo "The [rewriteShop] rule already exists"
 else
-	az afd rule create \
-		--rule-name rewriteShop \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 2 \
-		--match-processing-behavior Continue \
-		--match-variable UrlPath --operator BeginsWith --match-values shop \
-		--action-name UrlRewrite --source-pattern /shop --destination /catalog --preserve-unmatched-path true 1>/dev/null
-fi
+	if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
+		az afd rule create \
+			--rule-name rewriteShop \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 2 \
+			--match-processing-behavior Continue \
+			--conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[shop],negate-condition:false}}}]" \
+			--actions "[{url-rewrite:{parameters:{source-pattern:/shop,destination:/catalog,preserve-unmatched-path:true}}}]" 1>/dev/null
+	else
+		az afd rule create \
+			--rule-name rewriteShop \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 2 \
+			--match-processing-behavior Continue \
+			--match-variable UrlPath --operator BeginsWith --match-values shop \
+			--action-name UrlRewrite --source-pattern /shop --destination /catalog --preserve-unmatched-path true 1>/dev/null
+	fi
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [rewriteShop] rule"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [rewriteShop] rule"
+		exit 1
+	fi
 fi
 
 # Rule 3: retire an old path at the edge. A redirect is terminal, so the origin is never called.
-if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
-	az afd rule create \
-		--rule-name redirectLegacy \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 3 \
-		--conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[legacy],negate-condition:false}}}]" \
-		--actions "[{url-redirect:{parameters:{redirect-type:Found,destination-protocol:MatchRequest,custom-path:/status}}}]" 1>/dev/null
+if afd_rule_exists redirectLegacy; then
+	echo "The [redirectLegacy] rule already exists"
 else
-	az afd rule create \
-		--rule-name redirectLegacy \
-		--rule-set-name $RULE_SET_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--order 3 \
-		--match-variable UrlPath --operator BeginsWith --match-values legacy \
-		--action-name UrlRedirect --redirect-type Found --redirect-protocol MatchRequest --custom-path /status 1>/dev/null
-fi
+	if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
+		az afd rule create \
+			--rule-name redirectLegacy \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 3 \
+			--conditions "[{url-path:{parameters:{operator:BeginsWith,match-values:[legacy],negate-condition:false}}}]" \
+			--actions "[{url-redirect:{parameters:{redirect-type:Found,destination-protocol:MatchRequest,custom-path:/status}}}]" 1>/dev/null
+	else
+		az afd rule create \
+			--rule-name redirectLegacy \
+			--rule-set-name $RULE_SET_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--order 3 \
+			--match-variable UrlPath --operator BeginsWith --match-values legacy \
+			--action-name UrlRedirect --redirect-type Found --redirect-protocol MatchRequest --custom-path /status 1>/dev/null
+	fi
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [redirectLegacy] rule"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [redirectLegacy] rule"
+		exit 1
+	fi
 fi
 
 # The two routes. Caching and rule sets are spelled differently by the two CLI generations too:
@@ -860,65 +900,73 @@ fi
 # extension, which takes resource IDs rather than names.
 RULE_SET_ID=$(az afd rule-set show --rule-set-name $RULE_SET_NAME --profile-name $PROFILE_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 
-echo "Creating the [$CATCH_ALL_ROUTE] route..."
-if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
-	az afd route create \
-		--route-name $CATCH_ALL_ROUTE \
-		--endpoint-name $ENDPOINT_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--origin-group $PRIMARY_ORIGIN_GROUP \
-		--origin-path $ORIGIN_PATH \
-		--patterns-to-match '/*' \
-		--supported-protocols Http Https \
-		--link-to-default-domain Enabled \
-		--https-redirect $HTTPS_REDIRECT \
-		--forwarding-protocol $FORWARDING_PROTOCOL \
-		--formatted-rule-sets "[{id:'$RULE_SET_ID'}]" \
-		--cache-configuration "{query-string-caching-behavior:IgnoreQueryString}" 1>/dev/null
+if az afd route show --route-name "$CATCH_ALL_ROUTE" --endpoint-name "$ENDPOINT_NAME" --profile-name "$PROFILE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "The [$CATCH_ALL_ROUTE] route already exists"
 else
-	az afd route create \
-		--route-name $CATCH_ALL_ROUTE \
-		--endpoint-name $ENDPOINT_NAME \
-		--profile-name $PROFILE_NAME \
-		--resource-group $RESOURCE_GROUP_NAME \
-		--origin-group $PRIMARY_ORIGIN_GROUP \
-		--origin-path $ORIGIN_PATH \
-		--patterns-to-match '/*' \
-		--supported-protocols Http Https \
-		--link-to-default-domain Enabled \
-		--https-redirect $HTTPS_REDIRECT \
-		--forwarding-protocol $FORWARDING_PROTOCOL \
-		--rule-sets $RULE_SET_NAME \
-		--enable-caching true \
-		--query-string-caching-behavior IgnoreQueryString 1>/dev/null
-fi
+	echo "Creating the [$CATCH_ALL_ROUTE] route..."
+	if [[ "$AFD_RULE_SYNTAX" == 'extension' ]]; then
+		az afd route create \
+			--route-name $CATCH_ALL_ROUTE \
+			--endpoint-name $ENDPOINT_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--origin-group $PRIMARY_ORIGIN_GROUP \
+			--origin-path $ORIGIN_PATH \
+			--patterns-to-match '/*' \
+			--supported-protocols Http Https \
+			--link-to-default-domain Enabled \
+			--https-redirect $HTTPS_REDIRECT \
+			--forwarding-protocol $FORWARDING_PROTOCOL \
+			--formatted-rule-sets "[{id:'$RULE_SET_ID'}]" \
+			--cache-configuration "{query-string-caching-behavior:IgnoreQueryString}" 1>/dev/null
+	else
+		az afd route create \
+			--route-name $CATCH_ALL_ROUTE \
+			--endpoint-name $ENDPOINT_NAME \
+			--profile-name $PROFILE_NAME \
+			--resource-group $RESOURCE_GROUP_NAME \
+			--origin-group $PRIMARY_ORIGIN_GROUP \
+			--origin-path $ORIGIN_PATH \
+			--patterns-to-match '/*' \
+			--supported-protocols Http Https \
+			--link-to-default-domain Enabled \
+			--https-redirect $HTTPS_REDIRECT \
+			--forwarding-protocol $FORWARDING_PROTOCOL \
+			--rule-sets $RULE_SET_NAME \
+			--enable-caching true \
+			--query-string-caching-behavior IgnoreQueryString 1>/dev/null
+	fi
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [$CATCH_ALL_ROUTE] route"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [$CATCH_ALL_ROUTE] route"
+		exit 1
+	fi
 fi
 
 # A more specific pattern wins over the catch-all, whatever order the routes were created in.
 # This one has no rule set and no caching, which is how the two routes tell themselves apart.
 # An exact pattern has no unmatched suffix: its origin path must include the status trigger.
-echo "Creating the [$STATUS_ROUTE] route..."
-az afd route create \
-	--route-name $STATUS_ROUTE \
-	--endpoint-name $ENDPOINT_NAME \
-	--profile-name $PROFILE_NAME \
-	--resource-group $RESOURCE_GROUP_NAME \
-	--origin-group $STATUS_ORIGIN_GROUP \
-	--origin-path "$ORIGIN_PATH/status" \
-	--patterns-to-match '/status' \
-	--supported-protocols Http Https \
-	--link-to-default-domain Enabled \
-	--https-redirect $HTTPS_REDIRECT \
-	--forwarding-protocol $FORWARDING_PROTOCOL 1>/dev/null
+if az afd route show --route-name "$STATUS_ROUTE" --endpoint-name "$ENDPOINT_NAME" --profile-name "$PROFILE_NAME" --resource-group "$RESOURCE_GROUP_NAME" --only-show-errors &>/dev/null; then
+	echo "The [$STATUS_ROUTE] route already exists"
+else
+	echo "Creating the [$STATUS_ROUTE] route..."
+	az afd route create \
+		--route-name $STATUS_ROUTE \
+		--endpoint-name $ENDPOINT_NAME \
+		--profile-name $PROFILE_NAME \
+		--resource-group $RESOURCE_GROUP_NAME \
+		--origin-group $STATUS_ORIGIN_GROUP \
+		--origin-path "$ORIGIN_PATH/status" \
+		--patterns-to-match '/status' \
+		--supported-protocols Http Https \
+		--link-to-default-domain Enabled \
+		--https-redirect $HTTPS_REDIRECT \
+		--forwarding-protocol $FORWARDING_PROTOCOL 1>/dev/null
 
-if [[ $? != 0 ]]; then
-	echo "Failed to create the [$STATUS_ROUTE] route"
-	exit 1
+	if [[ $? != 0 ]]; then
+		echo "Failed to create the [$STATUS_ROUTE] route"
+		exit 1
+	fi
 fi
 
 # Where the endpoint answers. The emulator also reports Azure's *.azurefd.net address in hostName,

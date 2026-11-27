@@ -11,7 +11,7 @@
 # reaching an origin.
 #
 # The records reach the workspace within seconds on the emulator. On Azure they take minutes, so every query is
-# retried: raise RETRY_COUNT there.
+# retried, for up to fifteen minutes each by default there (RETRY_COUNT).
 
 # Variables (the same defaults and environment overrides as the deploy scripts)
 PREFIX="${PREFIX:-local}"
@@ -21,7 +21,13 @@ PROFILE_NAME="${PREFIX}-catalog-afd-${SUFFIX}"
 ENDPOINT_NAME="${PREFIX}-catalog-${SUFFIX}"
 CALLS="${CALLS:-3}"
 LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
-RETRY_COUNT="${RETRY_COUNT:-30}"
+# On Azure a custom metric took more than five minutes to reach the workspace (2026-11-26): the OpenTelemetry Distro
+# exports metrics once a minute. The default wait there is fifteen minutes per query.
+if [[ $(az cloud show --query name --output tsv | tr -d '\r') == "LocalStack" ]]; then
+	RETRY_COUNT="${RETRY_COUNT:-30}"
+else
+	RETRY_COUNT="${RETRY_COUNT:-90}"
+fi
 SLEEP="${SLEEP:-10}"
 EXIT_CODE=0
 
@@ -216,6 +222,12 @@ query_workspace \
 	"CatalogItemServed custom events, per origin and item (AppEvents)" \
 	"AppEvents | where Name == 'CatalogItemServed' | summarize Events = count() by Origin = tostring(Properties['origin.name']), Sku = tostring(Properties['catalog.sku']) | order by Origin asc, Sku asc" \
 	"[].{Origin:Origin,Sku:Sku,Events:Events}"
+
+# The traces that confirm the catalog items the origins served (AppTraces)
+query_workspace \
+	"Confirmation traces of the catalog items read (AppTraces)" \
+	"AppTraces | where Message startswith 'Catalog item read: ' | project TimeGenerated, Message, SeverityLevel | order by TimeGenerated desc | take 10" \
+	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metric that counts the catalog items each origin served, exported once a minute (AppMetrics)
 query_workspace \

@@ -64,7 +64,7 @@ public sealed class PostgresActivityStore(PostgresOptions options, ILogger<Postg
         return activities;
     }
 
-    public async Task AddAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(string text, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(
@@ -76,25 +76,36 @@ public sealed class PostgresActivityStore(PostgresOptions options, ILogger<Postg
         command.Parameters.AddWithValue("activity", text);
         await command.ExecuteNonQueryAsync(cancellationToken);
         ActivityTelemetry.Track(logger, "ActivityAdded", "add", id);
+        return id;
     }
 
-    public async Task UpdateAsync(string id, string text, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(string id, string text, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("UPDATE activities SET activity = @activity WHERE id = @id", connection);
         command.Parameters.AddWithValue("activity", text);
         command.Parameters.AddWithValue("id", id);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+        {
+            return false;
+        }
+
         ActivityTelemetry.Track(logger, "ActivityUpdated", "update", id);
+        return true;
     }
 
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("DELETE FROM activities WHERE id = @id", connection);
         command.Parameters.AddWithValue("id", id);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+        {
+            return false;
+        }
+
         ActivityTelemetry.Track(logger, "ActivityDeleted", "delete", id);
+        return true;
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)

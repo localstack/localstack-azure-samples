@@ -6,6 +6,10 @@ output "storage_account_name" {
   value = module.storage_account.name
 }
 
+output "storage_container_name" {
+  value = var.storage_container_name
+}
+
 output "app_service_plan_name" {
   value = module.app_service_plan.name
 }

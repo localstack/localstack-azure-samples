@@ -25,6 +25,28 @@ native_path() {
 
 cd "$CURRENT_DIR" || exit 1
 
+# Dual-target provider configuration. providers.tf hardcodes nothing: the azurerm provider reads its endpoints and the
+# target subscription from the ARM_* environment variables exported here.
+# - On both targets: the subscription and tenant of the active az account.
+# - Only when the active az cloud is LocalStack: the emulator's metadata endpoint, taken from the az cloud registration
+#   that `lstk az start-interception` created, so nothing is hardcoded here either.
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
+ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv --only-show-errors)
+ARM_TENANT_ID=$(az account show --query tenantId --output tsv --only-show-errors)
+export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
+
+if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+	RESOURCE_MANAGER_ENDPOINT=$(az cloud show --query endpoints.resourceManager --output tsv --only-show-errors)
+	METADATA_HOSTNAME="${RESOURCE_MANAGER_ENDPOINT#https://}"
+	export ARM_METADATA_HOSTNAME="${METADATA_HOSTNAME%/}"
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets the emulator at [$RESOURCE_MANAGER_ENDPOINT]"
+else
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in the same shell would
+	# keep the provider doing metadata discovery against the emulator while the CLI is on Azure.
+	unset ARM_METADATA_HOSTNAME
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets Azure subscription [$ARM_SUBSCRIPTION_ID]"
+fi
+
 fail() {
 	echo "ERROR: $1"
 	exit 1
@@ -109,6 +131,19 @@ for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 done
 [[ $DEPLOYED == 1 ]] || fail "could not deploy the function app"
 rm -f "$FUNCTION_ZIP"
+
+# A function app on the Consumption plan runs only when the platform's scale controller starts it for the events its
+# trigger watches. On Azure, after two deployments in a row, the scale controller watched no trigger and never started
+# the function app (2026-11-26). Registering the triggers again at the end of the deployment, once the remote build of
+# the package has had time to finish, makes it start the function app when the events arrive.
+WEB_API_VERSION="${WEB_API_VERSION:-2024-04-01}"
+echo "Syncing the triggers of the [$FUNCTION_APP_NAME] function app..."
+FUNCTION_APP_ID=$(az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP_NAME" \
+	--query id --output tsv --only-show-errors)
+[[ -n "$FUNCTION_APP_ID" ]] || fail "could not read the id of function app [$FUNCTION_APP_NAME]"
+az rest --method post --url "$FUNCTION_APP_ID/syncfunctiontriggers?api-version=$WEB_API_VERSION" --only-show-errors \
+	1>/dev/null || fail "could not sync the triggers of function app [$FUNCTION_APP_NAME]"
+echo "Synced the triggers of the [$FUNCTION_APP_NAME] function app."
 
 # -----------------------------------------------------------------------------
 echo ""

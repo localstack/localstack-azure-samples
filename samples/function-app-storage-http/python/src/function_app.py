@@ -125,7 +125,7 @@ def _game_id_of(body: str | bytes, source: str) -> int | None:
         request = json.loads(body)
         game_id = int(request["gameId"])
     except (TypeError, ValueError, KeyError):
-        logger.error("[%s] The body is not a GameStatusRequest.", source)
+        logger.warning("[%s] The body is not a GameStatusRequest.", source)
         return None
     return game_id if game_id > 0 else None
 
@@ -138,11 +138,13 @@ def get_player_score(req: func.HttpRequest) -> func.HttpResponse:
     name = req.route_params.get("name", "")
     logger.info("[GetPlayerScore] Received GET request with gameId = %s, name = %s.", game_id, name)
     if not game_id.isdigit() or not name.strip():
+        logger.warning("[GetPlayerScore] Invalid parameters: gameId = %s, name = %s.", game_id, name)
         return func.HttpResponse("Invalid parameters: gameId and name are required.", status_code=400)
     with _games_lock:
         players = list(_games.get(int(game_id)) or [])
     player = next((player for player in players if player["name"].lower() == name.lower()), None)
     if player is None:
+        logger.warning("[GetPlayerScore] Player not found: game %s, player %s.", game_id, name)
         return func.HttpResponse(f"Game {game_id} and player '{name}' tuple not found.", status_code=404)
     logger.info(
         "[GetPlayerScore] Processed request with gameId = %s, name = %s, score = %d.", game_id, name, player["score"]
@@ -158,6 +160,7 @@ def create_game_status(req: func.HttpRequest) -> func.HttpResponse:
     logger.info("[CreateGameStatus] Received %s request.", req.method)
     body = req.get_body()
     if not body or not body.strip():
+        logger.warning("[CreateGameStatus] The request has no body.")
         return func.HttpResponse(
             "[CreateGameStatus] Invalid request message: Request body is required.", status_code=400
         )
@@ -181,7 +184,7 @@ def process_game_file(blob: func.InputStream, output: func.Out[str]) -> None:
     """The status of the game an uploaded blob names, written to a blob of the same name in the output container."""
     content = blob.read()
     if not content:
-        logger.error("[ProcessGameFile] The [%s] blob is empty.", blob.name)
+        logger.warning("[ProcessGameFile] The [%s] blob is empty.", blob.name)
         return
     game_id = _game_id_of(content, "ProcessGameFile")
     if game_id is None:
@@ -255,12 +258,12 @@ def _ensure_infrastructure(connection_string: str) -> None:
             try:
                 blob_service.create_container(container)
             except ResourceExistsError:
-                pass
+                logger.info("[CreateGame] The [%s] container already exists.", container)
         for queue in (INPUT_QUEUE_NAME, OUTPUT_QUEUE_NAME, TRIGGER_QUEUE_NAME):
             try:
                 QueueClient.from_connection_string(connection_string, queue).create_queue()
             except ResourceExistsError:
-                pass
+                logger.info("[CreateGame] The [%s] queue already exists.", queue)
         table_service = TableServiceClient.from_connection_string(connection_string)
         for table in (INPUT_TABLE_NAME, OUTPUT_TABLE_NAME):
             table_service.create_table_if_not_exists(table)

@@ -102,6 +102,18 @@ variable "max_replicas" {
   default     = 3
 }
 
+variable "workload_profile_name" {
+  description = "(Optional) Specifies the name of the workload profile of the Container Apps environment that the container app runs on."
+  type        = string
+  default     = "Consumption"
+}
+
+variable "workload_profile_type" {
+  description = "(Optional) Specifies the type of that workload profile."
+  type        = string
+  default     = "Consumption"
+}
+
 variable "managed_identity_type" {
   description = "(Optional) Specifies how the app authenticates to Blob Storage: None uses a connection string secret, SystemAssigned or UserAssigned a managed identity."
   type        = string

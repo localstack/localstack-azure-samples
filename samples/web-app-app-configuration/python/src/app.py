@@ -78,6 +78,7 @@ def reload_activities() -> bool:
     activities.clear()
     try:
         activities.extend(db_client.list_activities(username))
+        logger.info("Activities read: %d", len(activities))
         return True
     except Exception:
         logger.exception("Failed to load activities.")
@@ -95,13 +96,16 @@ def index():
                     if not row_id.strip():
                         raise ValueError("Row ID cannot be empty")
                     if db_client.update_activity(row_id, activity):
-                        logger.info("Activity updated: %s", row_id)
+                        logger.info("Activity updated: %s (%s)", row_id, activity)
                         track_activity_event("ActivityUpdated", "update", row_id)
                         flash("Activity updated!")
+                    else:
+                        logger.warning("Activity not found: %s", row_id)
+                        flash("Activity not found.")
                 else:
                     activity_id = make_activity_id(username, activity)
                     db_client.insert_activity(activity_id, username, activity)
-                    logger.info("Activity added: %s", activity)
+                    logger.info("Activity added: %s (%s)", activity_id, activity)
                     track_activity_event("ActivityAdded", "add", activity_id)
                     flash("Activity added!")
             except Exception:
@@ -130,6 +134,9 @@ def delete(activity_id: str):
             logger.info("Activity deleted: %s", activity_id)
             track_activity_event("ActivityDeleted", "delete", activity_id)
             flash("Activity deleted.")
+        else:
+            logger.warning("Activity not found: %s", activity_id)
+            flash("Activity not found.")
     except Exception:
         logger.exception("Error deleting activity %s.", activity_id)
         flash("Failed to delete the activity.")

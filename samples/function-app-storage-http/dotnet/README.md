@@ -178,6 +178,8 @@ Use the [call-http-triggers.sh](./scripts/call-http-triggers.sh) script to quick
 2. **Via localhost and host port mapped to the container's port**: Use `127.0.0.1` with the host port mapped to the container's port `80`.
 3. **Via container IP address**: Use the app container's IP address on port `80`. This technique is only available when accessing the function app from the Docker host machine.
 
+On Azure, where the function app runs in no container on your machine, the script calls the functions on its default host name over HTTPS instead, with the function app's default key, which their `Function` authorization level requires.
+
 ## Application Insights
 
 The function app sends its telemetry to `<prefix>-insights-<suffix>`, a workspace-based [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview) resource that stores it in the `<prefix>-log-analytics-<suffix>` [Log Analytics workspace](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-analytics-workspace-overview). The `APPLICATIONINSIGHTS_CONNECTION_STRING` app setting holds the connection string of the resource: the Azure CLI script passes `--app-insights <prefix>-insights-<suffix>` to `az functionapp create`, which sets it, and the Bicep and Terraform modules set it themselves. The app uses [OpenTelemetry with Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto):
@@ -225,6 +227,146 @@ az monitor log-analytics query \
 ```
 
 [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) reads these tables back, retrying until their records arrive: the timer keeps the function app busy by itself, so the script calls nothing. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+
+### Query the telemetry on the Logs page
+
+The functions log a trace at the end of each step, such as `[CreateScoreboardEntriesAsync] Created <count> scoreboard entries for game <id>.` and `[GetPlayerScore] Processed request successfully with gameId = <id>, name = <name>, score = <score>.`. An invalid request and an unknown game or player log a warning, and a failure, including one of the one-time initialization, logs the exception with its stack trace. The traces use message templates, so the values in braces also reach the `customDimensions` column. [`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) waits for the traces of the games the timer function creates.
+
+To query the telemetry yourself, open the `<prefix>-insights-<suffix>` Application Insights resource and select **Logs** under **Monitoring**:
+
+- On Azure, open the resource in the [Azure portal](https://portal.azure.com).
+- On the emulator, open the emulated Azure portal at `http://localhost:4566/_localstack/portal/` (see [Azure Portal Emulator](https://docs.localstack.cloud/azure/developer-tools/portal/)) and select **Sign in**: the sign-in is a mock and asks for no credentials. Then select **Resource groups**, `local-rg`, the `local-insights-test` resource and **Logs**.
+
+Type a query in the [Kusto Query Language](https://docs.localstack.cloud/azure/developer-tools/kusto-query-language/) (KQL) and select **Run**: the **Results** tab lists the records, and the **Chart** tab draws the chart of a query that ends with `render`. The Logs page of an Application Insights resource reads the classic Application Insights tables, which hold the same records as the tables of the Log Analytics workspace under other names:
+
+| Application Insights | Log Analytics workspace | Records                                       |
+| -------------------- | ----------------------- | --------------------------------------------- |
+| `requests`           | `AppRequests`           | The invocations of the functions              |
+| `dependencies`       | `AppDependencies`       | The calls to other services                   |
+| `traces`             | `AppTraces`             | The records of the loggers                    |
+| `exceptions`         | `AppExceptions`         | The exceptions logged, with their stack trace |
+| `customEvents`       | `AppEvents`             | The custom events                             |
+| `customMetrics`      | `AppMetrics`            | The custom metrics                            |
+
+Their columns are renamed too, for example `timestamp` (`TimeGenerated`), `name` (`Name`), `success` (`Success`), `duration` (`DurationMs`), `resultCode` (`ResultCode`), `operation_Id` (`OperationId`), `operation_Name` (`OperationName`), `cloud_RoleName` (`AppRoleName`), `severityLevel` (`SeverityLevel`), `message` (`Message`), `type` (`ExceptionType`), `valueSum` (`Sum`) and `customDimensions` (`Properties`). To run the queries below on the workspace, with its **Logs** page or `az monitor log-analytics query`, use the names in parentheses.
+
+The `customDimensions` column holds the custom properties of each record: the `GameCreated` events carry the game in `game.id`, the `GameWinnerDetermined` events add the winner and the source in `game.winner` and `game.source`, and the `games_completed` metric carries the source in `source`. Read a property with `tostring(customDimensions["<name>"])`, for example in the latest `GameWinnerDetermined` events:
+
+```kusto
+customEvents
+| where timestamp > ago(1h) and name == "GameWinnerDetermined"
+| project timestamp, Winner = tostring(customDimensions["game.winner"])
+| order by timestamp desc
+```
+
+These queries read the telemetry and draw charts of it:
+
+- **Requests and failures over time.** The requests and the failed requests (`success == false`) in 5-second buckets, to spot traffic spikes and error regressions:
+
+  ```kusto
+  requests
+  | where timestamp > ago(6h)
+  | summarize
+      TotalRequests = count(),
+      FailedRequests = countif(success == false)
+      by bin(timestamp, 5s)
+  | render timechart
+  ```
+
+- **Latency percentiles per function.** The 50th, 95th and 99th percentiles of the duration of each function, which show the slow requests that an average hides:
+
+  ```kusto
+  requests
+  | where timestamp > ago(24h)
+  | summarize
+      RequestCount = count(),
+      P50_ms = percentile(duration, 50),
+      P95_ms = percentile(duration, 95),
+      P99_ms = percentile(duration, 99)
+      by name
+  | where RequestCount > 1
+  | top 10 by P95_ms desc
+  | project name, P50_ms, P95_ms, P99_ms
+  | render columnchart
+  ```
+
+- **Status codes over time.** The `2xx`, `4xx` and `5xx` responses over time, to tell client errors from server faults:
+
+  ```kusto
+  requests
+  | where timestamp > ago(12h)
+  | extend StatusBucket = strcat(substring(resultCode, 0, 1), "xx")
+  | summarize Count = count() by bin(timestamp, 15m), StatusBucket
+  | render columnchart with (kind=stacked)
+  ```
+
+- **Top exceptions.** The exceptions by type and by the operation that raised them, to find the most frequent failures:
+
+  ```kusto
+  exceptions
+  | where timestamp > ago(24h)
+  | summarize ExceptionCount = count() by type, operation_Name
+  | top 10 by ExceptionCount desc
+  | render barchart
+  ```
+
+- **Traces by severity.** The records of the loggers by severity level (`0` Verbose, `1` Information, `2` Warning, `3` Error, `4` Critical), to catch a storm of warnings before requests start failing:
+
+  ```kusto
+  traces
+  | where timestamp > ago(6h)
+  | extend Severity = case(
+      severityLevel == 0, "Verbose",
+      severityLevel == 1, "Information",
+      severityLevel == 2, "Warning",
+      severityLevel == 3, "Error",
+      severityLevel == 4, "Critical",
+      "Unknown")
+  | summarize LogCount = count() by bin(timestamp, 5m), Severity
+  | render areachart with (kind=stacked)
+  ```
+
+- **The invocations of the timer function.** The invocations of `CreateGame`:
+
+  ```kusto
+  requests
+  | where name startswith "CreateGame"
+  | project timestamp, name, success, duration
+  ```
+
+- **Traces that start with a text.** The traces of the last 30 minutes whose message starts with a given text, here the confirmations of the games created:
+
+  ```kusto
+  let text = "[CreateScoreboardEntriesAsync] Created";
+  traces
+  | where timestamp > ago(30m) and message startswith text
+  | project timestamp, message
+  ```
+
+- **Requests by name.** The number of requests of each name:
+
+  ```kusto
+  requests
+  | summarize Count = count() by Name = name
+  | render scatterchart
+  ```
+
+- **Custom events per minute.** The custom events per minute, by name:
+
+  ```kusto
+  customEvents
+  | summarize Count = count() by bin(timestamp, 1m), Name = name
+  | render timechart
+  ```
+
+- **Custom metric.** The `games_completed` custom metric per minute, by source:
+
+  ```kusto
+  customMetrics
+  | where timestamp > ago(6h) and name == "games_completed"
+  | summarize Total = sum(valueSum) by bin(timestamp, 1m), Source = tostring(customDimensions["source"])
+  | render columnchart with (kind=stacked)
+  ```
 
 ## Logs and metrics
 

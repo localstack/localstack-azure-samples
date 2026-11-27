@@ -63,7 +63,7 @@ def list_items(req: func.HttpRequest) -> func.HttpResponse:
     rejected = reject_without_secret(req)
     if rejected is not None:
         return rejected
-    logger.info("Listed %d inventory items", len(ITEMS))
+    logger.info("Inventory items read: %d", len(ITEMS))
     return json_response({"items": ITEMS, "count": len(ITEMS)})
 
 
@@ -87,8 +87,9 @@ def get_item(req: func.HttpRequest) -> func.HttpResponse:
                 },
             )
             inventory_items_served.add(1, {"sku": item["sku"]})
+            logger.info("Inventory item read: %s (%s)", item["id"], item["sku"])
             return json_response(item)
-    logger.warning("No inventory item with id %s", wanted)
+    logger.warning("Inventory item not found: %s", wanted)
     return json_response({"error": f"No item with id {wanted}"}, status_code=404)
 
 

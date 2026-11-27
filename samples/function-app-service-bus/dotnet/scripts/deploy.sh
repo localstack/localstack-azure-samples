@@ -33,11 +33,11 @@ OUTPUT_QUEUE_NAME="output"
 TAGS='environment=test deployment=azcli'
 SUBSCRIPTION_NAME=$(az account show --query name --output tsv)
 DEPLOY=1
-RETRY_COUNT=3
-SLEEP=5
+ROLE_ASSIGNMENT_RETRY_COUNT=3
+ROLE_ASSIGNMENT_RETRY_SLEEP=5
 ZIPFILE="functionapp.zip"
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRIVATE_DNS_ZONE_NAMES=(
 	"privatelink.servicebus.windows.net"
@@ -71,6 +71,59 @@ PE_DNS_ZONES=(
 
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
+
+# Assign a role to a principal at a scope, unless the assignment already exists. The assignee is given as an
+# object id together with its principal type, so no directory lookup happens at creation time.
+# $1: the object id of the principal
+# $2: the principal type (ServicePrincipal, User or Group)
+# $3: the role name
+# $4: the scope (resource id)
+# $5: the description of the principal, used in messages
+# $6: the description of the scope, used in messages
+ensure_role_assignment() {
+	local principal_id=$1
+	local principal_type=$2
+	local role=$3
+	local scope=$4
+	local principal_description=$5
+	local scope_description=$6
+	local current attempt
+
+	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	# The assignments are filtered on the principal id rather than with --assignee, which first looks the principal up in
+	# Microsoft Graph: that lookup fails for a caller the directory doesn't list, such as the emulator's own caller
+	current=$(az role assignment list \
+		--scope "$scope" \
+		--query "[?principalId=='$principal_id' && roleDefinitionName=='$role'].roleDefinitionName" \
+		--output tsv \
+		--only-show-errors 2>/dev/null)
+
+	if [[ $current == "$role" ]]; then
+		echo "The $principal_description already has the [$role] role assignment on the $scope_description"
+		return 0
+	fi
+
+	echo "Assigning the [$role] role to the $principal_description on the $scope_description..."
+	for attempt in $(seq 1 "$ROLE_ASSIGNMENT_RETRY_COUNT"); do
+		if az role assignment create \
+			--assignee-object-id "$principal_id" \
+			--assignee-principal-type "$principal_type" \
+			--role "$role" \
+			--scope "$scope" \
+			--only-show-errors 1>/dev/null; then
+			echo "[$role] role successfully assigned to the $principal_description on the $scope_description"
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$ROLE_ASSIGNMENT_RETRY_COUNT" ]; then
+			echo "Attempt $attempt of $ROLE_ASSIGNMENT_RETRY_COUNT to assign the [$role] role failed; retrying in $ROLE_ASSIGNMENT_RETRY_SLEEP seconds..."
+			sleep "$ROLE_ASSIGNMENT_RETRY_SLEEP"
+		fi
+	done
+
+	echo "Failed to assign the [$role] role to the $principal_description on the $scope_description"
+	exit 1
+}
 
 # Create a resource group
 echo "Checking if resource group [$RESOURCE_GROUP_NAME] exists in the subscription [$SUBSCRIPTION_NAME]..."
@@ -816,45 +869,7 @@ fi
 
 # Assign the Azure Service Bus Data Owner role to the managed identity with the Service Bus namespace as a scope
 ROLE="Azure Service Bus Data Owner"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$SERVICE_BUS_NAMESPACE_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$SERVICE_BUS_NAMESPACE_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$SERVICE_BUS_NAMESPACE_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "Service Bus namespace [$SERVICE_BUS_NAMESPACE]"
 
 # Get the storage account resource id for role assignments
 echo "Getting [$STORAGE_ACCOUNT_NAME] storage account resource id in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -874,213 +889,23 @@ fi
 
 # Assign the Storage Account Contributor role to the managed identity with the storage account as a scope
 ROLE="Storage Account Contributor"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$STORAGE_ACCOUNT_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$STORAGE_ACCOUNT_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "storage account [$STORAGE_ACCOUNT_NAME]"
 
 # Assign the Storage Blob Data Owner role to the managed identity with the storage account as a scope
 ROLE="Storage Blob Data Owner"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$STORAGE_ACCOUNT_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$STORAGE_ACCOUNT_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "storage account [$STORAGE_ACCOUNT_NAME]"
 
 # Assign the Storage Queue Data Contributor role to the managed identity with the storage account as a scope
 ROLE="Storage Queue Data Contributor"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$STORAGE_ACCOUNT_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$STORAGE_ACCOUNT_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "storage account [$STORAGE_ACCOUNT_NAME]"
 
 # Assign the Storage Table Data Contributor role to the managed identity with the storage account as a scope
 ROLE="Storage Table Data Contributor"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$STORAGE_ACCOUNT_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the storage account [$STORAGE_ACCOUNT_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$STORAGE_ACCOUNT_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the storage account [$STORAGE_ACCOUNT_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$STORAGE_ACCOUNT_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "storage account [$STORAGE_ACCOUNT_NAME]"
 
 # Assign the Monitoring Metrics Publisher role to the managed identity with the Application Insights as a scope
 ROLE="Monitoring Metrics Publisher"
-echo "Checking if the [$MANAGED_IDENTITY_NAME] managed identity has the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]..."
-current=$(az role assignment list \
-	--assignee "$PRINCIPAL_ID" \
-	--scope "$APPLICATION_INSIGHTS_ID" \
-	--query "[?roleDefinitionName=='$ROLE'].roleDefinitionName" \
-	--output tsv 2>/dev/null)
-
-if [[ $current == "$ROLE" ]]; then
-	echo "[$MANAGED_IDENTITY_NAME] managed identity already has the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
-else
-	echo "[$MANAGED_IDENTITY_NAME] managed identity does not have the [$ROLE] role assignment on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
-	echo "Creating role assignment: assigning [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]..."
-	ATTEMPT=1
-	while [ $ATTEMPT -le $RETRY_COUNT ]; do
-		echo "Attempt $ATTEMPT of $RETRY_COUNT to assign role..."
-		az role assignment create \
-			--assignee "$PRINCIPAL_ID" \
-			--role "$ROLE" \
-			--scope "$APPLICATION_INSIGHTS_ID" \
-			--only-show-errors 1>/dev/null
-
-		if [[ $? == 0 ]]; then
-			break
-		else
-			if [ $ATTEMPT -lt $RETRY_COUNT ]; then
-				echo "Role assignment failed. Waiting [$SLEEP] seconds before retry..."
-				sleep $SLEEP
-			fi
-			ATTEMPT=$((ATTEMPT + 1))
-		fi
-	done
-
-	if [[ $? == 0 ]]; then
-		echo "Successfully assigned [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
-	else
-		echo "Failed to assign [$ROLE] role to [$MANAGED_IDENTITY_NAME] managed identity on the Application Insights [$APPLICATION_INSIGHTS_NAME]"
-		exit 1
-	fi
-fi
+ensure_role_assignment "$PRINCIPAL_ID" "ServicePrincipal" "$ROLE" "$APPLICATION_INSIGHTS_ID" "[$MANAGED_IDENTITY_NAME] managed identity" "Application Insights [$APPLICATION_INSIGHTS_NAME]"
 
 # Create the app service plan
 echo "Checking if app service plan [$APP_SERVICE_PLAN_NAME] exists in the [$RESOURCE_GROUP_NAME] resource group..."
@@ -1649,8 +1474,9 @@ cd ..
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$ZIPFILE]..."
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+# retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deployment source config-zip \

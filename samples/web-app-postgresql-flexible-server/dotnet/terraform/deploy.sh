@@ -14,6 +14,28 @@ ZIPFILE="planner_website.zip"
 # Change the current directory to the script's directory
 cd "$CURRENT_DIR" || exit
 
+# Dual-target provider configuration. providers.tf hardcodes nothing: the azurerm provider reads its endpoints and the
+# target subscription from the ARM_* environment variables exported here.
+# - On both targets: the subscription and tenant of the active az account.
+# - Only when the active az cloud is LocalStack: the emulator's metadata endpoint, taken from the az cloud registration
+#   that `lstk az start-interception` created, so nothing is hardcoded here either.
+ACTIVE_CLOUD=$(az cloud show --query name --output tsv --only-show-errors)
+ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv --only-show-errors)
+ARM_TENANT_ID=$(az account show --query tenantId --output tsv --only-show-errors)
+export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
+
+if [[ $ACTIVE_CLOUD == "LocalStack" ]]; then
+	RESOURCE_MANAGER_ENDPOINT=$(az cloud show --query endpoints.resourceManager --output tsv --only-show-errors)
+	METADATA_HOSTNAME="${RESOURCE_MANAGER_ENDPOINT#https://}"
+	export ARM_METADATA_HOSTNAME="${METADATA_HOSTNAME%/}"
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets the emulator at [$RESOURCE_MANAGER_ENDPOINT]"
+else
+	# Cleared rather than merely not set: a value inherited from an earlier emulator deployment in the same shell would
+	# keep the provider doing metadata discovery against the emulator while the CLI is on Azure.
+	unset ARM_METADATA_HOSTNAME
+	echo "Active cloud is [$ACTIVE_CLOUD]: Terraform targets Azure subscription [$ARM_SUBSCRIPTION_ID]"
+fi
+
 # Intialize Terraform
 echo "Initializing Terraform..."
 terraform init -upgrade
@@ -25,7 +47,9 @@ terraform plan -out=tfplan \
         -var "suffix=$SUFFIX" \
         -var "location=$LOCATION" \
         -var "pg_admin_login=$PG_ADMIN_USER" \
-        -var "pg_admin_password=$PG_ADMIN_PASSWORD"
+        -var "pg_admin_password=$PG_ADMIN_PASSWORD" \
+        -var "pg_app_user=$PG_APP_USER" \
+        -var "pg_app_password=$PG_APP_PASSWORD"
 
 if [[ $? != 0 ]]; then
         echo "Terraform plan failed. Exiting."
@@ -65,7 +89,7 @@ fi
 echo "PostgreSQL host = $POSTGRES_FQDN, port = $POSTGRES_PORT"
 
 # Create application role [$PG_APP_USER] on the PostgreSQL flexible server
-echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server..."
+echo "Creating login [$PG_APP_USER] on the [$POSTGRES_SERVER_NAME] PostgreSQL flexible server, unless it exists..."
 PGPASSWORD="$PG_ADMIN_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -82,7 +106,7 @@ END
 \$\$;"
 
 if [ $? -eq 0 ]; then
-	echo "Login [$PG_APP_USER] created successfully"
+	echo "Login [$PG_APP_USER] is in place: created if it was missing"
 else
 	echo "Failed to create login [$PG_APP_USER]"
 	exit 1
@@ -144,7 +168,7 @@ else
 fi
 
 # Create [activities] table
-echo "Creating [activities] table in the [$DATABASE_NAME] database..."
+echo "Creating [activities] table in the [$DATABASE_NAME] database, unless it exists..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -162,14 +186,14 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at DESC);"
 
 if [ $? -eq 0 ]; then
-	echo "[activities] table created successfully"
+	echo "[activities] table is in place: created if it was missing"
 else
 	echo "Failed to create [activities] table"
 	exit 1
 fi
 
 # Insert sample data
-echo "Inserting sample data into [activities] table..."
+echo "Inserting the missing sample data into [activities] table..."
 PGPASSWORD="$PG_APP_PASSWORD" psql \
 	--host="$POSTGRES_FQDN" \
 	--port="$POSTGRES_PORT" \
@@ -190,7 +214,7 @@ PGPASSWORD="$PG_APP_PASSWORD" psql \
 		ON CONFLICT (id) DO NOTHING;"
 
 if [ $? -eq 0 ]; then
-	echo "Sample data inserted successfully into [activities] table"
+	echo "Missing sample data inserted successfully into [activities] table"
 else
 	echo "Failed to insert sample data into [activities] table"
 	exit 1
@@ -210,21 +234,6 @@ if [ $? -eq 0 ]; then
 	echo "Sample data queried successfully from [activities] table"
 else
 	echo "Failed to query sample data from [activities] table"
-	exit 1
-fi
-
-# Set PG_USER + PG_PASSWORD on the web app to point at the application role
-echo "Setting PG_USER=[$PG_APP_USER] and PG_PASSWORD on the [$WEB_APP_NAME] web app..."
-az webapp config appsettings set \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--settings PG_USER="$PG_APP_USER" PG_PASSWORD="$PG_APP_PASSWORD" \
-	--only-show-errors 1>/dev/null
-
-if [ $? -eq 0 ]; then
-	echo "PG_USER and PG_PASSWORD set successfully on the [$WEB_APP_NAME] web app"
-else
-	echo "Failed to set PG_USER and PG_PASSWORD on the [$WEB_APP_NAME] web app"
 	exit 1
 fi
 
@@ -251,12 +260,36 @@ zip -r "$ZIPFILE" . -x "bin/*" "obj/*" "publish/*" "*.zip"
 # Deploy the web app
 # Deploy the web app
 echo "Deploying web app [$WEB_APP_NAME] with zip file [$ZIPFILE]..."
-az webapp deploy \
-	--resource-group "$RESOURCE_GROUP_NAME" \
-	--name "$WEB_APP_NAME" \
-	--src-path "$ZIPFILE" \
-	--type zip \
-	--async true 1>/dev/null
+# On Azure the deployment service can answer 504 Gateway Timeout while it warms up, or DeploymentInProgress while
+# the build of the previous deployment still runs: the upload is tried again. The startup of the site isn't
+# tracked: the tracking counted a failed start of the container that ran before the code was deployed, and
+# reported a running site as failed after ten minutes; what calls the web app afterwards waits for it instead.
+WEBAPP_DEPLOY_RETRY_COUNT="${WEBAPP_DEPLOY_RETRY_COUNT:-10}"
+WEBAPP_DEPLOY_RETRY_SLEEP="${WEBAPP_DEPLOY_RETRY_SLEEP:-30}"
+WEBAPP_DEPLOYED=0
+for ATTEMPT in $(seq 1 "$WEBAPP_DEPLOY_RETRY_COUNT"); do
+	if az webapp deploy \
+		--resource-group "$RESOURCE_GROUP_NAME" \
+		--name "$WEB_APP_NAME" \
+		--src-path "$ZIPFILE" \
+		--type zip \
+		--async true \
+		--track-status false 1>/dev/null; then
+		WEBAPP_DEPLOYED=1
+		break
+	fi
+	if [ "$ATTEMPT" -lt "$WEBAPP_DEPLOY_RETRY_COUNT" ]; then
+		echo "Attempt $ATTEMPT of $WEBAPP_DEPLOY_RETRY_COUNT to deploy web app [$WEB_APP_NAME] failed. Waiting [$WEBAPP_DEPLOY_RETRY_SLEEP] seconds before retry..."
+		sleep "$WEBAPP_DEPLOY_RETRY_SLEEP"
+	fi
+done
+
+if [ $WEBAPP_DEPLOYED -eq 1 ]; then
+	echo "Web app [$WEB_APP_NAME] deployed successfully."
+else
+	echo "Failed to deploy web app [$WEB_APP_NAME]."
+	exit 1
+fi
 
 # Remove the zip package of the web app
 if [ -f "$ZIPFILE" ]; then

@@ -94,6 +94,7 @@ def read_documents(username: str):
         docs = get_cosmos().read_documents(username)
         for d in docs:
             get_activities().add((d["id"], d["activity"]))
+        logger.info("Activities read: %d", len(docs))
         return docs
     except Exception:
         # The distro sends a log record that carries an exception to Application Insights as an exception
@@ -120,12 +121,17 @@ def index():
                         updates={"activity": activity}
                     )
                     if updated is not None:
+                        logger.info("Activity updated: %s (%s)", row_id, activity)
                         track_activity_event("ActivityUpdated", "update", row_id)
-                    flash('Activity updated.')
+                        flash('Activity updated.')
+                    else:
+                        logger.warning("Activity not found: %s", row_id)
+                        flash('Activity not found.')
                 else:
                     doc = create_document(activity)
                     get_cosmos().insert_document(doc)
                     get_activities().add((doc["id"], activity))
+                    logger.info("Activity added: %s (%s)", doc["id"], activity)
                     track_activity_event("ActivityAdded", "add", doc["id"])
                     flash('Activity added.')
             except Exception:
@@ -150,9 +156,13 @@ def delete(activity_id: str):
     
     # Direct deletion using the ID passed in the URL
     try:
-        get_cosmos().delete_document_by_id(activity_id, username)
-        track_activity_event("ActivityDeleted", "delete", activity_id)
-        flash('Activity deleted.')
+        if get_cosmos().delete_document_by_id(activity_id, username):
+            logger.info("Activity deleted: %s", activity_id)
+            track_activity_event("ActivityDeleted", "delete", activity_id)
+            flash('Activity deleted.')
+        else:
+            logger.warning("Activity not found: %s", activity_id)
+            flash('Activity not found.')
     except Exception:
         logger.exception("Error deleting activity %s.", activity_id)
         flash('Failed to delete the activity.')

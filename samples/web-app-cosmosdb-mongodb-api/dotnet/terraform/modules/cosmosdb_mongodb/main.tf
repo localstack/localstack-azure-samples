@@ -55,6 +55,9 @@ resource "azurerm_cosmosdb_mongo_collection" "example" {
     content {
       # The value of the current item in the iteration (e.g., "$**", "_id", etc.)
       keys = [index.value]
+      # On server version 3.6 and later Azure keeps the _id index unique, and azurerm reads it back as unique: an _id
+      # index declared otherwise would be planned as a change on every apply
+      unique = index.value == "_id" && var.mongo_server_version != "3.2"
     }
   }
 }

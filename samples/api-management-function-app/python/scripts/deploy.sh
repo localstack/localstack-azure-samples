@@ -31,8 +31,8 @@ LOG_ANALYTICS_NAME="${PREFIX}-log-analytics-${SUFFIX}"
 APPLICATION_INSIGHTS_NAME="${PREFIX}-insights-${SUFFIX}"
 DIAGNOSTIC_SETTINGS_NAME='default'
 FUNCTION_ZIPFILE='inventory_function.zip'
-DEPLOY_RETRY_COUNT=3
-DEPLOY_RETRY_SLEEP=30
+DEPLOY_RETRY_COUNT="${DEPLOY_RETRY_COUNT:-10}"
+DEPLOY_RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-30}"
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # On Windows, Git Bash and MSYS2 shells pass a path such as /tmp/... unconverted to Windows programs
@@ -624,8 +624,9 @@ zip -r "$FUNCTION_ZIPFILE" function_app.py host.json requirements.txt
 
 # Deploy the function app
 echo "Deploying function app [$FUNCTION_APP_NAME] with zip file [$FUNCTION_ZIPFILE]..."
-# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, so a failed
-# attempt is retried
+# On Azure the first deployment to a new function app can time out (504) while its deployment site starts, and the
+# next attempt can find the upload that timed out still being deployed (DeploymentInProgress): a failed attempt is
+# retried for about five minutes
 DEPLOYED=0
 for ((ATTEMPT = 1; ATTEMPT <= DEPLOY_RETRY_COUNT; ATTEMPT++)); do
 	az functionapp deploy \
@@ -742,19 +743,33 @@ else
 	echo "[$PRODUCT_ID] product already exists in the [$APIM_NAME] API Management service"
 fi
 
-# Add the API to the product (a PUT, so re-runs are harmless)
-echo "Adding the [$API_ID] API to the [$PRODUCT_ID] product..."
-az apim product api add \
-	--product-id $PRODUCT_ID \
-	--api-id $API_ID \
-	--service-name $APIM_NAME \
-	--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+# Check if the product already contains the API
+echo "Checking if the [$PRODUCT_ID] product already contains the [$API_ID] API..."
+PRODUCT_API_COUNT=$(az apim product api list \
+	--product-id "$PRODUCT_ID" \
+	--service-name "$APIM_NAME" \
+	--resource-group "$RESOURCE_GROUP_NAME" \
+	--query "length([?name=='$API_ID'])" \
+	--output tsv \
+	--only-show-errors 2>/dev/null | tr -d '\r')
 
-if [[ $? == 0 ]]; then
-	echo "[$API_ID] API successfully added to the [$PRODUCT_ID] product"
+if [[ $PRODUCT_API_COUNT == 1 ]]; then
+	echo "The [$PRODUCT_ID] product already contains the [$API_ID] API"
 else
-	echo "Failed to add the [$API_ID] API to the [$PRODUCT_ID] product"
-	exit 1
+	# Add the API to the product
+	echo "Adding the [$API_ID] API to the [$PRODUCT_ID] product..."
+	az apim product api add \
+		--product-id $PRODUCT_ID \
+		--api-id $API_ID \
+		--service-name $APIM_NAME \
+		--resource-group $RESOURCE_GROUP_NAME 1>/dev/null
+
+	if [[ $? == 0 ]]; then
+		echo "[$API_ID] API successfully added to the [$PRODUCT_ID] product"
+	else
+		echo "Failed to add the [$API_ID] API to the [$PRODUCT_ID] product"
+		exit 1
+	fi
 fi
 
 # Check if the subscription already exists. The az CLI has no subscription commands, so this goes
