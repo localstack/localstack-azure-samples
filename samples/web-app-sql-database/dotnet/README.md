@@ -199,7 +199,7 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`      | The `activities` custom metric, with the operation (`add`, `update` or `delete`) in `operation`                          |
 | `AppExceptions`   | The exceptions it logs, with their stack trace, when a call to the database or to Key Vault fails                        |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. When the custom metric is three minutes late, it adds another activity once a minute: the web app exports its metrics once a minute, and on Azure the restart that follows a deployment can stop it before it exported the point of the first activity. It shows the exceptions without waiting for them: a healthy run has none.
 
 ### Query the telemetry on the Logs page
 

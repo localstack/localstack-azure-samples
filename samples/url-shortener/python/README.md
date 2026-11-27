@@ -164,7 +164,7 @@ The workspace keeps the telemetry in these tables:
 | `AppMetrics`      | The `links` custom metric, with the operation in `operation`, and the `link_scans` custom metric, with the verdict in `verdict` |
 | `AppExceptions`   | The exceptions the apps log with their stack trace, when a call fails                                                           |
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) shortens a link, follows it, waits until the workers scanned it and rendered its QR code, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) shortens a link, follows it, waits until the workers scanned it and rendered its QR code, and reads the tables back, retrying until their records arrive. When the custom metrics are three minutes late, it shortens and follows another link once a minute: the apps export their metrics once a minute, and on Azure the restart that follows a deployment can stop an app before it exported the points of the first link. It shows the exceptions without waiting for them: a healthy run has none. On Azure the telemetry takes a few minutes: raise `RETRY_COUNT` there.
 
 ### Query the telemetry on the Logs page
 

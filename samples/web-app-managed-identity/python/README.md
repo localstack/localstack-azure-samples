@@ -175,7 +175,7 @@ ContainerOperations.list_blob_flat_segment  0             True       PrimaryResu
 ContainerClient.list_blobs                  0             True       PrimaryResult                                                                     2026-11-16T09:12:54.085223Z
 ```
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) calls the web app, adds an activity, and reads the tables back, retrying until their records arrive. When the custom metric is three minutes late, it adds another activity once a minute: the web app exports its metrics once a minute, and on Azure the restart that follows a deployment can stop it before it exported the point of the first activity. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when the web app does not answer, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
 
 ### Query the telemetry on the Logs page
 

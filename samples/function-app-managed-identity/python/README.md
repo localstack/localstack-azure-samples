@@ -326,7 +326,7 @@ az monitor log-analytics query \
   --output table
 ```
 
-[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) runs `test.sh`, which uploads a text file that the function processes, then reads the tables back, retrying until their records arrive. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when `test.sh` fails, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
+[`scripts/query-telemetry.sh`](./scripts/query-telemetry.sh) runs `test.sh`, which uploads a text file that the function processes, then reads the tables back, retrying until their records arrive. When the custom metric is three minutes late, it uploads another file once a minute: the function app exports its metrics once a minute, and on Azure the Functions host can restart right after the first invocation that follows a deployment, before it exported that point. It shows the exceptions without waiting for them: a healthy run has none. It exits with a non-zero code when `test.sh` fails, or when a query still lacks its records after `RETRY_COUNT` attempts (30 by default) made `SLEEP` seconds apart (10 by default).
 
 ### Query the telemetry on the Logs page
 

@@ -35,13 +35,19 @@ EXIT_CODE=0
 # $2: the KQL query
 # $3: the JMESPath projection that names and orders the columns of the table
 # $4: the number of records the query must return (1 when not given)
+# $5: a command that produces new records, run once a minute when the records are three minutes late (none when not
+#     given): the apps export their custom metrics once a minute, and on Azure the restart that follows a deployment
+#     can stop an app before it exported the points of the calls this script made
 query_workspace() {
 	local description=$1
 	local query=$2
 	local columns=$3
 	local minimum_records=${4:-1}
+	local produce_again=${5:-}
 	local records
 	local attempt=1
+	local started=$SECONDS
+	local last_produced=$SECONDS
 
 	echo -e "\n$description:\n"
 	while [ $attempt -le $RETRY_COUNT ]; do
@@ -68,6 +74,10 @@ query_workspace() {
 		else
 			if [ $attempt -lt $RETRY_COUNT ]; then
 				echo "Attempt $attempt of $RETRY_COUNT: [${records:-0}] of the [$minimum_records] records expected so far. Waiting [$SLEEP] seconds before retry..."
+				if [[ -n $produce_again ]] && ((SECONDS - started >= 180 && SECONDS - last_produced >= 60)); then
+					$produce_again
+					last_produced=$SECONDS
+				fi
 				sleep $SLEEP
 			fi
 			attempt=$((attempt + 1))
@@ -244,6 +254,23 @@ if [[ -z $SCAN || $SCAN == "pending" || $QR != "done" ]]; then
 	EXIT_CODE=1
 fi
 
+# Shorten and follow another link, so that the custom metrics get new points: the apps export their metrics once a
+# minute, and on Azure the restart that follows a deployment can stop an app before it exported the points of the link
+# above
+shorten_another_link() {
+	local code status_code
+	code=$(curl --max-time 30 --silent --request POST \
+		--header "Content-Type: application/json" \
+		--data '{"url": "https://learn.microsoft.com/azure/azure-monitor/app/app-insights-overview"}' \
+		"http://$WEB_APP_HOST_NAME/shorten" | jq -r '.code // empty' 2>/dev/null)
+	if [[ -z $code ]]; then
+		echo "The [$WEB_APP_NAME] web app shortened no link this time"
+		return
+	fi
+	status_code=$(curl --max-time 30 --silent --output /dev/null --write-out "%{http_code}" "http://$WEB_APP_HOST_NAME/l/$code")
+	echo "Shortened and followed the [$code] link (status code [$status_code]), so that the custom metrics get new points"
+}
+
 # The requests the web app served and the invocations of the functions, counted per app and name (AppRequests)
 query_workspace \
 	"Requests and invocations per app (AppRequests)" \
@@ -278,12 +305,14 @@ query_workspace \
 	"[].{Time:TimeGenerated,Message:Message,Severity:SeverityLevel}"
 
 # The custom metrics, exported once a minute: the links created and followed by the web app, and the links the abuse
-# scan checked by verdict (AppMetrics)
+# scan checked by verdict (AppMetrics). When they are three minutes late, the script shortens and follows another
+# link once a minute.
 query_workspace \
 	"Custom metrics of the links (AppMetrics)" \
 	"AppMetrics | where Name in ('links', 'link_scans') | summarize Total = sum(Sum) by Name, Dimension = coalesce(tostring(Properties['operation']), tostring(Properties['verdict'])) | order by Name asc, Dimension asc" \
 	"[].{Metric:Name,Dimension:Dimension,Total:Total}" \
-	3
+	3 \
+	shorten_another_link
 
 # The exceptions the two apps logged with their stack trace (AppExceptions): a click that PostgreSQL fails to record
 # produces one
