@@ -90,10 +90,11 @@ ensure_role_assignment() {
 	local current attempt
 
 	echo "Checking if the $principal_description has the [$role] role assignment on the $scope_description..."
+	# The assignments are filtered on the principal id rather than with --assignee, which first looks the principal up in
+	# Microsoft Graph: that lookup fails for a caller the directory doesn't list, such as the emulator's own caller
 	current=$(az role assignment list \
-		--assignee "$principal_id" \
 		--scope "$scope" \
-		--query "[?roleDefinitionName=='$role'].roleDefinitionName" \
+		--query "[?principalId=='$principal_id' && roleDefinitionName=='$role'].roleDefinitionName" \
 		--output tsv \
 		--only-show-errors 2>/dev/null)
 
